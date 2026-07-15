@@ -17,7 +17,7 @@ router.get("/mining/status", async (_req: Request, res: Response): Promise<void>
 router.post("/mining/start", async (req: Request, res: Response): Promise<void> => {
   const body = StartMiningBody.parse(req.body ?? {});
   try {
-    const status = await chain.startMining(body.minerAddress);
+    const status = await chain.startMining(body.minerAddress, body.intensity ?? 2);
     res.status(200).json(StartMiningResponse.parse(status));
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Failed to start mining" });

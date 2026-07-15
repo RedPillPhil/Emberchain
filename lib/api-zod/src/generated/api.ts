@@ -254,7 +254,8 @@ export const GetMiningStatusResponse = zod.object({
  * @summary Start mining from a wallet address (block rewards pay out to this address)
  */
 export const StartMiningBody = zod.object({
-  "minerAddress": zod.string()
+  "minerAddress": zod.string(),
+  "intensity": zod.number().min(1).max(5).default(2).optional()
 })
 
 export const StartMiningResponse = zod.object({
@@ -263,7 +264,8 @@ export const StartMiningResponse = zod.object({
   "difficulty": zod.string(),
   "blocksMined": zod.number(),
   "hashRate": zod.number(),
-  "blockReward": zod.string()
+  "blockReward": zod.string(),
+  "intensity": zod.number()
 })
 
 
@@ -276,7 +278,8 @@ export const StopMiningResponse = zod.object({
   "difficulty": zod.string(),
   "blocksMined": zod.number(),
   "hashRate": zod.number(),
-  "blockReward": zod.string()
+  "blockReward": zod.string(),
+  "intensity": zod.number()
 })
 
 

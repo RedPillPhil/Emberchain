@@ -7,7 +7,7 @@ import type { SimpleStateManager } from "@ethereumjs/statemanager";
 import { createEmberchainCommon } from "./common";
 import { createStateManager, dumpState, loadState, getBalance, getNonce, credit, debit, ensureAccount } from "./state";
 import { generateWallet, walletFromPrivateKey, encodeTxPayload, signPayload, hashTransaction } from "./crypto";
-import { mine, retargetDifficulty, type MinableHeader } from "./mining";
+import { mine, retargetDifficulty, batchSizeForIntensity, type MinableHeader } from "./mining";
 import { loadChainFile, saveChainFile, type PersistedChain } from "./persistence";
 import type {
   StoredBlock,
@@ -69,6 +69,7 @@ interface MiningState {
   stopRequested: boolean;
   blocksMinedThisSession: number;
   hashRate: number;
+  intensity: number;
   loop: Promise<void> | null;
 }
 
@@ -107,6 +108,7 @@ export class Blockchain {
     stopRequested: false,
     blocksMinedThisSession: 0,
     hashRate: 0,
+    intensity: 2,
     loop: null,
   };
 
@@ -366,21 +368,30 @@ export class Blockchain {
       blocksMined: this.mining.blocksMinedThisSession,
       hashRate: this.mining.hashRate,
       blockReward: EMBERCHAIN_CONFIG.blockReward,
+      intensity: this.mining.intensity,
     };
   }
 
-  async startMining(minerAddress: string) {
+  async startMining(minerAddress: string, intensity = 2) {
     await this.whenReady();
     if (!/^0x[0-9a-fA-F]{40}$/.test(minerAddress)) {
       throw new Error("Invalid miner address");
     }
-    if (this.mining.active && this.mining.minerAddress === minerAddress) {
+    const clampedIntensity = Math.max(1, Math.min(5, Math.round(intensity)));
+    // Restart if address or intensity changed, otherwise no-op.
+    if (this.mining.active && this.mining.minerAddress === minerAddress && this.mining.intensity === clampedIntensity) {
       return this.getMiningStatus();
+    }
+    if (this.mining.active) {
+      // Stop the current loop before restarting with new params.
+      this.mining.stopRequested = true;
+      if (this.mining.loop) await this.mining.loop;
     }
     this.mining.active = true;
     this.mining.stopRequested = false;
     this.mining.minerAddress = minerAddress as PrefixedHexString;
     this.mining.blocksMinedThisSession = 0;
+    this.mining.intensity = clampedIntensity;
     if (!this.wallets.has(minerAddress as PrefixedHexString)) {
       this.wallets.set(minerAddress as PrefixedHexString, { createdAt: new Date().toISOString() });
     }
@@ -417,6 +428,7 @@ export class Blockchain {
           const elapsed = (Date.now() - startedAt) / 1000;
           this.mining.hashRate = elapsed > 0 ? Math.round(hashes / elapsed) : 0;
         },
+        batchSizeForIntensity(this.mining.intensity),
       );
 
       if (!result) {

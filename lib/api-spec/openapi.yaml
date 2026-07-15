@@ -657,10 +657,19 @@ components:
       properties:
         minerAddress:
           type: string
+        intensity:
+          type: integer
+          minimum: 1
+          maximum: 5
+          default: 2
+          description: >
+            Mining intensity (1–5). Controls how many hashes the server attempts per event-loop
+            batch. Higher = faster blocks but the API server yields less CPU time to other
+            requests. 1=Eco, 2=Balanced, 3=High, 4=Aggressive, 5=Max.
 
     MiningStatus:
       type: object
-      required: [isMining, minerAddress, difficulty, blocksMined, hashRate, blockReward]
+      required: [isMining, minerAddress, difficulty, blocksMined, hashRate, blockReward, intensity]
       properties:
         isMining:
           type: boolean
@@ -674,6 +683,10 @@ components:
           type: number
         blockReward:
           type: string
+        intensity:
+          type: integer
+          minimum: 1
+          maximum: 5
 
     PrivacyStatus:
       type: object

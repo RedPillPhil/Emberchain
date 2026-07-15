@@ -44,19 +44,33 @@ export function hashHeader(header: MinableHeader, nonce: bigint): { hashHex: Pre
  *
  * Returns the winning nonce and block hash, or null if `shouldStop` fired.
  */
+/**
+ * Maps a user-facing intensity level (1–5) to a hashing batch size.
+ * Larger batches = higher throughput but the API server yields less often.
+ *   1 – Eco      ~100  H/batch  (gentle; server stays very responsive)
+ *   2 – Balanced ~400  H/batch  (previous default)
+ *   3 – High     ~1500 H/batch
+ *   4 – Aggressive~5000 H/batch
+ *   5 – Max      ~15000 H/batch (server eats a full core; API may lag)
+ */
+export function batchSizeForIntensity(intensity: number): number {
+  const map: Record<number, number> = { 1: 100, 2: 400, 3: 1500, 4: 5000, 5: 15000 };
+  return map[Math.max(1, Math.min(5, Math.round(intensity)))] ?? 400;
+}
+
 export async function mine(
   header: MinableHeader,
   shouldStop: () => boolean,
   onProgress?: (hashesTried: number) => void,
+  batchSize = 400,
 ): Promise<{ nonce: bigint; hash: PrefixedHexString } | null> {
   const target = targetForDifficulty(header.difficulty);
   let nonce = BigInt(Math.floor(Math.random() * 1_000_000));
-  const BATCH_SIZE = 400;
   let totalHashes = 0;
 
   for (;;) {
     if (shouldStop()) return null;
-    for (let i = 0; i < BATCH_SIZE; i++) {
+    for (let i = 0; i < batchSize; i++) {
       const { hashHex, hashValue } = hashHeader(header, nonce);
       totalHashes++;
       if (hashValue <= target) {

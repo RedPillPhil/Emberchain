@@ -126,6 +126,12 @@ export interface ContractCallResult {
 
 export interface MiningRequest {
   minerAddress: string;
+  /**
+   * Mining intensity (1–5). 1=Eco, 2=Balanced, 3=High, 4=Aggressive, 5=Max.
+   * @minimum 1
+   * @maximum 5
+   */
+  intensity?: number;
 }
 
 export interface MiningStatus {
@@ -136,6 +142,7 @@ export interface MiningStatus {
   blocksMined: number;
   hashRate: number;
   blockReward: string;
+  intensity: number;
 }
 
 export interface PrivacyStatus {
