@@ -280,3 +280,137 @@ export const StopMiningResponse = zod.object({
 })
 
 
+/**
+ * @summary Pool statistics (total notes, unspent, shielded tx count)
+ */
+export const GetPrivacyStatusResponse = zod.object({
+  "totalNotes": zod.number(),
+  "unspentNotes": zod.number(),
+  "shieldedTxCount": zod.number()
+})
+
+
+/**
+ * @summary Get a wallet's public stealth meta-address (spend + view public keys)
+ */
+export const GetStealthMetaParams = zod.object({
+  "address": zod.coerce.string()
+})
+
+export const GetStealthMetaResponse = zod.object({
+  "spendPublicKey": zod.string().describe('Compressed secp256k1 public key (33-byte hex) for the spend key.'),
+  "viewPublicKey": zod.string().describe('Compressed secp256k1 public key (33-byte hex) for the view key.')
+})
+
+
+/**
+ * Requires the wallet private key (consistent with this node's existing server-side-signing trust model). Returns the total shielded balance and a history of all notes the key owns, decrypted.
+ * @summary Scan the shielded pool and return the private balance for a wallet
+ */
+export const GetPrivateBalanceBody = zod.object({
+  "privateKey": zod.string().describe('0x-prefixed hex private key.')
+})
+
+export const GetPrivateBalanceResponse = zod.object({
+  "address": zod.string(),
+  "balance": zod.string().describe('Total unspent private balance in emb (smallest unit), decimal string.'),
+  "notes": zod.array(zod.object({
+  "id": zod.string(),
+  "amount": zod.string(),
+  "status": zod.enum(['unspent', 'spent']),
+  "source": zod.enum(['shield', 'private-send']),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * The source address and amount are visible at this boundary (by design — same as Zcash t→z). The resulting note is cryptographically hidden.
+ * @summary Move EMBR from a public balance into a hidden shielded note
+ */
+export const ShieldFundsBody = zod.object({
+  "fromPrivateKey": zod.string().describe('0x-prefixed hex private key of the sender\'s public account.'),
+  "amount": zod.string().describe('Amount to shield in emb (smallest unit), decimal string.'),
+  "toAddress": zod.string().nullish().describe('Recipient address (defaults to the sender\'s own address).')
+})
+
+export const ShieldFundsResponse = zod.object({
+  "id": zod.string(),
+  "type": zod.enum(['shield', 'private-send', 'unshield']),
+  "createdAt": zod.coerce.date(),
+  "publicAddress": zod.string().nullable().describe('Visible for shield\/unshield only. Always null for private-send.'),
+  "publicAmount": zod.string().nullable().describe('Visible for shield\/unshield only. Always null for private-send.'),
+  "fee": zod.string(),
+  "noteIdsCreated": zod.array(zod.string()),
+  "noteIdsSpent": zod.array(zod.string())
+})
+
+
+/**
+ * Spends owned hidden notes via a ring signature + Pedersen-commitment scheme. The resulting ledger record reveals only the fee and opaque note IDs — no sender, no recipient, no amount.
+ * @summary Send EMBR privately (sender, recipient, and amount all hidden)
+ */
+export const PrivateSendBody = zod.object({
+  "fromPrivateKey": zod.string().describe('0x-prefixed hex private key of the spender.'),
+  "toAddress": zod.string().describe('Recipient\'s public Emberchain address (must have a registered stealth meta-address).'),
+  "amount": zod.string().describe('Amount to send in emb (smallest unit), decimal string.'),
+  "fee": zod.string().optional().describe('Fee in emb; defaults to 0.01 EMBR if omitted.')
+})
+
+export const PrivateSendResponse = zod.object({
+  "id": zod.string(),
+  "type": zod.enum(['shield', 'private-send', 'unshield']),
+  "createdAt": zod.coerce.date(),
+  "publicAddress": zod.string().nullable().describe('Visible for shield\/unshield only. Always null for private-send.'),
+  "publicAmount": zod.string().nullable().describe('Visible for shield\/unshield only. Always null for private-send.'),
+  "fee": zod.string(),
+  "noteIdsCreated": zod.array(zod.string()),
+  "noteIdsSpent": zod.array(zod.string())
+})
+
+
+/**
+ * The destination address and amount are visible at this boundary (by design — same as Zcash z→t). The originating shielded note(s) are not linked to any public address in the on-chain record.
+ * @summary Move EMBR from the shielded pool back to a public address
+ */
+export const UnshieldFundsBody = zod.object({
+  "fromPrivateKey": zod.string().describe('0x-prefixed hex private key of the shielded-note owner.'),
+  "toAddress": zod.string().describe('Public Emberchain address to credit.'),
+  "amount": zod.string().describe('Amount to unshield in emb (smallest unit), decimal string.')
+})
+
+export const UnshieldFundsResponse = zod.object({
+  "id": zod.string(),
+  "type": zod.enum(['shield', 'private-send', 'unshield']),
+  "createdAt": zod.coerce.date(),
+  "publicAddress": zod.string().nullable().describe('Visible for shield\/unshield only. Always null for private-send.'),
+  "publicAmount": zod.string().nullable().describe('Visible for shield\/unshield only. Always null for private-send.'),
+  "fee": zod.string(),
+  "noteIdsCreated": zod.array(zod.string()),
+  "noteIdsSpent": zod.array(zod.string())
+})
+
+
+/**
+ * Shield and unshield entries expose their public address/amount (the transparent boundary). Private-send entries expose only the fee and opaque note IDs — never the sender, recipient, or amount.
+ * @summary Public sanitized ledger of shielded-pool operations
+ */
+export const listPrivacyLedgerQueryLimitDefault = 20;
+
+export const ListPrivacyLedgerQueryParams = zod.object({
+  "limit": zod.coerce.number().default(listPrivacyLedgerQueryLimitDefault)
+})
+
+export const ListPrivacyLedgerResponseItem = zod.object({
+  "id": zod.string(),
+  "type": zod.enum(['shield', 'private-send', 'unshield']),
+  "createdAt": zod.coerce.date(),
+  "publicAddress": zod.string().nullable().describe('Visible for shield\/unshield only. Always null for private-send.'),
+  "publicAmount": zod.string().nullable().describe('Visible for shield\/unshield only. Always null for private-send.'),
+  "fee": zod.string(),
+  "noteIdsCreated": zod.array(zod.string()),
+  "noteIdsSpent": zod.array(zod.string())
+})
+export const ListPrivacyLedgerResponse = zod.array(ListPrivacyLedgerResponseItem)
+
+

@@ -10,12 +10,14 @@ import {
   Terminal,
   Blocks,
   Wallet,
-  ArrowLeftRight
+  ArrowLeftRight,
+  Shield,
 } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "OVERVIEW", icon: Activity },
   { href: "/send", label: "TRANSFER", icon: Send },
+  { href: "/privacy", label: "PRIVACY", icon: Shield },
   { href: "/mining", label: "FORGE (MINE)", icon: Flame },
   { href: "/blocks", label: "LEDGER", icon: Blocks },
   { href: "/transactions", label: "TRANSACTIONS", icon: ArrowLeftRight },

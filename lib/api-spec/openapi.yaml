@@ -20,6 +20,8 @@ tags:
     description: Smart contract calls
   - name: mining
     description: Mining control
+  - name: privacy
+    description: Shielded pool (private transactions)
 paths:
   /healthz:
     get:
@@ -279,6 +281,164 @@ paths:
               schema:
                 $ref: "#/components/schemas/MiningStatus"
 
+  /privacy/status:
+    get:
+      operationId: getPrivacyStatus
+      tags: [privacy]
+      summary: Pool statistics (total notes, unspent, shielded tx count)
+      responses:
+        "200":
+          description: Privacy pool status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrivacyStatus"
+
+  /privacy/meta/{address}:
+    get:
+      operationId: getStealthMeta
+      tags: [privacy]
+      summary: Get a wallet's public stealth meta-address (spend + view public keys)
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Stealth meta-address
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StealthMeta"
+        "404":
+          description: Wallet has no registered stealth address
+
+  /privacy/balance:
+    post:
+      operationId: getPrivateBalance
+      tags: [privacy]
+      summary: Scan the shielded pool and return the private balance for a wallet
+      description: >
+        Requires the wallet private key (consistent with this node's existing
+        server-side-signing trust model). Returns the total shielded balance
+        and a history of all notes the key owns, decrypted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrivateKeyInput"
+      responses:
+        "200":
+          description: Private balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrivateBalance"
+        "400":
+          description: Invalid private key
+
+  /privacy/shield:
+    post:
+      operationId: shieldFunds
+      tags: [privacy]
+      summary: Move EMBR from a public balance into a hidden shielded note
+      description: >
+        The source address and amount are visible at this boundary (by design —
+        same as Zcash t→z). The resulting note is cryptographically hidden.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShieldInput"
+      responses:
+        "201":
+          description: Shield operation record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShieldedTxRecord"
+        "400":
+          description: Insufficient balance or invalid input
+
+  /privacy/send:
+    post:
+      operationId: privateSend
+      tags: [privacy]
+      summary: Send EMBR privately (sender, recipient, and amount all hidden)
+      description: >
+        Spends owned hidden notes via a ring signature + Pedersen-commitment
+        scheme. The resulting ledger record reveals only the fee and opaque
+        note IDs — no sender, no recipient, no amount.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrivateSendInput"
+      responses:
+        "201":
+          description: Private send record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShieldedTxRecord"
+        "400":
+          description: Insufficient private balance or invalid input
+
+  /privacy/unshield:
+    post:
+      operationId: unshieldFunds
+      tags: [privacy]
+      summary: Move EMBR from the shielded pool back to a public address
+      description: >
+        The destination address and amount are visible at this boundary (by
+        design — same as Zcash z→t). The originating shielded note(s) are not
+        linked to any public address in the on-chain record.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UnshieldInput"
+      responses:
+        "201":
+          description: Unshield operation record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShieldedTxRecord"
+        "400":
+          description: Insufficient private balance or invalid input
+
+  /privacy/transactions:
+    get:
+      operationId: listPrivacyLedger
+      tags: [privacy]
+      summary: Public sanitized ledger of shielded-pool operations
+      description: >
+        Shield and unshield entries expose their public address/amount (the
+        transparent boundary). Private-send entries expose only the fee and
+        opaque note IDs — never the sender, recipient, or amount.
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Shielded transaction records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ShieldedTxRecord"
+
 components:
   schemas:
     HealthStatus:
@@ -457,6 +617,8 @@ components:
           type: ["string", "null"]
         gasUsed:
           type: ["string", "null"]
+        data:
+          type: ["string", "null"]
         error:
           type: ["string", "null"]
         returnData:
@@ -512,3 +674,139 @@ components:
           type: number
         blockReward:
           type: string
+
+    PrivacyStatus:
+      type: object
+      required: [totalNotes, unspentNotes, shieldedTxCount]
+      properties:
+        totalNotes:
+          type: integer
+        unspentNotes:
+          type: integer
+        shieldedTxCount:
+          type: integer
+
+    StealthMeta:
+      type: object
+      required: [spendPublicKey, viewPublicKey]
+      properties:
+        spendPublicKey:
+          type: string
+          description: Compressed secp256k1 public key (33-byte hex) for the spend key.
+        viewPublicKey:
+          type: string
+          description: Compressed secp256k1 public key (33-byte hex) for the view key.
+
+    PrivateKeyInput:
+      type: object
+      required: [privateKey]
+      properties:
+        privateKey:
+          type: string
+          description: 0x-prefixed hex private key.
+
+    PrivateBalance:
+      type: object
+      required: [address, balance, notes]
+      properties:
+        address:
+          type: string
+        balance:
+          type: string
+          description: Total unspent private balance in emb (smallest unit), decimal string.
+        notes:
+          type: array
+          items:
+            $ref: "#/components/schemas/PrivateNoteInfo"
+
+    PrivateNoteInfo:
+      type: object
+      required: [id, amount, status, source, createdAt]
+      properties:
+        id:
+          type: string
+        amount:
+          type: string
+        status:
+          type: string
+          enum: [unspent, spent]
+        source:
+          type: string
+          enum: [shield, private-send]
+        createdAt:
+          type: string
+          format: date-time
+
+    ShieldInput:
+      type: object
+      required: [fromPrivateKey, amount]
+      properties:
+        fromPrivateKey:
+          type: string
+          description: 0x-prefixed hex private key of the sender's public account.
+        amount:
+          type: string
+          description: Amount to shield in emb (smallest unit), decimal string.
+        toAddress:
+          type: ["string", "null"]
+          description: Recipient address (defaults to the sender's own address).
+
+    PrivateSendInput:
+      type: object
+      required: [fromPrivateKey, toAddress, amount]
+      properties:
+        fromPrivateKey:
+          type: string
+          description: 0x-prefixed hex private key of the spender.
+        toAddress:
+          type: string
+          description: Recipient's public Emberchain address (must have a registered stealth meta-address).
+        amount:
+          type: string
+          description: Amount to send in emb (smallest unit), decimal string.
+        fee:
+          type: string
+          description: Fee in emb; defaults to 0.01 EMBR if omitted.
+
+    UnshieldInput:
+      type: object
+      required: [fromPrivateKey, toAddress, amount]
+      properties:
+        fromPrivateKey:
+          type: string
+          description: 0x-prefixed hex private key of the shielded-note owner.
+        toAddress:
+          type: string
+          description: Public Emberchain address to credit.
+        amount:
+          type: string
+          description: Amount to unshield in emb (smallest unit), decimal string.
+
+    ShieldedTxRecord:
+      type: object
+      required: [id, type, createdAt, publicAddress, publicAmount, fee, noteIdsCreated, noteIdsSpent]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [shield, private-send, unshield]
+        createdAt:
+          type: string
+          format: date-time
+        publicAddress:
+          type: ["string", "null"]
+          description: Visible for shield/unshield only. Always null for private-send.
+        publicAmount:
+          type: ["string", "null"]
+          description: Visible for shield/unshield only. Always null for private-send.
+        fee:
+          type: string
+        noteIdsCreated:
+          type: array
+          items:
+            type: string
+        noteIdsSpent:
+          type: array
+          items:
+            type: string

@@ -13,6 +13,7 @@ import BlockDetail from '@/pages/block-detail';
 import Transactions from '@/pages/transactions';
 import TransactionDetail from '@/pages/transaction-detail';
 import Contracts from '@/pages/contracts';
+import Privacy from '@/pages/privacy';
 
 const queryClient = new QueryClient();
 
@@ -28,6 +29,7 @@ function Router() {
       <Route path="/transactions" component={Transactions} />
       <Route path="/transactions/:hash" component={TransactionDetail} />
       <Route path="/contracts" component={Contracts} />
+      <Route path="/privacy" component={Privacy} />
       <Route component={NotFound} />
     </Switch>
   );

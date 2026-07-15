@@ -24,11 +24,12 @@ A single-node, self-hosted proof-of-work blockchain (ticker **EMBR**) with a rea
 
 ## Where things live
 
-- `lib/chain-core/src` — the chain engine: `blockchain.ts` (Blockchain class: wallets, tx submission, mining loop, chain reads), `mining.ts` (PoW hashing/retargeting), `crypto.ts` (wallet keys, signing), `state.ts` (EVM state manager wrapper), `persistence.ts` (JSON file load/save), `common.ts` (EthereumJS Common config).
-- `artifacts/api-server/src/routes/{wallets,chain,transactions,contracts,mining}.ts` — REST routes wrapping the `Blockchain` singleton (`src/lib/chain.ts`).
+- `lib/chain-core/src` — the chain engine: `blockchain.ts` (Blockchain class: wallets, tx submission, mining loop, chain reads, **shielded pool**), `mining.ts` (PoW hashing/retargeting), `crypto.ts` (wallet keys, signing), `state.ts` (EVM state manager wrapper), `persistence.ts` (JSON file load/save), `common.ts` (EthereumJS Common config).
+- `lib/chain-core/src/privacy/` — Monero-style privacy primitives: `curve.ts` (EC helpers, hash-to-curve), `stealth.ts` (stealth addresses via ECDH), `commitments.ts` (Pedersen commitments), `note-cipher.ts` (keccak-CTR symmetric note encryption), `ring.ts` (LSAG linkable ring signatures).
+- `artifacts/api-server/src/routes/{wallets,chain,transactions,contracts,mining,privacy}.ts` — REST routes wrapping the `Blockchain` singleton (`src/lib/chain.ts`).
 - `artifacts/api-server/data/chain.json` — persisted chain state (gitignored). Delete it to reset the chain to genesis.
 - `lib/api-spec/openapi.yaml` — source of truth for the API contract.
-- `artifacts/wallet` — the wallet frontend artifact (previewPath `/`).
+- `artifacts/wallet` — the wallet frontend artifact (previewPath `/`). Includes **Privacy** page (`src/pages/privacy.tsx`).
 
 ## Architecture decisions
 
@@ -42,9 +43,24 @@ A single-node, self-hosted proof-of-work blockchain (ticker **EMBR**) with a rea
 
 - Create or import an EMBR wallet (private key shown once).
 - Check balance/nonce, view chain status and recent blocks/transactions.
-- Send EMBR between addresses.
+- **Public transactions**: Send EMBR between addresses (fully visible, contract-capable).
+- **Private transactions (shielded pool)**: Shield public EMBR into hidden notes → send privately → unshield back to a public address. Sender, recipient, and amount are hidden during a private send; only the shield/unshield boundaries are visible.
 - Deploy smart contracts and make read-only contract calls.
 - Start/stop mining to a chosen wallet address directly from the wallet UI, with live hash rate/difficulty/blocks-mined feedback.
+
+## Privacy model & known limitations
+
+The shielded pool uses Monero-style cryptography:
+- **Stealth addresses** (ECDH): each note is sent to a one-time address derived from a Diffie-Hellman shared secret between sender and recipient. Only the recipient's private key can recognize and spend it.
+- **Pedersen commitments**: hide amounts on-chain; commitment-balance checks prove value conservation without revealing amounts.
+- **LSAG ring signatures**: hide which note was actually spent by including decoys from the unspent note pool in each signature. Ring size is `min(available unspent notes, 4 decoys) + 1 real`.
+- **Linkable key images**: prevent double-spending without revealing which note was spent.
+
+**Documented limitations (out of scope by design):**
+- **No zero-knowledge range proofs** (Bulletproofs). Amount non-negativity is enforced by a server-side plaintext bounds check, not a trustless cryptographic proof. An operator could observe note plaintexts. This is consistent with the existing server-side-signing trust model.
+- **Shield and unshield boundaries are visible**: source address + amount (on shield) and destination address + amount (on unshield) are recorded in the public shielded ledger. This is the same design as Zcash's transparent↔shielded transactions.
+- **Anonymity set is small** in early use: ring signature decoys come from the pool of existing unspent notes. With few private transactions, the real signer is more guessable — users are warned on the Privacy screen.
+- **Private contract calls / NFTs / DeFi**: not supported. Private transactions are EMBR-value transfers only; smart contract interactions stay on the public path.
 
 ## User preferences
 

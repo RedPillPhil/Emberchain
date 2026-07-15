@@ -80,6 +80,8 @@ export interface Transaction {
   /** @nullable */
   gasUsed: string | null;
   /** @nullable */
+  data?: string | null;
+  /** @nullable */
   error?: string | null;
   /** @nullable */
   returnData?: string | null;
@@ -136,12 +138,125 @@ export interface MiningStatus {
   blockReward: string;
 }
 
+export interface PrivacyStatus {
+  totalNotes: number;
+  unspentNotes: number;
+  shieldedTxCount: number;
+}
+
+export interface StealthMeta {
+  /** Compressed secp256k1 public key (33-byte hex) for the spend key. */
+  spendPublicKey: string;
+  /** Compressed secp256k1 public key (33-byte hex) for the view key. */
+  viewPublicKey: string;
+}
+
+export interface PrivateKeyInput {
+  /** 0x-prefixed hex private key. */
+  privateKey: string;
+}
+
+export type PrivateNoteInfoStatus = typeof PrivateNoteInfoStatus[keyof typeof PrivateNoteInfoStatus];
+
+
+export const PrivateNoteInfoStatus = {
+  unspent: 'unspent',
+  spent: 'spent',
+} as const;
+
+export type PrivateNoteInfoSource = typeof PrivateNoteInfoSource[keyof typeof PrivateNoteInfoSource];
+
+
+export const PrivateNoteInfoSource = {
+  shield: 'shield',
+  'private-send': 'private-send',
+} as const;
+
+export interface PrivateNoteInfo {
+  id: string;
+  amount: string;
+  status: PrivateNoteInfoStatus;
+  source: PrivateNoteInfoSource;
+  createdAt: string;
+}
+
+export interface PrivateBalance {
+  address: string;
+  /** Total unspent private balance in emb (smallest unit), decimal string. */
+  balance: string;
+  notes: PrivateNoteInfo[];
+}
+
+export interface ShieldInput {
+  /** 0x-prefixed hex private key of the sender's public account. */
+  fromPrivateKey: string;
+  /** Amount to shield in emb (smallest unit), decimal string. */
+  amount: string;
+  /**
+     * Recipient address (defaults to the sender's own address).
+     * @nullable
+     */
+  toAddress?: string | null;
+}
+
+export interface PrivateSendInput {
+  /** 0x-prefixed hex private key of the spender. */
+  fromPrivateKey: string;
+  /** Recipient's public Emberchain address (must have a registered stealth meta-address). */
+  toAddress: string;
+  /** Amount to send in emb (smallest unit), decimal string. */
+  amount: string;
+  /** Fee in emb; defaults to 0.01 EMBR if omitted. */
+  fee?: string;
+}
+
+export interface UnshieldInput {
+  /** 0x-prefixed hex private key of the shielded-note owner. */
+  fromPrivateKey: string;
+  /** Public Emberchain address to credit. */
+  toAddress: string;
+  /** Amount to unshield in emb (smallest unit), decimal string. */
+  amount: string;
+}
+
+export type ShieldedTxRecordType = typeof ShieldedTxRecordType[keyof typeof ShieldedTxRecordType];
+
+
+export const ShieldedTxRecordType = {
+  shield: 'shield',
+  'private-send': 'private-send',
+  unshield: 'unshield',
+} as const;
+
+export interface ShieldedTxRecord {
+  id: string;
+  type: ShieldedTxRecordType;
+  createdAt: string;
+  /**
+     * Visible for shield/unshield only. Always null for private-send.
+     * @nullable
+     */
+  publicAddress: string | null;
+  /**
+     * Visible for shield/unshield only. Always null for private-send.
+     * @nullable
+     */
+  publicAmount: string | null;
+  fee: string;
+  noteIdsCreated: string[];
+  noteIdsSpent: string[];
+}
+
 export type ListBlocksParams = {
 limit?: number;
 };
 
 export type ListTransactionsParams = {
 address?: string;
+limit?: number;
+};
+
+export type ListPrivacyLedgerParams = {
 limit?: number;
 };
 

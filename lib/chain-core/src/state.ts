@@ -90,6 +90,21 @@ export async function credit(stateManager: SimpleStateManager, address: Prefixed
   }
 }
 
+export async function debit(stateManager: SimpleStateManager, address: PrefixedHexString, amount: bigint): Promise<void> {
+  const addr = new Address(hexToBytes(address));
+  const existing = await stateManager.getAccount(addr);
+  const balance = existing?.balance ?? 0n;
+  if (balance < amount) {
+    throw new Error("Insufficient balance");
+  }
+  if (existing) {
+    existing.balance -= amount;
+    await stateManager.putAccount(addr, existing);
+  } else {
+    throw new Error("Insufficient balance");
+  }
+}
+
 export async function ensureAccount(stateManager: SimpleStateManager, address: PrefixedHexString): Promise<void> {
   const addr = new Address(hexToBytes(address));
   const existing = await stateManager.getAccount(addr);

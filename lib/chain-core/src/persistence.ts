@@ -2,15 +2,17 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import type { PrefixedHexString } from "@ethereumjs/util";
 import type { SerializedState } from "./state";
-import type { StoredBlock, StoredTransaction } from "./types";
+import type { StoredBlock, StoredTransaction, PrivateNote, ShieldedTxRecord, WalletRecord } from "./types";
 
 export interface PersistedChain {
-  version: 1;
+  version: 1 | 2;
   difficulty: string;
   blocks: StoredBlock[];
   transactions: StoredTransaction[];
-  wallets: [PrefixedHexString, { createdAt: string }][];
+  wallets: [PrefixedHexString, WalletRecord][];
   state: SerializedState;
+  privateNotes?: PrivateNote[];
+  shieldedTxs?: ShieldedTxRecord[];
 }
 
 export function loadChainFile(filePath: string): PersistedChain | null {

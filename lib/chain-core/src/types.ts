@@ -40,3 +40,58 @@ export interface ChainConfig {
   genesisDifficulty: string;
   difficultyAdjustmentWindow: number;
 }
+
+// ---------- Shielded pool (private transactions) ----------
+
+export type NoteStatus = "unspent" | "spent";
+export type NoteSource = "shield" | "private-send";
+
+/**
+ * A shielded note: an opaque, on-chain commitment to a hidden amount owned
+ * by a one-time stealth address. Nothing here identifies the owner or the
+ * amount to an outside observer — only someone holding the owning wallet's
+ * private key can recognize, decrypt, and later spend it.
+ */
+export interface PrivateNote {
+  id: string;
+  ephemeralPublicKey: PrefixedHexString;
+  stealthPublicKey: PrefixedHexString;
+  commitment: PrefixedHexString;
+  encryptedPayload: PrefixedHexString;
+  status: NoteStatus;
+  keyImage: PrefixedHexString | null;
+  source: NoteSource;
+  createdAtBlockHeight: number;
+  createdAt: string;
+}
+
+export type ShieldedTxType = "shield" | "private-send" | "unshield";
+
+/**
+ * Public, listable record of a shielded-pool operation. For "shield" and
+ * "unshield" the public address/amount fields are intentionally populated
+ * — that boundary crossing is visible by design. For "private-send" they
+ * are always null: no observer of this record can learn the sender,
+ * recipient, or amount.
+ */
+export interface ShieldedTxRecord {
+  id: string;
+  type: ShieldedTxType;
+  createdAt: string;
+  publicAddress: PrefixedHexString | null;
+  publicAmount: string | null;
+  fee: string;
+  noteIdsCreated: string[];
+  noteIdsSpent: string[];
+}
+
+export interface StealthMeta {
+  spendPublicKey: PrefixedHexString;
+  viewPublicKey: PrefixedHexString;
+}
+
+export interface WalletRecord {
+  createdAt: string;
+  spendPublicKey?: PrefixedHexString;
+  viewPublicKey?: PrefixedHexString;
+}

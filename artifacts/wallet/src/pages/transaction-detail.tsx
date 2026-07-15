@@ -12,7 +12,7 @@ export default function TransactionDetail() {
   const { data: tx, isLoading, isError } = useGetTransaction(hash || "", {
     query: { 
       enabled: !!hash,
-      refetchInterval: (data) => data?.status === 'pending' ? 2000 : false 
+      refetchInterval: (query) => (query.state.data as {status?: string} | undefined)?.status === 'pending' ? 2000 : false 
     }
   });
 

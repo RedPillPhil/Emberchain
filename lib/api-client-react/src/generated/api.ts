@@ -19,6 +19,8 @@ import type {
   UseQueryResult
 } from '@tanstack/react-query';
 
+type HookQueryOpts<T, E, D> = Omit<UseQueryOptions<T, E, D>, 'queryKey'> & { queryKey?: QueryKey };
+
 import type {
   BlockDetail,
   BlockSummary,
@@ -27,11 +29,20 @@ import type {
   ContractCallResult,
   HealthStatus,
   ListBlocksParams,
+  ListPrivacyLedgerParams,
   ListTransactionsParams,
   MiningRequest,
   MiningStatus,
+  PrivacyStatus,
+  PrivateBalance,
+  PrivateKeyInput,
+  PrivateSendInput,
+  ShieldInput,
+  ShieldedTxRecord,
+  StealthMeta,
   Transaction,
   TransactionInput,
+  UnshieldInput,
   Wallet,
   WalletImport,
   WalletSecret
@@ -98,7 +109,7 @@ export const getHealthCheckQueryKey = () => {
     }
 
 
-export const getHealthCheckQueryOptions = <TData = Awaited<ReturnType<typeof healthCheck>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof healthCheck>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getHealthCheckQueryOptions = <TData = Awaited<ReturnType<typeof healthCheck>>, TError = ErrorType<unknown>>( options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof healthCheck>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -125,7 +136,7 @@ export type HealthCheckQueryError = ErrorType<unknown>
  */
 
 export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof healthCheck>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+  options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof healthCheck>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
@@ -247,7 +258,7 @@ export const getListWalletsQueryKey = () => {
     }
 
 
-export const getListWalletsQueryOptions = <TData = Awaited<ReturnType<typeof listWallets>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWallets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getListWalletsQueryOptions = <TData = Awaited<ReturnType<typeof listWallets>>, TError = ErrorType<unknown>>( options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof listWallets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -274,7 +285,7 @@ export type ListWalletsQueryError = ErrorType<unknown>
  */
 
 export function useListWallets<TData = Awaited<ReturnType<typeof listWallets>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWallets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+  options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof listWallets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
@@ -324,7 +335,7 @@ export const getGetWalletQueryKey = (address: string,) => {
     }
 
 
-export const getGetWalletQueryOptions = <TData = Awaited<ReturnType<typeof getWallet>>, TError = ErrorType<void>>(address: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWallet>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetWalletQueryOptions = <TData = Awaited<ReturnType<typeof getWallet>>, TError = ErrorType<void>>(address: string, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getWallet>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -351,7 +362,7 @@ export type GetWalletQueryError = ErrorType<void>
  */
 
 export function useGetWallet<TData = Awaited<ReturnType<typeof getWallet>>, TError = ErrorType<void>>(
- address: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWallet>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ address: string, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getWallet>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
@@ -401,7 +412,7 @@ export const getGetChainStatusQueryKey = () => {
     }
 
 
-export const getGetChainStatusQueryOptions = <TData = Awaited<ReturnType<typeof getChainStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChainStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetChainStatusQueryOptions = <TData = Awaited<ReturnType<typeof getChainStatus>>, TError = ErrorType<unknown>>( options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getChainStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -428,7 +439,7 @@ export type GetChainStatusQueryError = ErrorType<unknown>
  */
 
 export function useGetChainStatus<TData = Awaited<ReturnType<typeof getChainStatus>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChainStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+  options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getChainStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
@@ -485,7 +496,7 @@ export const getListBlocksQueryKey = (params?: ListBlocksParams,) => {
     }
 
 
-export const getListBlocksQueryOptions = <TData = Awaited<ReturnType<typeof listBlocks>>, TError = ErrorType<unknown>>(params?: ListBlocksParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBlocks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getListBlocksQueryOptions = <TData = Awaited<ReturnType<typeof listBlocks>>, TError = ErrorType<unknown>>(params?: ListBlocksParams, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof listBlocks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -512,7 +523,7 @@ export type ListBlocksQueryError = ErrorType<unknown>
  */
 
 export function useListBlocks<TData = Awaited<ReturnType<typeof listBlocks>>, TError = ErrorType<unknown>>(
- params?: ListBlocksParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBlocks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: ListBlocksParams, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof listBlocks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
@@ -562,7 +573,7 @@ export const getGetBlockQueryKey = (number: number,) => {
     }
 
 
-export const getGetBlockQueryOptions = <TData = Awaited<ReturnType<typeof getBlock>>, TError = ErrorType<void>>(number: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBlock>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetBlockQueryOptions = <TData = Awaited<ReturnType<typeof getBlock>>, TError = ErrorType<void>>(number: number, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getBlock>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -589,7 +600,7 @@ export type GetBlockQueryError = ErrorType<void>
  */
 
 export function useGetBlock<TData = Awaited<ReturnType<typeof getBlock>>, TError = ErrorType<void>>(
- number: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBlock>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ number: number, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getBlock>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
@@ -718,7 +729,7 @@ export const getListTransactionsQueryKey = (params?: ListTransactionsParams,) =>
     }
 
 
-export const getListTransactionsQueryOptions = <TData = Awaited<ReturnType<typeof listTransactions>>, TError = ErrorType<unknown>>(params?: ListTransactionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listTransactions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getListTransactionsQueryOptions = <TData = Awaited<ReturnType<typeof listTransactions>>, TError = ErrorType<unknown>>(params?: ListTransactionsParams, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof listTransactions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -745,7 +756,7 @@ export type ListTransactionsQueryError = ErrorType<unknown>
  */
 
 export function useListTransactions<TData = Awaited<ReturnType<typeof listTransactions>>, TError = ErrorType<unknown>>(
- params?: ListTransactionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listTransactions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: ListTransactionsParams, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof listTransactions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
@@ -795,7 +806,7 @@ export const getGetTransactionQueryKey = (hash: string,) => {
     }
 
 
-export const getGetTransactionQueryOptions = <TData = Awaited<ReturnType<typeof getTransaction>>, TError = ErrorType<void>>(hash: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTransaction>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetTransactionQueryOptions = <TData = Awaited<ReturnType<typeof getTransaction>>, TError = ErrorType<void>>(hash: string, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getTransaction>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -822,7 +833,7 @@ export type GetTransactionQueryError = ErrorType<void>
  */
 
 export function useGetTransaction<TData = Awaited<ReturnType<typeof getTransaction>>, TError = ErrorType<void>>(
- hash: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTransaction>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ hash: string, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getTransaction>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
@@ -943,7 +954,7 @@ export const getGetMiningStatusQueryKey = () => {
     }
 
 
-export const getGetMiningStatusQueryOptions = <TData = Awaited<ReturnType<typeof getMiningStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMiningStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetMiningStatusQueryOptions = <TData = Awaited<ReturnType<typeof getMiningStatus>>, TError = ErrorType<unknown>>( options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getMiningStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -970,7 +981,7 @@ export type GetMiningStatusQueryError = ErrorType<unknown>
  */
 
 export function useGetMiningStatus<TData = Awaited<ReturnType<typeof getMiningStatus>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMiningStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+  options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getMiningStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
@@ -1128,4 +1139,531 @@ export const useStopMining = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getStopMiningMutationOptions(options));
     }
+
+export const getGetPrivacyStatusUrl = () => {
+
+
+
+
+  return `/api/privacy/status`
+}
+
+/**
+ * @summary Pool statistics (total notes, unspent, shielded tx count)
+ */
+export const getPrivacyStatus = async ( options?: RequestInit): Promise<PrivacyStatus> => {
+
+  return customFetch<PrivacyStatus>(getGetPrivacyStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPrivacyStatusQueryKey = () => {
+    return [
+    `/api/privacy/status`
+    ] as const;
+    }
+
+
+export const getGetPrivacyStatusQueryOptions = <TData = Awaited<ReturnType<typeof getPrivacyStatus>>, TError = ErrorType<unknown>>( options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getPrivacyStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPrivacyStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPrivacyStatus>>> = ({ signal }) => getPrivacyStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPrivacyStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPrivacyStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getPrivacyStatus>>>
+export type GetPrivacyStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Pool statistics (total notes, unspent, shielded tx count)
+ */
+
+export function useGetPrivacyStatus<TData = Awaited<ReturnType<typeof getPrivacyStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getPrivacyStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPrivacyStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetStealthMetaUrl = (address: string,) => {
+
+
+
+
+  return `/api/privacy/meta/${address}`
+}
+
+/**
+ * @summary Get a wallet's public stealth meta-address (spend + view public keys)
+ */
+export const getStealthMeta = async (address: string, options?: RequestInit): Promise<StealthMeta> => {
+
+  return customFetch<StealthMeta>(getGetStealthMetaUrl(address),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetStealthMetaQueryKey = (address: string,) => {
+    return [
+    `/api/privacy/meta/${address}`
+    ] as const;
+    }
+
+
+export const getGetStealthMetaQueryOptions = <TData = Awaited<ReturnType<typeof getStealthMeta>>, TError = ErrorType<void>>(address: string, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getStealthMeta>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetStealthMetaQueryKey(address);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getStealthMeta>>> = ({ signal }) => getStealthMeta(address, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: address !== null && address !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getStealthMeta>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetStealthMetaQueryResult = NonNullable<Awaited<ReturnType<typeof getStealthMeta>>>
+export type GetStealthMetaQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get a wallet's public stealth meta-address (spend + view public keys)
+ */
+
+export function useGetStealthMeta<TData = Awaited<ReturnType<typeof getStealthMeta>>, TError = ErrorType<void>>(
+ address: string, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getStealthMeta>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetStealthMetaQueryOptions(address,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetPrivateBalanceUrl = () => {
+
+
+
+
+  return `/api/privacy/balance`
+}
+
+/**
+ * Requires the wallet private key (consistent with this node's existing server-side-signing trust model). Returns the total shielded balance and a history of all notes the key owns, decrypted.
+ * @summary Scan the shielded pool and return the private balance for a wallet
+ */
+export const getPrivateBalance = async (privateKeyInput: PrivateKeyInput, options?: RequestInit): Promise<PrivateBalance> => {
+
+  return customFetch<PrivateBalance>(getGetPrivateBalanceUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(privateKeyInput)
+  }
+);}
+
+
+
+
+
+export const getGetPrivateBalanceMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof getPrivateBalance>>, TError,{data: BodyType<PrivateKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof getPrivateBalance>>, TError,{data: BodyType<PrivateKeyInput>}, TContext> => {
+
+const mutationKey = ['getPrivateBalance'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof getPrivateBalance>>, {data: BodyType<PrivateKeyInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  getPrivateBalance(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GetPrivateBalanceMutationResult = NonNullable<Awaited<ReturnType<typeof getPrivateBalance>>>
+    export type GetPrivateBalanceMutationBody = BodyType<PrivateKeyInput>
+    export type GetPrivateBalanceMutationError = ErrorType<void>
+
+    /**
+ * @summary Scan the shielded pool and return the private balance for a wallet
+ */
+export const useGetPrivateBalance = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof getPrivateBalance>>, TError,{data: BodyType<PrivateKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof getPrivateBalance>>,
+        TError,
+        {data: BodyType<PrivateKeyInput>},
+        TContext
+      > => {
+      return useMutation(getGetPrivateBalanceMutationOptions(options));
+    }
+
+export const getShieldFundsUrl = () => {
+
+
+
+
+  return `/api/privacy/shield`
+}
+
+/**
+ * The source address and amount are visible at this boundary (by design — same as Zcash t→z). The resulting note is cryptographically hidden.
+ * @summary Move EMBR from a public balance into a hidden shielded note
+ */
+export const shieldFunds = async (shieldInput: ShieldInput, options?: RequestInit): Promise<ShieldedTxRecord> => {
+
+  return customFetch<ShieldedTxRecord>(getShieldFundsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(shieldInput)
+  }
+);}
+
+
+
+
+
+export const getShieldFundsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof shieldFunds>>, TError,{data: BodyType<ShieldInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof shieldFunds>>, TError,{data: BodyType<ShieldInput>}, TContext> => {
+
+const mutationKey = ['shieldFunds'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof shieldFunds>>, {data: BodyType<ShieldInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  shieldFunds(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ShieldFundsMutationResult = NonNullable<Awaited<ReturnType<typeof shieldFunds>>>
+    export type ShieldFundsMutationBody = BodyType<ShieldInput>
+    export type ShieldFundsMutationError = ErrorType<void>
+
+    /**
+ * @summary Move EMBR from a public balance into a hidden shielded note
+ */
+export const useShieldFunds = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof shieldFunds>>, TError,{data: BodyType<ShieldInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof shieldFunds>>,
+        TError,
+        {data: BodyType<ShieldInput>},
+        TContext
+      > => {
+      return useMutation(getShieldFundsMutationOptions(options));
+    }
+
+export const getPrivateSendUrl = () => {
+
+
+
+
+  return `/api/privacy/send`
+}
+
+/**
+ * Spends owned hidden notes via a ring signature + Pedersen-commitment scheme. The resulting ledger record reveals only the fee and opaque note IDs — no sender, no recipient, no amount.
+ * @summary Send EMBR privately (sender, recipient, and amount all hidden)
+ */
+export const privateSend = async (privateSendInput: PrivateSendInput, options?: RequestInit): Promise<ShieldedTxRecord> => {
+
+  return customFetch<ShieldedTxRecord>(getPrivateSendUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(privateSendInput)
+  }
+);}
+
+
+
+
+
+export const getPrivateSendMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof privateSend>>, TError,{data: BodyType<PrivateSendInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof privateSend>>, TError,{data: BodyType<PrivateSendInput>}, TContext> => {
+
+const mutationKey = ['privateSend'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof privateSend>>, {data: BodyType<PrivateSendInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  privateSend(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PrivateSendMutationResult = NonNullable<Awaited<ReturnType<typeof privateSend>>>
+    export type PrivateSendMutationBody = BodyType<PrivateSendInput>
+    export type PrivateSendMutationError = ErrorType<void>
+
+    /**
+ * @summary Send EMBR privately (sender, recipient, and amount all hidden)
+ */
+export const usePrivateSend = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof privateSend>>, TError,{data: BodyType<PrivateSendInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof privateSend>>,
+        TError,
+        {data: BodyType<PrivateSendInput>},
+        TContext
+      > => {
+      return useMutation(getPrivateSendMutationOptions(options));
+    }
+
+export const getUnshieldFundsUrl = () => {
+
+
+
+
+  return `/api/privacy/unshield`
+}
+
+/**
+ * The destination address and amount are visible at this boundary (by design — same as Zcash z→t). The originating shielded note(s) are not linked to any public address in the on-chain record.
+ * @summary Move EMBR from the shielded pool back to a public address
+ */
+export const unshieldFunds = async (unshieldInput: UnshieldInput, options?: RequestInit): Promise<ShieldedTxRecord> => {
+
+  return customFetch<ShieldedTxRecord>(getUnshieldFundsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(unshieldInput)
+  }
+);}
+
+
+
+
+
+export const getUnshieldFundsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unshieldFunds>>, TError,{data: BodyType<UnshieldInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof unshieldFunds>>, TError,{data: BodyType<UnshieldInput>}, TContext> => {
+
+const mutationKey = ['unshieldFunds'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof unshieldFunds>>, {data: BodyType<UnshieldInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  unshieldFunds(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UnshieldFundsMutationResult = NonNullable<Awaited<ReturnType<typeof unshieldFunds>>>
+    export type UnshieldFundsMutationBody = BodyType<UnshieldInput>
+    export type UnshieldFundsMutationError = ErrorType<void>
+
+    /**
+ * @summary Move EMBR from the shielded pool back to a public address
+ */
+export const useUnshieldFunds = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unshieldFunds>>, TError,{data: BodyType<UnshieldInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof unshieldFunds>>,
+        TError,
+        {data: BodyType<UnshieldInput>},
+        TContext
+      > => {
+      return useMutation(getUnshieldFundsMutationOptions(options));
+    }
+
+export const getListPrivacyLedgerUrl = (params?: ListPrivacyLedgerParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/privacy/transactions?${stringifiedParams}` : `/api/privacy/transactions`
+}
+
+/**
+ * Shield and unshield entries expose their public address/amount (the transparent boundary). Private-send entries expose only the fee and opaque note IDs — never the sender, recipient, or amount.
+ * @summary Public sanitized ledger of shielded-pool operations
+ */
+export const listPrivacyLedger = async (params?: ListPrivacyLedgerParams, options?: RequestInit): Promise<ShieldedTxRecord[]> => {
+
+  return customFetch<ShieldedTxRecord[]>(getListPrivacyLedgerUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPrivacyLedgerQueryKey = (params?: ListPrivacyLedgerParams,) => {
+    return [
+    `/api/privacy/transactions`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListPrivacyLedgerQueryOptions = <TData = Awaited<ReturnType<typeof listPrivacyLedger>>, TError = ErrorType<unknown>>(params?: ListPrivacyLedgerParams, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof listPrivacyLedger>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPrivacyLedgerQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPrivacyLedger>>> = ({ signal }) => listPrivacyLedger(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPrivacyLedger>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPrivacyLedgerQueryResult = NonNullable<Awaited<ReturnType<typeof listPrivacyLedger>>>
+export type ListPrivacyLedgerQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Public sanitized ledger of shielded-pool operations
+ */
+
+export function useListPrivacyLedger<TData = Awaited<ReturnType<typeof listPrivacyLedger>>, TError = ErrorType<unknown>>(
+ params?: ListPrivacyLedgerParams, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof listPrivacyLedger>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPrivacyLedgerQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
