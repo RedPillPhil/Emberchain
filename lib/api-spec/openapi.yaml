@@ -493,6 +493,8 @@ components:
         - isMining
         - minerAddress
         - blockReward
+        - totalSupply
+        - totalTransactions
       properties:
         chainName:
           type: string
@@ -514,6 +516,15 @@ components:
           type: ["string", "null"]
         blockReward:
           type: string
+        totalSupply:
+          type: string
+          description: Total EMBR minted so far (wei string).
+        avgBlockTime:
+          type: ["integer", "null"]
+          description: Average block time in seconds over the last 20 blocks. Null if fewer than 3 blocks.
+        totalTransactions:
+          type: integer
+          description: Total confirmed transactions across all blocks.
 
     BlockSummary:
       type: object

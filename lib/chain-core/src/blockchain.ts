@@ -329,6 +329,28 @@ export class Blockchain {
   async getStatus() {
     await this.whenReady();
     const latest = this.blocks[this.blocks.length - 1];
+
+    // Total supply: each mined block (blocks 1+) credits blockReward. Genesis (block 0) has no reward.
+    const minedBlocks = Math.max(0, this.blocks.length - 1);
+    const totalSupply = (BigInt(minedBlocks) * BigInt(EMBERCHAIN_CONFIG.blockReward)).toString();
+
+    // Average block time from the last 20 mined blocks.
+    let avgBlockTime: number | null = null;
+    if (this.blocks.length >= 3) {
+      const recent = this.blocks.slice(-21); // up to 21 blocks → up to 20 intervals
+      const intervals: number[] = [];
+      for (let i = 1; i < recent.length; i++) {
+        const delta = (new Date(recent[i]!.timestamp).getTime() - new Date(recent[i - 1]!.timestamp).getTime()) / 1000;
+        if (delta > 0) intervals.push(delta);
+      }
+      if (intervals.length > 0) {
+        avgBlockTime = Math.round(intervals.reduce((s, v) => s + v, 0) / intervals.length);
+      }
+    }
+
+    // Total confirmed transactions across all mined blocks.
+    const totalTransactions = [...this.transactions.values()].filter((tx) => tx.status !== "pending").length;
+
     return {
       chainName: EMBERCHAIN_CONFIG.chainName,
       symbol: EMBERCHAIN_CONFIG.symbol,
@@ -340,6 +362,9 @@ export class Blockchain {
       isMining: this.mining.active,
       minerAddress: this.mining.minerAddress,
       blockReward: EMBERCHAIN_CONFIG.blockReward,
+      totalSupply,
+      avgBlockTime,
+      totalTransactions,
     };
   }
 

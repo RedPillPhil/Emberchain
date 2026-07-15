@@ -50,7 +50,7 @@ export default function Transactions() {
   const myAddressFilter = !trimmed && activeWallet;
 
   return (
-    <Shell>
+    <Shell requireWallet={false}>
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-border pb-6 gap-4 mb-6">
         <div>
           <h1 className="text-4xl font-display font-bold uppercase tracking-tighter text-foreground mb-2 flex items-center gap-3">

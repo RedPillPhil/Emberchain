@@ -17,7 +17,7 @@ export default function TransactionDetail() {
   });
 
   return (
-    <Shell>
+    <Shell requireWallet={false}>
       <div className="mb-6">
         <Link href="/transactions" className="inline-flex items-center text-xs font-bold uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors mb-4">
           <ArrowLeft className="w-4 h-4 mr-2" /> Back to History

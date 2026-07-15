@@ -73,7 +73,10 @@ export const GetChainStatusResponse = zod.object({
   "pendingTransactionCount": zod.number(),
   "isMining": zod.boolean(),
   "minerAddress": zod.string().nullable(),
-  "blockReward": zod.string()
+  "blockReward": zod.string(),
+  "totalSupply": zod.string(),
+  "avgBlockTime": zod.number().nullable().optional(),
+  "totalTransactions": zod.number()
 })
 
 

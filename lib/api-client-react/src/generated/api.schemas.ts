@@ -42,6 +42,15 @@ export interface ChainStatus {
   /** @nullable */
   minerAddress: string | null;
   blockReward: string;
+  /** Total EMBR minted so far (wei string). */
+  totalSupply: string;
+  /**
+   * Average block time in seconds over the last 20 blocks. Null if fewer than 3 blocks.
+   * @nullable
+   */
+  avgBlockTime?: number | null;
+  /** Total confirmed transactions across all blocks. */
+  totalTransactions: number;
 }
 
 export interface BlockSummary {
