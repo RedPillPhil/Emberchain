@@ -35,6 +35,9 @@ export const EMBERCHAIN_CONFIG: ChainConfig = {
   difficultyAdjustmentWindow: 1,
 };
 
+/** Base gas price: 1 gwei (1 × 10⁹ wei). Every transaction pays gasUsed × GAS_PRICE to the block miner. */
+export const GAS_PRICE = 1_000_000_000n; // 1 gwei
+
 const ZERO_ADDRESS: PrefixedHexString = "0x0000000000000000000000000000000000000000".slice(0, 42) as PrefixedHexString;
 const GENESIS_PARENT_HASH: PrefixedHexString = `0x${"0".repeat(64)}`;
 const GENESIS_TIMESTAMP = new Date("2026-01-01T00:00:00.000Z").toISOString();
@@ -350,6 +353,11 @@ export class Blockchain {
     if (BigInt(input.value) < 0n) {
       throw new Error("Value must be non-negative");
     }
+    const senderBalance = await getBalance(this.stateManager, wallet.address);
+    const maxCost = BigInt(input.value) + BigInt(gasLimit) * GAS_PRICE;
+    if (maxCost > senderBalance) {
+      throw new Error(`Insufficient funds: need ${maxCost} wei (value + gas), have ${senderBalance}`);
+    }
 
     const tx: StoredTransaction = {
       hash,
@@ -429,8 +437,9 @@ export class Blockchain {
       throw new Error(`Nonce mismatch: expected ${expectedNonce}, got ${params.nonce}`);
     }
     const balance = await getBalance(this.stateManager, params.from);
-    if (BigInt(params.value) > balance) {
-      throw new Error("Insufficient funds for transfer");
+    const maxCost = BigInt(params.value) + BigInt(params.gasLimit) * GAS_PRICE;
+    if (maxCost > balance) {
+      throw new Error(`Insufficient funds: need ${maxCost} wei (value + gas fee), have ${balance}`);
     }
 
     const tx: StoredTransaction = {
@@ -757,6 +766,8 @@ export class Blockchain {
     nonce: bigint,
     hash: PrefixedHexString,
   ): Promise<void> {
+    let totalFees = 0n;
+
     for (const tx of included) {
       const stored = this.transactions.get(tx.hash);
       if (!stored) continue;
@@ -775,12 +786,25 @@ export class Blockchain {
         stored.returnData = bytesToHex(result.execResult.returnValue);
       } catch (err) {
         stored.status = "failed";
+        stored.gasUsed = stored.gasLimit; // charge full gas on hard failure
         stored.error = err instanceof Error ? err.message : "Execution failed";
       }
+
+      // Charge gas fee: gasUsed × GAS_PRICE, deducted from sender
+      const gasUsed = BigInt(stored.gasUsed ?? stored.gasLimit);
+      const fee = gasUsed * GAS_PRICE;
+      try {
+        await debit(this.stateManager, tx.from, fee);
+        totalFees += fee;
+      } catch {
+        // sender ran out of funds for gas (e.g. edge case after value transfer) — skip
+      }
+
       stored.blockNumber = header.number;
     }
 
-    await credit(this.stateManager, header.miner, BigInt(EMBERCHAIN_CONFIG.blockReward));
+    // Miner earns block reward + all transaction fees
+    await credit(this.stateManager, header.miner, BigInt(EMBERCHAIN_CONFIG.blockReward) + totalFees);
 
     const block: StoredBlock = {
       number: header.number,

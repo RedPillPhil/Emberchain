@@ -14,7 +14,7 @@ import { Router } from "express";
 import { createTxFromRLP } from "@ethereumjs/tx";
 import { bytesToHex, hexToBytes } from "@ethereumjs/util";
 import type { PrefixedHexString } from "@ethereumjs/util";
-import { EMBERCHAIN_ID, createEmberchainCommon } from "@workspace/chain-core";
+import { EMBERCHAIN_ID, createEmberchainCommon, GAS_PRICE } from "@workspace/chain-core";
 import type { StoredBlock, StoredTransaction } from "@workspace/chain-core";
 import { chain } from "../lib/chain";
 
@@ -75,16 +75,16 @@ function formatTx(tx: StoredTransaction, blockHash?: string) {
     blockNumber: tx.blockNumber !== null ? toHex(tx.blockNumber) : null,
     from: tx.from,
     gas: toQuantity(tx.gasLimit),
-    gasPrice: "0x0",
-    maxFeePerGas: "0x0",
-    maxPriorityFeePerGas: "0x0",
+    gasPrice: "0x" + GAS_PRICE.toString(16),
+    maxFeePerGas: "0x" + GAS_PRICE.toString(16),
+    maxPriorityFeePerGas: "0x" + GAS_PRICE.toString(16),
     hash: tx.hash,
     input: tx.data,
     nonce: toHex(tx.nonce),
     to: tx.to ?? null,
     transactionIndex: "0x0",
     value: toQuantity(tx.value),
-    type: "0x0",
+    type: "0x2",
     chainId: CHAIN_ID_HEX,
     v: "0x0",
     r: "0x0",
@@ -143,14 +143,18 @@ async function dispatch(method: string, params: unknown[]): Promise<RpcResult> {
     case "eth_accounts": return [];
 
     // ── Gas / fees ──
-    case "eth_gasPrice": return "0x0";
-    case "eth_maxPriorityFeePerGas": return "0x0";
-    case "eth_feeHistory": return {
-      oldestBlock: "0x1",
-      baseFeePerGas: ["0x0", "0x0"],
-      gasUsedRatio: [0],
-      reward: [["0x0"]],
-    };
+    case "eth_gasPrice": return "0x" + GAS_PRICE.toString(16); // 1 gwei
+    case "eth_maxPriorityFeePerGas": return "0x" + GAS_PRICE.toString(16);
+    case "eth_feeHistory": {
+      const s = await chain.getStatus();
+      const baseFee = "0x" + GAS_PRICE.toString(16);
+      return {
+        oldestBlock: toHex(Math.max(1, s.height - 4)),
+        baseFeePerGas: Array(6).fill(baseFee),
+        gasUsedRatio: Array(5).fill(0.1),
+        reward: Array(5).fill(["0x" + GAS_PRICE.toString(16)]),
+      };
+    }
 
     // ── Block number ──
     case "eth_blockNumber": {
