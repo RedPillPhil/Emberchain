@@ -1,0 +1,458 @@
+import React, { useEffect, useRef, useState } from "react";
+import { Shell } from "@/components/layout/shell";
+import {
+  useGetWallet,
+  useGetTransaction,
+  useListTransactions,
+} from "@workspace/api-client-react";
+import type { Transaction, Wallet } from "@workspace/api-client-react";
+import { Link } from "wouter";
+import { useActiveWallet } from "@/hooks/use-active-wallet";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Search,
+  X,
+  Hash,
+  Wallet as WalletIcon,
+  ArrowLeftRight,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  FileCode2,
+  Activity,
+  ExternalLink,
+  Copy,
+  Database,
+  AlertTriangle,
+} from "lucide-react";
+import { cn, formatEmbr, formatHash } from "@/lib/utils";
+
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+const HASH_RE    = /^0x[0-9a-fA-F]{64}$/;
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function Pill({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[10px] font-sans font-bold uppercase tracking-widest border", className)}>
+      {children}
+    </span>
+  );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-4 p-4 hover:bg-secondary/20 transition-colors border-b border-border/50 last:border-0">
+      <dt className="text-muted-foreground font-sans font-bold uppercase tracking-widest text-[10px] flex items-center mb-1 md:mb-0">
+        {label}
+      </dt>
+      <dd className="md:col-span-3 font-mono text-sm">{children}</dd>
+    </div>
+  );
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+      className="ml-2 text-muted-foreground hover:text-primary transition-colors"
+      title="Copy"
+    >
+      {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
+}
+
+// ── transaction result ────────────────────────────────────────────────────────
+
+function TransactionResult({ hash, onAddressClick }: { hash: string; onAddressClick: (a: string) => void }) {
+  const { data: tx, isLoading, isError } = useGetTransaction(hash, {
+    query: {
+      retry: false,
+      refetchInterval: (q) => (q.state.data as Transaction | undefined)?.status === "pending" ? 2000 : false,
+    },
+  });
+
+  if (isLoading) return <LoadingCard label="Scanning for transaction…" />;
+  if (isError || !tx) return <NotFoundCard label="Transaction not found" sub="Double-check the hash and try again." />;
+
+  const statusPill =
+    tx.status === "success" ? <Pill className="bg-primary/10 text-primary border-primary/40"><CheckCircle2 className="w-3 h-3" /> Success</Pill>
+    : tx.status === "pending" ? <Pill className="bg-accent/10 text-accent border-accent/40"><Loader2 className="w-3 h-3 animate-spin" /> Pending</Pill>
+    : <Pill className="bg-destructive/10 text-destructive border-destructive/40"><XCircle className="w-3 h-3" /> Failed</Pill>;
+
+  return (
+    <div className="space-y-4 animate-in fade-in duration-200">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground font-sans font-bold uppercase tracking-widest">
+          <ArrowLeftRight className="w-4 h-4 text-primary" /> Transaction
+        </div>
+        <div className="flex items-center gap-2">
+          {statusPill}
+          <Link href={`/transactions/${tx.hash}`}>
+            <Button variant="outline" size="sm" className="h-7 text-[10px] rounded-sm gap-1 border-border font-bold uppercase tracking-widest">
+              <ExternalLink className="w-3 h-3" /> Full page
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+        <dl>
+          <Row label="TX Hash">
+            <span className="text-primary font-bold break-all">{tx.hash}</span>
+            <CopyButton text={tx.hash} />
+          </Row>
+          <Row label="Block">
+            {tx.blockNumber
+              ? <Link href={`/blocks/${tx.blockNumber}`} className="text-primary hover:underline font-bold">#{tx.blockNumber}</Link>
+              : <span className="text-muted-foreground italic">Pending in mempool…</span>}
+          </Row>
+          <Row label="Submitted">
+            <span>{new Date(tx.createdAt).toLocaleString()}</span>
+          </Row>
+          <Row label="From">
+            <button onClick={() => onAddressClick(tx.from)} className="text-primary hover:underline break-all text-left">
+              {tx.from}
+            </button>
+            <CopyButton text={tx.from} />
+          </Row>
+          <Row label="To">
+            {tx.to
+              ? <><button onClick={() => onAddressClick(tx.to!)} className="text-primary hover:underline break-all text-left">{tx.to}</button><CopyButton text={tx.to} /></>
+              : <Pill className="bg-accent/10 text-accent border-accent/40"><FileCode2 className="w-3 h-3" /> Contract Creation</Pill>}
+          </Row>
+          <Row label="Value">
+            <span className="text-glow font-bold text-lg">{formatEmbr(tx.value)} EMBR</span>
+          </Row>
+          <Row label="Gas Limit">
+            {parseInt(tx.gasLimit).toLocaleString()}
+          </Row>
+          {tx.gasUsed && <Row label="Gas Used">{parseInt(tx.gasUsed).toLocaleString()}</Row>}
+          <Row label="Nonce">{tx.nonce}</Row>
+          {tx.contractAddress && (
+            <Row label="Contract Created">
+              <button onClick={() => onAddressClick(tx.contractAddress!)} className="text-accent hover:underline break-all font-bold text-left">
+                {tx.contractAddress}
+              </button>
+            </Row>
+          )}
+        </dl>
+      </Card>
+
+      {tx.data && tx.data !== "0x" && (
+        <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-border bg-secondary/30 text-xs font-sans font-bold uppercase tracking-widest text-muted-foreground">
+            Input Data
+          </div>
+          <div className="p-4 bg-black font-mono text-xs text-muted-foreground break-all max-h-40 overflow-y-auto">
+            {tx.data}
+          </div>
+        </Card>
+      )}
+
+      {tx.error && (
+        <Card className="border-destructive/40 bg-destructive/5 rounded-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-destructive/20 bg-destructive/10 text-xs font-sans font-bold uppercase tracking-widest text-destructive flex items-center gap-2">
+            <AlertTriangle className="w-3.5 h-3.5" /> Revert Reason
+          </div>
+          <div className="p-4 font-mono text-sm text-destructive">{tx.error}</div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ── address result ────────────────────────────────────────────────────────────
+
+function AddressResult({ address, onAddressClick }: { address: string; onAddressClick: (a: string) => void }) {
+  const { activeWallet } = useActiveWallet();
+  const isMe = activeWallet?.address.toLowerCase() === address.toLowerCase();
+
+  const { data: wallet, isLoading: walletLoading, isError: walletError } = useGetWallet(address, {
+    query: { retry: false, refetchInterval: 5000 },
+  });
+
+  const { data: txs, isLoading: txsLoading } = useListTransactions(
+    { address, limit: 100 },
+    { query: { refetchInterval: 8000 } },
+  );
+
+  if (walletLoading) return <LoadingCard label="Loading account…" />;
+  if (walletError || !wallet) return <NotFoundCard label="Address not found" sub="No account exists at this address yet." />;
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-200">
+      {/* Account card */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground font-sans font-bold uppercase tracking-widest">
+          <WalletIcon className="w-4 h-4 text-primary" /> Account
+          {isMe && <Pill className="bg-primary/10 text-primary border-primary/40">Your wallet</Pill>}
+        </div>
+        <CopyButton text={address} />
+      </div>
+
+      <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+        <dl>
+          <Row label="Address">
+            <span className="text-primary font-bold break-all">{address}</span>
+          </Row>
+          <Row label="Balance">
+            <span className="text-glow font-bold text-2xl">{formatEmbr(wallet.balance)}</span>
+            <span className="ml-2 text-muted-foreground font-sans text-xs uppercase tracking-widest font-bold">EMBR</span>
+          </Row>
+          <Row label="Nonce">
+            <span className="font-bold">{wallet.nonce}</span>
+            <span className="ml-2 text-muted-foreground font-sans text-[10px] uppercase tracking-widest">txs sent</span>
+          </Row>
+          <Row label="Total Transactions">
+            <span className="font-bold">{txs?.length ?? "—"}</span>
+          </Row>
+        </dl>
+      </Card>
+
+      {/* TX history */}
+      <div>
+        <div className="flex items-center gap-2 mb-3 text-xs font-sans font-bold uppercase tracking-widest text-muted-foreground">
+          <Database className="w-3.5 h-3.5" /> Transaction History
+          {txsLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+          {txs && <span className="text-foreground">{txs.length} found</span>}
+        </div>
+
+        <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+          {!txsLoading && (!txs || txs.length === 0) ? (
+            <div className="p-8 text-center text-muted-foreground font-sans uppercase font-bold tracking-widest text-sm">
+              No transactions found for this address.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left font-mono text-xs">
+                <thead className="bg-secondary/50 border-b border-border font-sans uppercase tracking-widest text-muted-foreground">
+                  <tr>
+                    <th className="p-3 font-bold">Status</th>
+                    <th className="p-3 font-bold">Hash</th>
+                    <th className="p-3 font-bold">Type</th>
+                    <th className="p-3 font-bold">From</th>
+                    <th className="p-3 font-bold">To</th>
+                    <th className="p-3 font-bold text-right">Amount</th>
+                    <th className="p-3 font-bold text-right">Block</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/40">
+                  {txsLoading && (
+                    <tr>
+                      <td colSpan={7} className="p-6 text-center text-muted-foreground font-sans uppercase font-bold tracking-widest">
+                        Loading…
+                      </td>
+                    </tr>
+                  )}
+                  {txs?.map((tx) => {
+                    const isFrom = tx.from.toLowerCase() === address.toLowerCase();
+                    const isTo   = tx.to?.toLowerCase() === address.toLowerCase();
+                    return (
+                      <tr key={tx.hash} className="hover:bg-secondary/20 transition-colors group">
+                        <td className="p-3">
+                          {tx.status === "success" && <CheckCircle2 className="w-4 h-4 text-primary" />}
+                          {tx.status === "pending" && <Loader2 className="w-4 h-4 text-accent animate-spin" />}
+                          {tx.status === "failed"  && <XCircle  className="w-4 h-4 text-destructive" />}
+                        </td>
+                        <td className="p-3">
+                          <Link href={`/transactions/${tx.hash}`} className="text-primary hover:underline font-bold" title={tx.hash}>
+                            {formatHash(tx.hash, 5)}
+                          </Link>
+                        </td>
+                        <td className="p-3">
+                          {tx.to === null
+                            ? <span className="text-accent flex items-center gap-1 font-sans text-[10px] uppercase font-bold tracking-widest"><FileCode2 className="w-3 h-3" /> Deploy</span>
+                            : <span className={cn("flex items-center gap-1 font-sans text-[10px] uppercase font-bold tracking-widest", isFrom && !isTo ? "text-orange-400" : isTo && !isFrom ? "text-green-400" : "text-muted-foreground")}>
+                                <Activity className="w-3 h-3" />
+                                {isFrom && !isTo ? "OUT" : isTo && !isFrom ? "IN" : "SELF"}
+                              </span>}
+                        </td>
+                        <td className="p-3">
+                          {isFrom
+                            ? <span className="text-primary font-bold">This address</span>
+                            : <button onClick={() => onAddressClick(tx.from)} className="text-muted-foreground hover:text-primary transition-colors" title={tx.from}>{formatHash(tx.from, 5)}</button>}
+                        </td>
+                        <td className="p-3">
+                          {tx.to === null
+                            ? <span className="italic text-muted-foreground/50">Contract</span>
+                            : isTo
+                            ? <span className="text-primary font-bold">This address</span>
+                            : <button onClick={() => onAddressClick(tx.to!)} className="text-muted-foreground hover:text-primary transition-colors" title={tx.to!}>{formatHash(tx.to!, 5)}</button>}
+                        </td>
+                        <td className={cn("p-3 text-right font-bold", isFrom && !isTo ? "text-orange-400" : isTo && !isFrom ? "text-green-400" : "text-foreground")}>
+                          {isFrom && !isTo ? "−" : isTo && !isFrom ? "+" : ""}{formatEmbr(tx.value)}
+                        </td>
+                        <td className="p-3 text-right text-muted-foreground">
+                          {tx.blockNumber
+                            ? <Link href={`/blocks/${tx.blockNumber}`} className="hover:text-primary transition-colors">#{tx.blockNumber}</Link>
+                            : <span className="italic opacity-50">pending</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ── small helpers ─────────────────────────────────────────────────────────────
+
+function LoadingCard({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3 p-6 border border-border rounded-sm bg-card/50 text-muted-foreground font-sans font-bold uppercase tracking-widest text-sm animate-pulse">
+      <Loader2 className="w-4 h-4 animate-spin" /> {label}
+    </div>
+  );
+}
+
+function NotFoundCard({ label, sub }: { label: string; sub: string }) {
+  return (
+    <Card className="p-8 border-border bg-card/50 rounded-sm text-center">
+      <div className="text-foreground font-sans font-bold uppercase tracking-widest mb-2">{label}</div>
+      <div className="text-muted-foreground font-sans text-sm">{sub}</div>
+    </Card>
+  );
+}
+
+// ── main page ─────────────────────────────────────────────────────────────────
+
+export default function Ledger() {
+  const { activeWallet } = useActiveWallet();
+  const [query, setQuery]     = useState("");
+  const [committed, setCommitted] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const trimmed    = query.trim();
+  const isAddress  = ADDRESS_RE.test(committed);
+  const isHash     = HASH_RE.test(committed);
+  const hasResult  = isAddress || isHash;
+
+  // Commit search (debounce-free — only on Enter or when pattern fully matches)
+  useEffect(() => {
+    const t = trimmed;
+    if (ADDRESS_RE.test(t) || HASH_RE.test(t)) {
+      setCommitted(t);
+    } else if (t === "") {
+      setCommitted("");
+    }
+  }, [trimmed]);
+
+  const handleClear = () => { setQuery(""); setCommitted(""); inputRef.current?.focus(); };
+  const handleAddressClick = (addr: string) => { setQuery(addr); setCommitted(addr); window.scrollTo({ top: 0, behavior: "smooth" }); };
+
+  return (
+    <Shell requireWallet={false}>
+      {/* Header */}
+      <div className="border-b border-border pb-6 mb-8">
+        <h1 className="text-4xl font-display font-bold uppercase tracking-tighter text-foreground mb-2 flex items-center gap-3">
+          <Search className="w-8 h-8 text-primary" /> Ledger Explorer
+        </h1>
+        <p className="text-muted-foreground font-sans text-sm uppercase tracking-widest font-bold">
+          Look up any transaction or account on the Emberchain network
+        </p>
+      </div>
+
+      {/* Search input */}
+      <div className="mb-8">
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" />
+          <Input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Paste a transaction hash (0x…64 chars) or wallet address (0x…40 chars)"
+            className={cn(
+              "pl-12 pr-12 h-14 text-base rounded-sm border font-mono transition-colors",
+              "placeholder:font-sans placeholder:text-xs placeholder:uppercase placeholder:tracking-widest placeholder:text-muted-foreground",
+              "focus-visible:ring-primary/50",
+              committed && "border-primary/40 bg-primary/5",
+            )}
+            onKeyDown={(e) => { if (e.key === "Enter" && trimmed) setCommitted(trimmed); }}
+          />
+          {trimmed && (
+            <button onClick={handleClear} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          )}
+        </div>
+
+        {/* Chips */}
+        <div className="flex flex-wrap gap-2 mt-3 min-h-[28px]">
+          {/* Query type indicator */}
+          {trimmed && !isAddress && !isHash && trimmed.length > 2 && (
+            <span className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground border border-border rounded-sm px-2 py-1">
+              {trimmed.startsWith("0x")
+                ? `${trimmed.length < 42 ? "address too short" : trimmed.length < 66 ? "hash too short" : "invalid format"}`
+                : "must start with 0x"}
+            </span>
+          )}
+          {committed && isAddress && (
+            <Pill className="bg-primary/10 text-primary border-primary/40"><WalletIcon className="w-3 h-3" /> Searching account</Pill>
+          )}
+          {committed && isHash && (
+            <Pill className="bg-accent/10 text-accent border-accent/40"><Hash className="w-3 h-3" /> Searching transaction</Pill>
+          )}
+
+          {/* My wallet shortcut */}
+          {activeWallet && !trimmed && (
+            <button
+              onClick={() => { setQuery(activeWallet.address); setCommitted(activeWallet.address); }}
+              className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground border border-border rounded-sm px-2 py-1 hover:border-primary/50 hover:text-primary transition-colors flex items-center gap-1"
+            >
+              <WalletIcon className="w-3 h-3" /> My account
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Empty state */}
+      {!trimmed && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="border border-border rounded-sm p-6 bg-card/30">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-sm bg-accent/10 border border-accent/30 flex items-center justify-center">
+                <Hash className="w-4 h-4 text-accent" />
+              </div>
+              <span className="font-sans font-bold uppercase tracking-widest text-sm">Transaction Hash</span>
+            </div>
+            <p className="text-muted-foreground font-sans text-sm leading-relaxed">
+              Paste a 66-character hex string starting with <code className="text-accent font-mono text-xs">0x</code> to view status, sender, recipient, value, gas, and any revert reason.
+            </p>
+            <div className="mt-3 font-mono text-xs text-muted-foreground/60 break-all">
+              0x4f2a…b7c3
+            </div>
+          </div>
+          <div className="border border-border rounded-sm p-6 bg-card/30">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-sm bg-primary/10 border border-primary/30 flex items-center justify-center">
+                <WalletIcon className="w-4 h-4 text-primary" />
+              </div>
+              <span className="font-sans font-bold uppercase tracking-widest text-sm">Wallet Address</span>
+            </div>
+            <p className="text-muted-foreground font-sans text-sm leading-relaxed">
+              Paste a 42-character hex address to see live balance, account age, and full transaction history — with IN / OUT flow labelling.
+            </p>
+            <div className="mt-3 font-mono text-xs text-muted-foreground/60 break-all">
+              0x1A2b…9F0e
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Result area */}
+      {committed && isHash && <TransactionResult hash={committed} onAddressClick={handleAddressClick} />}
+      {committed && isAddress && <AddressResult address={committed} onAddressClick={handleAddressClick} />}
+    </Shell>
+  );
+}

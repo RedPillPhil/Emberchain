@@ -9,6 +9,7 @@ import Setup from '@/pages/setup';
 import Send from '@/pages/send';
 import Mining from '@/pages/mining';
 import Blocks from '@/pages/blocks';
+import Ledger from '@/pages/ledger';
 import BlockDetail from '@/pages/block-detail';
 import Transactions from '@/pages/transactions';
 import TransactionDetail from '@/pages/transaction-detail';
@@ -25,6 +26,7 @@ function Router() {
       <Route path="/setup" component={Setup} />
       <Route path="/send" component={Send} />
       <Route path="/mining" component={Mining} />
+      <Route path="/ledger" component={Ledger} />
       <Route path="/blocks" component={Blocks} />
       <Route path="/blocks/:number" component={BlockDetail} />
       <Route path="/transactions" component={Transactions} />

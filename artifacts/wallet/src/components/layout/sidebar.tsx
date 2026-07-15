@@ -13,6 +13,7 @@ import {
   ArrowLeftRight,
   Shield,
   Store,
+  Search,
 } from "lucide-react";
 
 const navItems = [
@@ -21,7 +22,8 @@ const navItems = [
   { href: "/exchange", label: "EXCHANGE", icon: Store },
   { href: "/privacy", label: "PRIVACY", icon: Shield },
   { href: "/mining", label: "FORGE (MINE)", icon: Flame },
-  { href: "/blocks", label: "LEDGER", icon: Blocks },
+  { href: "/ledger", label: "EXPLORER", icon: Search },
+  { href: "/blocks", label: "BLOCKS", icon: Blocks },
   { href: "/transactions", label: "TRANSACTIONS", icon: ArrowLeftRight },
   { href: "/contracts", label: "CONTRACTS", icon: Terminal },
 ];
