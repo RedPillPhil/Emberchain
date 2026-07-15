@@ -286,6 +286,33 @@ export const StopMiningResponse = zod.object({
 })
 
 
+// ── Browser mining ───────────────────────────────────────────────────────────
+
+export const MiningTemplateHeader = zod.object({
+  number: zod.number(),
+  parentHash: zod.string(),
+  timestamp: zod.number(),
+  miner: zod.string(),
+  /** bigint serialised as decimal string */
+  difficulty: zod.string(),
+  transactionsRoot: zod.string(),
+});
+
+export const MiningTemplate = zod.object({
+  header: MiningTemplateHeader,
+  /** targetForDifficulty as decimal string */
+  target: zod.string(),
+  pendingTxHashes: zod.array(zod.string()),
+});
+
+export const SubmitBlockBody = zod.object({
+  minerAddress: zod.string(),
+  header: MiningTemplateHeader,
+  nonce: zod.string(),
+  blockHash: zod.string(),
+  pendingTxHashes: zod.array(zod.string()),
+});
+
 // ── P2P Exchange ────────────────────────────────────────────────────────────
 
 export const ExchangeCurrencyEnum = zod.enum(["ETH", "USDT", "BTC", "SOL"]);

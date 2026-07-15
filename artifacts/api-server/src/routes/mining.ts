@@ -4,6 +4,7 @@ import {
   StartMiningBody,
   StartMiningResponse,
   StopMiningResponse,
+  SubmitBlockBody,
 } from "@workspace/api-zod";
 import { chain } from "../lib/chain";
 
@@ -27,6 +28,34 @@ router.post("/mining/start", async (req: Request, res: Response): Promise<void> 
 router.post("/mining/stop", async (_req: Request, res: Response): Promise<void> => {
   const status = await chain.stopMining();
   res.status(200).json(StopMiningResponse.parse(status));
+});
+
+// ── Browser mining ────────────────────────────────────────────────────────────
+
+/** GET /mining/template?minerAddress=0x...
+ *  Returns a block template for the browser WebWorker to mine. */
+router.get("/mining/template", async (req: Request, res: Response): Promise<void> => {
+  const minerAddress = String(req.query.minerAddress ?? "");
+  try {
+    const template = await chain.getMiningTemplate(minerAddress);
+    res.status(200).json(template);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Failed to get template" });
+  }
+});
+
+/** POST /mining/submit
+ *  Validates and finalises a block mined in the browser. */
+router.post("/mining/submit", async (req: Request, res: Response): Promise<void> => {
+  const body = SubmitBlockBody.parse(req.body ?? {});
+  try {
+    const block = await chain.submitMinedBlock(body);
+    res.status(200).json(block);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Block submission failed";
+    const status = msg.startsWith("Stale template") ? 409 : 400;
+    res.status(status).json({ error: msg });
+  }
 });
 
 export default router;

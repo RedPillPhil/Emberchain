@@ -7,7 +7,7 @@ import type { SimpleStateManager } from "@ethereumjs/statemanager";
 import { createEmberchainCommon } from "./common";
 import { createStateManager, dumpState, loadState, getBalance, getNonce, credit, debit, ensureAccount } from "./state";
 import { generateWallet, walletFromPrivateKey, encodeTxPayload, signPayload, hashTransaction } from "./crypto";
-import { mine, retargetDifficulty, batchSizeForIntensity, type MinableHeader } from "./mining";
+import { mine, retargetDifficulty, batchSizeForIntensity, hashHeader, targetForDifficulty, type MinableHeader } from "./mining";
 import { loadChainFile, saveChainFile, type PersistedChain } from "./persistence";
 import type {
   StoredBlock,
@@ -459,6 +459,106 @@ export class Blockchain {
     if (this.mining.loop) await this.mining.loop;
     this.mining.loop = null;
     return this.getMiningStatus();
+  }
+
+  /**
+   * Returns a block template for the browser to mine.  The caller should pass
+   * this verbatim to the mining WebWorker and submit the winning nonce via
+   * submitMinedBlock().  Does NOT remove transactions from the mempool.
+   */
+  async getMiningTemplate(minerAddress: string): Promise<{
+    header: {
+      number: number;
+      parentHash: string;
+      timestamp: number;
+      miner: string;
+      difficulty: string;
+      transactionsRoot: string;
+    };
+    target: string;
+    pendingTxHashes: string[];
+  }> {
+    await this.whenReady();
+    if (!ADDRESS_RE.test(minerAddress)) throw new Error("Invalid miner address");
+    if (!this.wallets.has(minerAddress as PrefixedHexString)) {
+      this.wallets.set(minerAddress as PrefixedHexString, { createdAt: new Date().toISOString() });
+      this.persist();
+    }
+    const parent = this.blocks[this.blocks.length - 1];
+    const pendingSlice = this.mempool.slice(0, MAX_TXS_PER_BLOCK);
+    const header = {
+      number: parent.number + 1,
+      parentHash: parent.hash,
+      timestamp: Date.now(),
+      miner: minerAddress,
+      difficulty: this.difficulty.toString(),
+      transactionsRoot: transactionsRootOf(pendingSlice.map((t) => t.hash)),
+    };
+    return {
+      header,
+      target: targetForDifficulty(this.difficulty).toString(),
+      pendingTxHashes: pendingSlice.map((t) => t.hash),
+    };
+  }
+
+  /**
+   * Validates and finalises a block whose nonce was found by the browser miner.
+   * Throws if the proof-of-work is invalid or the chain has already advanced
+   * (in which case the client should fetch a fresh template and retry).
+   */
+  async submitMinedBlock(params: {
+    minerAddress: string;
+    header: {
+      number: number;
+      parentHash: string;
+      timestamp: number;
+      miner: string;
+      difficulty: string;
+      transactionsRoot: string;
+    };
+    nonce: string;
+    blockHash: string;
+    pendingTxHashes: string[];
+  }): Promise<StoredBlock> {
+    await this.whenReady();
+    const parent = this.blocks[this.blocks.length - 1];
+    if (params.header.parentHash !== parent.hash) {
+      throw new Error("Stale template: chain has already advanced — fetch a new template and retry");
+    }
+    const minableHeader: MinableHeader = {
+      number: params.header.number,
+      parentHash: params.header.parentHash as PrefixedHexString,
+      timestamp: params.header.timestamp,
+      miner: params.header.miner as PrefixedHexString,
+      difficulty: BigInt(params.header.difficulty),
+      transactionsRoot: params.header.transactionsRoot as PrefixedHexString,
+    };
+    const nonce = BigInt(params.nonce);
+    const { hashHex, hashValue } = hashHeader(minableHeader, nonce);
+    const target = targetForDifficulty(BigInt(params.header.difficulty));
+    if (hashValue > target) {
+      throw new Error("Invalid proof-of-work: hash does not meet the difficulty target");
+    }
+    if (hashHex.toLowerCase() !== params.blockHash.toLowerCase()) {
+      throw new Error("Block hash mismatch: submitted hash does not match computed hash");
+    }
+    // Pull the specific txs from the mempool; silently drop any already removed.
+    const wantSet = new Set(params.pendingTxHashes);
+    const included: PendingTx[] = [];
+    this.mempool = this.mempool.filter((tx) => {
+      if (wantSet.has(tx.hash)) { included.push(tx); return false; }
+      return true;
+    });
+    const parentTimestampMs = new Date(parent.timestamp).getTime();
+    const actualBlockTimeSec = (params.header.timestamp - parentTimestampMs) / 1000;
+    await this.applyBlock(minableHeader, included, nonce, hashHex);
+    this.mining.blocksMinedThisSession += 1;
+    this.difficulty = retargetDifficulty(
+      this.difficulty,
+      actualBlockTimeSec > 0 ? actualBlockTimeSec : EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+      EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+    );
+    return this.blocks[this.blocks.length - 1];
   }
 
   private async runMiningLoop(): Promise<void> {

@@ -288,6 +288,35 @@ export interface ExchangeListing {
   updatedAt: string;
 }
 
+// ── Browser mining ───────────────────────────────────────────────────────────
+
+export interface MiningTemplateHeader {
+  number: number;
+  parentHash: string;
+  timestamp: number;
+  miner: string;
+  /** bigint as decimal string */
+  difficulty: string;
+  transactionsRoot: string;
+}
+
+export interface MiningTemplate {
+  header: MiningTemplateHeader;
+  /** targetForDifficulty as decimal string */
+  target: string;
+  pendingTxHashes: string[];
+}
+
+export interface SubmitBlockInput {
+  minerAddress: string;
+  header: MiningTemplateHeader;
+  nonce: string;
+  blockHash: string;
+  pendingTxHashes: string[];
+}
+
+// ── P2P Exchange ─────────────────────────────────────────────────────────────
+
 export interface CreateListingInput {
   /** 0x-prefixed hex private key. Server derives the seller address — never sent as plain address. */
   sellerPrivateKey: string;

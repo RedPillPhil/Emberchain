@@ -1,135 +1,209 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Shell } from "@/components/layout/shell";
 import { useActiveWallet } from "@/hooks/use-active-wallet";
-import { useGetMiningStatus, useStartMining, useStopMining } from "@workspace/api-client-react";
+import { useGetMiningStatus, useSubmitBlock, getMiningTemplate } from "@workspace/api-client-react";
+import type { MiningTemplate, SubmitBlockInput } from "@workspace/api-client-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Flame, Zap, Hash, Database, Terminal, Cpu, Info } from "lucide-react";
+import { Flame, Zap, Hash, Database, Terminal, Cpu } from "lucide-react";
 import { cn, formatEmbr } from "@/lib/utils";
+import type { FromWorkerMsg, ToWorkerMsg } from "@/workers/mining.worker";
+
+// ── intensity levels ──────────────────────────────────────────────────────────
 
 const INTENSITY_LEVELS = [
-  {
-    value: 1,
-    label: "Eco",
-    description: "~100 hashes/batch — gentle on the server, API stays fully responsive",
-    color: "text-blue-400",
-    bgColor: "bg-blue-400/10",
-    borderColor: "border-blue-400/40",
-  },
-  {
-    value: 2,
-    label: "Balanced",
-    description: "~400 hashes/batch — default. Good mix of speed and responsiveness",
-    color: "text-green-400",
-    bgColor: "bg-green-400/10",
-    borderColor: "border-green-400/40",
-  },
-  {
-    value: 3,
-    label: "High",
-    description: "~1,500 hashes/batch — noticeably faster mining, API still usable",
-    color: "text-yellow-400",
-    bgColor: "bg-yellow-400/10",
-    borderColor: "border-yellow-400/40",
-  },
-  {
-    value: 4,
-    label: "Aggressive",
-    description: "~5,000 hashes/batch — maximum practical speed, API may feel sluggish",
-    color: "text-orange-400",
-    bgColor: "bg-orange-400/10",
-    borderColor: "border-orange-400/40",
-  },
-  {
-    value: 5,
-    label: "Max",
-    description: "~15,000 hashes/batch — server eats a full CPU core. UI updates may lag",
-    color: "text-primary",
-    bgColor: "bg-primary/10",
-    borderColor: "border-primary/40",
-  },
+  { value: 1, label: "Eco",        batchSize: 100,   description: "~100 H/batch — barely perceptible CPU load",              color: "text-blue-400",   bgColor: "bg-blue-400/10",   borderColor: "border-blue-400/40"   },
+  { value: 2, label: "Balanced",   batchSize: 500,   description: "~500 H/batch — quiet fan, UI stays smooth",               color: "text-green-400",  bgColor: "bg-green-400/10",  borderColor: "border-green-400/40"  },
+  { value: 3, label: "High",       batchSize: 2000,  description: "~2k H/batch — fan spins up, noticeably faster",           color: "text-yellow-400", bgColor: "bg-yellow-400/10", borderColor: "border-yellow-400/40" },
+  { value: 4, label: "Aggressive", batchSize: 8000,  description: "~8k H/batch — one core pegged, tab stays responsive",     color: "text-orange-400", bgColor: "bg-orange-400/10", borderColor: "border-orange-400/40" },
+  { value: 5, label: "Max",        batchSize: 25000, description: "~25k H/batch — full core, browser may slow other tabs",   color: "text-primary",    bgColor: "bg-primary/10",    borderColor: "border-primary/40"    },
 ] as const;
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function truncate(s: string) { return s.slice(0, 10) + "…" + s.slice(-6); }
+
+function makeWorker() {
+  return new Worker(new URL("../workers/mining.worker.ts", import.meta.url), { type: "module" });
+}
+
+// ── component ─────────────────────────────────────────────────────────────────
 
 export default function Mining() {
   const { activeWallet } = useActiveWallet();
-  const startMining = useStartMining();
-  const stopMining = useStopMining();
-  const [logs, setLogs] = useState<string[]>([]);
+  const submitBlock = useSubmitBlock();
+
+  const [isMining, setIsMining]         = useState(false);
+  const [hashRate, setHashRate]         = useState(0);
+  const [sessionBlocks, setSessionBlocks] = useState(0);
   const [selectedIntensity, setSelectedIntensity] = useState(2);
+  const [logs, setLogs]                 = useState<string[]>([]);
 
-  const { data: status, refetch } = useGetMiningStatus({
-    query: { refetchInterval: 2000 },
-  });
+  const workerRef   = useRef<Worker | null>(null);
+  const miningRef   = useRef(false);   // mirrors isMining without stale-closure issues
+  const templateRef = useRef<MiningTemplate | null>(null);
 
-  const isMining = status?.isMining || false;
-  const activeIntensity = status?.intensity ?? selectedIntensity;
-  const currentLevel = INTENSITY_LEVELS.find((l) => l.value === activeIntensity) ?? INTENSITY_LEVELS[1]!;
+  const { data: status } = useGetMiningStatus({ query: { refetchInterval: 3000 } });
 
-  const addLog = (msg: string) => {
-    setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 60));
-  };
+  const addLog = useCallback((msg: string, kind: "default" | "found" | "warn" = "default") => {
+    const tag = kind === "found" ? "★ " : kind === "warn" ? "! " : "  ";
+    setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${tag}${msg}`, ...prev].slice(0, 80));
+  }, []);
 
-  const handleStart = () => {
-    if (!activeWallet) return;
-    startMining.mutate(
-      { data: { minerAddress: activeWallet.address, intensity: selectedIntensity } },
-      {
-        onSuccess: () => {
-          const level = INTENSITY_LEVELS.find((l) => l.value === selectedIntensity)!;
-          addLog(`IGNITE @ intensity ${selectedIntensity} (${level.label}) — forging for ${activeWallet.address.slice(0, 10)}...`);
-          refetch();
-        },
-      },
-    );
-  };
+  // ── worker lifecycle ────────────────────────────────────────────────────────
 
-  const handleStop = () => {
-    stopMining.mutate(undefined, {
-      onSuccess: () => {
-        addLog("HALT signal sent. Cooling down forge.");
-        refetch();
-      },
-    });
-  };
+  const stopWorker = useCallback(() => {
+    miningRef.current = false;
+    setIsMining(false);
+    setHashRate(0);
+    if (workerRef.current) {
+      workerRef.current.postMessage({ type: "stop" } satisfies ToWorkerMsg);
+      // Terminate after a short grace period
+      setTimeout(() => { workerRef.current?.terminate(); workerRef.current = null; }, 300);
+    }
+  }, []);
 
-  const handleIntensityChange = (level: number) => {
+  const startWorkerWithTemplate = useCallback(
+    (template: MiningTemplate, intensity: number) => {
+      // Terminate any existing worker first
+      workerRef.current?.terminate();
+
+      const worker = makeWorker();
+      workerRef.current = worker;
+      templateRef.current = template;
+
+      const level = INTENSITY_LEVELS.find((l) => l.value === intensity) ?? INTENSITY_LEVELS[1]!;
+
+      worker.onmessage = async (e: MessageEvent<FromWorkerMsg>) => {
+        const msg = e.data;
+
+        if (msg.type === "progress") {
+          setHashRate(msg.hashRate);
+          // Log a sample nonce every few seconds (throttled by batchSize)
+          addLog(`nonce:${msg.nonce.slice(0, 12)}  hash:${msg.hash.slice(0, 18)}… miss`);
+        }
+
+        if (msg.type === "found") {
+          addLog(`BLOCK FOUND! nonce:${msg.nonce}  hash:${msg.blockHash.slice(0, 18)}… — submitting…`, "found");
+
+          if (!templateRef.current) return;
+          const t = templateRef.current;
+          const submitPayload: SubmitBlockInput = {
+            minerAddress: t.header.miner,
+            header: t.header,
+            nonce: msg.nonce,
+            blockHash: msg.blockHash,
+            pendingTxHashes: t.pendingTxHashes,
+          };
+
+          try {
+            await submitBlock.mutateAsync(submitPayload);
+            setSessionBlocks((n) => n + 1);
+            addLog(`★ BLOCK FORGED! Fetching next template…`, "found");
+          } catch (err) {
+            const errorMsg = (err as { message?: string })?.message ?? "Submit failed";
+            if (errorMsg.includes("Stale")) {
+              addLog(`Template stale — chain advanced. Refreshing…`, "warn");
+            } else {
+              addLog(`Submit error: ${errorMsg}`, "warn");
+            }
+          }
+
+          // Always fetch a fresh template and keep mining as long as active
+          if (!miningRef.current) return;
+          try {
+            const newTemplate = await getMiningTemplate(t.header.miner);
+            if (!miningRef.current) return;
+            templateRef.current = newTemplate;
+            worker.postMessage({
+              type: "start",
+              header: newTemplate.header,
+              target: newTemplate.target,
+              batchSize: level.batchSize,
+            } satisfies ToWorkerMsg);
+          } catch {
+            addLog("Failed to fetch next template — retrying in 2s…", "warn");
+            setTimeout(() => {
+              if (!miningRef.current) return;
+              getMiningTemplate(t.header.miner).then((nt) => {
+                if (!miningRef.current) return;
+                templateRef.current = nt;
+                worker.postMessage({ type: "start", header: nt.header, target: nt.target, batchSize: level.batchSize } satisfies ToWorkerMsg);
+              }).catch(() => stopWorker());
+            }, 2000);
+          }
+        }
+
+        if (msg.type === "stopped") {
+          worker.terminate();
+          if (workerRef.current === worker) workerRef.current = null;
+        }
+      };
+
+      worker.onerror = (e) => {
+        addLog(`Worker error: ${e.message}`, "warn");
+        stopWorker();
+      };
+
+      worker.postMessage({
+        type: "start",
+        header: template.header,
+        target: template.target,
+        batchSize: level.batchSize,
+      } satisfies ToWorkerMsg);
+    },
+    [addLog, stopWorker, submitBlock],
+  );
+
+  // ── handlers ────────────────────────────────────────────────────────────────
+
+  const handleStart = useCallback(async () => {
+    if (!activeWallet || miningRef.current) return;
+    miningRef.current = true;
+    setIsMining(true);
+    setSessionBlocks(0);
+    setHashRate(0);
+    const level = INTENSITY_LEVELS.find((l) => l.value === selectedIntensity) ?? INTENSITY_LEVELS[1]!;
+    addLog(`IGNITE @ intensity ${selectedIntensity} (${level.label}) — mining for ${truncate(activeWallet.address)}`);
+    try {
+      const template = await getMiningTemplate(activeWallet.address);
+      if (!miningRef.current) return;
+      addLog(`Template: block #${template.header.number} · ${template.pendingTxHashes.length} pending txs · diff ${template.header.difficulty}`);
+      startWorkerWithTemplate(template, selectedIntensity);
+    } catch (err) {
+      addLog(`Failed to fetch template: ${(err as Error).message}`, "warn");
+      stopWorker();
+    }
+  }, [activeWallet, selectedIntensity, addLog, startWorkerWithTemplate, stopWorker]);
+
+  const handleStop = useCallback(() => {
+    addLog("HALT — cooling down forge.");
+    stopWorker();
+  }, [addLog, stopWorker]);
+
+  const handleIntensityChange = useCallback((level: number) => {
     setSelectedIntensity(level);
-    // If already mining, hot-swap the intensity immediately.
-    if (isMining && activeWallet) {
-      startMining.mutate(
-        { data: { minerAddress: activeWallet.address, intensity: level } },
-        {
-          onSuccess: () => {
-            const l = INTENSITY_LEVELS.find((x) => x.value === level)!;
-            addLog(`Intensity changed → ${level} (${l.label}). Restarting loop.`);
-            refetch();
-          },
-        },
-      );
+    if (miningRef.current && activeWallet && templateRef.current) {
+      const lvl = INTENSITY_LEVELS.find((l) => l.value === level) ?? INTENSITY_LEVELS[1]!;
+      addLog(`Intensity → ${level} (${lvl.label})`);
+      // Hot-swap: re-send start with new batchSize on the existing worker
+      workerRef.current?.postMessage({
+        type: "start",
+        header: templateRef.current.header,
+        target: templateRef.current.target,
+        batchSize: lvl.batchSize,
+      } satisfies ToWorkerMsg);
     }
-  };
+  }, [activeWallet, addLog]);
 
-  // Activity logs while mining
+  // Cleanup on unmount
   useEffect(() => {
-    if (!isMining) return;
-    const interval = setInterval(() => {
-      if (Math.random() > 0.65) {
-        const nonce = Math.floor(Math.random() * 1_000_000_000).toString(16).padStart(8, "0");
-        const partial = Math.random().toString(16).slice(2).padStart(14, "0");
-        addLog(`nonce:0x${nonce}  hash:0x${partial}… miss`);
-      }
-    }, 700);
-    return () => clearInterval(interval);
-  }, [isMining]);
+    return () => { miningRef.current = false; workerRef.current?.terminate(); };
+  }, []);
 
-  // Block-found alert
-  const prevBlocksMined = useRef(status?.blocksMined);
-  useEffect(() => {
-    if (status && prevBlocksMined.current !== undefined && status.blocksMined > prevBlocksMined.current) {
-      addLog(`★ BLOCK FORGED! Reward: ${formatEmbr(status.blockReward)} EMBR — session total: ${status.blocksMined}`);
-    }
-    prevBlocksMined.current = status?.blocksMined;
-  }, [status?.blocksMined, status?.blockReward]);
+  // ── render ───────────────────────────────────────────────────────────────────
+
+  const currentLevel = INTENSITY_LEVELS.find((l) => l.value === selectedIntensity) ?? INTENSITY_LEVELS[1]!;
 
   return (
     <Shell>
@@ -141,7 +215,7 @@ export default function Mining() {
             Mining Forge
           </h1>
           <p className="text-muted-foreground font-sans text-sm uppercase tracking-widest font-bold">
-            Server-side CPU hashing — your browser sends commands, the node does the work.
+            Your CPU · keccak256 proof-of-work · runs in your browser
           </p>
         </div>
 
@@ -149,7 +223,6 @@ export default function Mining() {
           {isMining ? (
             <Button
               onClick={handleStop}
-              disabled={stopMining.isPending}
               className="h-14 px-8 rounded-sm font-display text-lg uppercase tracking-widest bg-destructive text-destructive-foreground hover:bg-destructive/90 animate-pulse"
             >
               SCRAM (Stop)
@@ -157,7 +230,7 @@ export default function Mining() {
           ) : (
             <Button
               onClick={handleStart}
-              disabled={!activeWallet || startMining.isPending}
+              disabled={!activeWallet}
               className="h-14 px-8 rounded-sm font-display text-lg uppercase tracking-widest bg-primary text-primary-foreground hover:bg-primary/90 box-glow"
             >
               IGNITE FORGE
@@ -166,21 +239,21 @@ export default function Mining() {
         </div>
       </div>
 
-      {/* How mining works — info banner */}
+      {/* Info banner */}
       <div className="mb-6 flex items-start gap-3 bg-secondary/40 border border-border rounded-sm p-4 text-sm">
-        <Info className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+        <Cpu className="w-4 h-4 text-primary mt-0.5 shrink-0" />
         <p className="text-muted-foreground font-sans leading-relaxed">
-          <span className="text-foreground font-bold">Mining runs on the server's CPU</span> — not your browser or
-          computer. Your device sends a start command; the Replit container's CPU does keccak256 hashing in a loop.
-          No GPU is used. Intensity controls how many hashes the server tries per loop tick before yielding back to
-          handle other requests.
+          <span className="text-foreground font-bold">Mining runs in your browser.</span>{" "}
+          Click Ignite Forge and your device's CPU starts grinding keccak256 hashes in a Web Worker — a real
+          background thread that doesn't freeze the page. When your CPU finds a valid nonce, it's submitted
+          to the node, which validates the proof-of-work and adds the block to the chain. Your EMBR reward
+          is credited instantly.
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left column: stats + intensity */}
+        {/* Left: stats + intensity */}
         <div className="lg:col-span-1 space-y-4">
-          {/* Live stats */}
           <Card className={cn(
             "p-6 rounded-sm border transition-colors duration-500",
             isMining ? "border-primary bg-primary/5" : "border-border bg-card/50",
@@ -203,7 +276,7 @@ export default function Mining() {
                   <Zap className="w-3 h-3 text-accent" /> Hash Rate
                 </div>
                 <div className="font-mono text-4xl font-bold text-glow">
-                  {isMining ? (status?.hashRate ?? 0).toLocaleString() : "0"}
+                  {isMining ? hashRate.toLocaleString() : "0"}
                   <span className="text-sm text-muted-foreground ml-1">H/s</span>
                 </div>
               </div>
@@ -212,14 +285,16 @@ export default function Mining() {
                 <div className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2 font-sans">
                   <Database className="w-3 h-3 text-primary" /> Session Blocks
                 </div>
-                <div className="font-mono text-3xl">{status?.blocksMined || 0}</div>
+                <div className="font-mono text-3xl">{sessionBlocks}</div>
               </div>
 
               <div className="pt-4 border-t border-border/50">
                 <div className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 font-sans">
-                  <Hash className="w-3 h-3 inline mr-1" /> Difficulty
+                  <Hash className="w-3 h-3 inline mr-1" /> Network Difficulty
                 </div>
-                <div className="font-mono text-xs break-all text-muted-foreground">{status?.difficulty || "…"}</div>
+                <div className="font-mono text-xs break-all text-muted-foreground">
+                  {status?.difficulty || "…"}
+                </div>
               </div>
 
               <div className="pt-2 border-t border-border/50">
@@ -227,8 +302,8 @@ export default function Mining() {
                   <Cpu className="w-3 h-3" /> Compute Source
                 </div>
                 <div className="text-xs font-sans text-muted-foreground">
-                  Replit container CPU (server-side)<br />
-                  <span className="opacity-60">Single-threaded JS · keccak256 · No GPU</span>
+                  Your device's CPU (browser WebWorker)<br />
+                  <span className="opacity-60">keccak256 · single thread · no GPU</span>
                 </div>
               </div>
             </div>
@@ -242,12 +317,11 @@ export default function Mining() {
             <div className="space-y-2">
               {INTENSITY_LEVELS.map((level) => {
                 const isActive = selectedIntensity === level.value;
-                const isLive = isMining && activeIntensity === level.value;
+                const isLive   = isMining && selectedIntensity === level.value;
                 return (
                   <button
                     key={level.value}
                     onClick={() => handleIntensityChange(level.value)}
-                    disabled={startMining.isPending}
                     className={cn(
                       "w-full text-left rounded-sm border px-3 py-2 transition-all duration-150",
                       isActive
@@ -282,7 +356,7 @@ export default function Mining() {
           )}
         </div>
 
-        {/* Terminal log */}
+        {/* Terminal */}
         <Card className="lg:col-span-2 border-border bg-black rounded-sm overflow-hidden flex flex-col h-[540px]">
           <div className="bg-secondary/50 border-b border-border p-3 flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-widest font-sans">
             <Terminal className="w-4 h-4" /> Forge Output Terminal
@@ -296,9 +370,15 @@ export default function Mining() {
                 key={i}
                 className={cn(
                   "leading-relaxed",
-                  log.includes("★ BLOCK FORGED") ? "text-primary font-bold bg-primary/10 px-1 rounded-sm" : "text-green-500/70",
-                  log.includes("HALT") ? "text-muted-foreground" : "",
-                  log.includes("IGNITE") || log.includes("Intensity") ? "text-accent" : "",
+                  log.includes("★") || log.includes("BLOCK FORGED") || log.includes("BLOCK FOUND")
+                    ? "text-primary font-bold bg-primary/10 px-1 rounded-sm"
+                    : log.includes("!")
+                    ? "text-amber-400/80"
+                    : log.includes("IGNITE") || log.includes("Template:") || log.includes("Intensity")
+                    ? "text-accent"
+                    : log.includes("HALT")
+                    ? "text-muted-foreground"
+                    : "text-green-500/70",
                 )}
               >
                 {log}

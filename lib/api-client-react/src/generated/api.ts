@@ -38,6 +38,7 @@ import type {
   ListTransactionsParams,
   MiningRequest,
   MiningStatus,
+  MiningTemplate,
   PrivacyStatus,
   PrivateBalance,
   PrivateKeyInput,
@@ -45,6 +46,7 @@ import type {
   ShieldInput,
   ShieldedTxRecord,
   StealthMeta,
+  SubmitBlockInput,
   Transaction,
   TransactionInput,
   UnshieldInput,
@@ -1784,6 +1786,53 @@ export function useCancelListing<TError = ErrorType<unknown>, TContext = unknown
   return useMutation(mutationOptions);
 }
 
+
+// ── Browser mining ────────────────────────────────────────────────────────────
+
+export const getMiningTemplate = async (minerAddress: string, options?: RequestInit): Promise<MiningTemplate> => {
+  return customFetch<MiningTemplate>(`/api/mining/template?minerAddress=${encodeURIComponent(minerAddress)}`, {
+    ...options, method: 'GET',
+  });
+};
+
+export const getMiningTemplateQueryKey = (minerAddress: string) => [`/api/mining/template`, minerAddress] as const;
+
+export function useGetMiningTemplate<TError = ErrorType<unknown>>(
+  minerAddress: string,
+  options?: HookQueryOpts<MiningTemplate, TError, MiningTemplate>,
+): UseQueryResult<MiningTemplate, TError> {
+  return useQuery({
+    queryKey: getMiningTemplateQueryKey(minerAddress),
+    queryFn: () => getMiningTemplate(minerAddress),
+    enabled: !!minerAddress,
+    ...options,
+  });
+}
+
+export const submitBlock = async (data: SubmitBlockInput, options?: RequestInit): Promise<unknown> => {
+  return customFetch<unknown>('/api/mining/submit', {
+    ...options, method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(data),
+  });
+};
+
+export const getSubmitBlockMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof submitBlock>>, TError, BodyType<SubmitBlockInput>, TContext> }
+): UseMutationOptions<Awaited<ReturnType<typeof submitBlock>>, TError, BodyType<SubmitBlockInput>, TContext> => {
+  const mutationKey = ['submitBlock'];
+  const { mutation: mutationOptions } = options ?? { mutation: { mutationKey } };
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof submitBlock>>, BodyType<SubmitBlockInput>> = (data) => submitBlock(data);
+  return { mutationFn, ...mutationOptions };
+};
+
+export function useSubmitBlock<TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof submitBlock>>, TError, BodyType<SubmitBlockInput>, TContext> }
+): UseMutationResult<Awaited<ReturnType<typeof submitBlock>>, TError, BodyType<SubmitBlockInput>, TContext> {
+  return useMutation(getSubmitBlockMutationOptions(options));
+}
+
+// ── P2P Exchange ──────────────────────────────────────────────────────────────
 
 export const buyListing = async (id: string, data: BuyListingInput, options?: RequestInit): Promise<ExchangeListing> => {
   return customFetch<ExchangeListing>(`/api/exchange/listings/${id}/buy`, {
