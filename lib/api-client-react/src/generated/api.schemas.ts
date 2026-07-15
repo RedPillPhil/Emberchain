@@ -263,6 +263,54 @@ export interface ShieldedTxRecord {
   noteIdsSpent: string[];
 }
 
+// ── P2P Exchange ─────────────────────────────────────────────────────────────
+
+export type ExchangeCurrency = 'ETH' | 'USDT' | 'BTC' | 'SOL';
+export type ListingStatus = 'open' | 'fulfilled' | 'cancelled';
+
+export interface ExchangeListing {
+  id: string;
+  /** EMBR address of the seller */
+  sellerAddress: string;
+  /** Amount of EMBR locked for sale (wei string) */
+  amountEmbr: string;
+  currency: ExchangeCurrency;
+  /** Asking price in currency natural unit, e.g. "0.05" for 0.05 ETH */
+  priceAmount: string;
+  /** Seller's off-chain address to receive the payment */
+  receiveAddress: string;
+  status: ListingStatus;
+  /** @nullable */
+  buyerAddress: string | null;
+  /** @nullable */
+  paymentTxHash: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateListingInput {
+  sellerAddress: string;
+  amountEmbr: string;
+  currency: ExchangeCurrency;
+  priceAmount: string;
+  receiveAddress: string;
+}
+
+export interface CancelListingInput {
+  sellerAddress: string;
+}
+
+export interface BuyListingInput {
+  /** Buyer's EMBR address — credited on success */
+  buyerAddress: string;
+  paymentTxHash: string;
+}
+
+export type ListExchangeListingsParams = {
+  status?: ListingStatus;
+  seller?: string;
+};
+
 export type ListBlocksParams = {
 limit?: number;
 };

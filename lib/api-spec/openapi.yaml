@@ -439,6 +439,131 @@ paths:
                 items:
                   $ref: "#/components/schemas/ShieldedTxRecord"
 
+  /exchange/listings:
+    get:
+      operationId: listExchangeListings
+      tags: [exchange]
+      summary: List marketplace listings
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, fulfilled, cancelled]
+        - name: seller
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Listings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExchangeListing"
+    post:
+      operationId: createListing
+      tags: [exchange]
+      summary: Create a new EMBR-for-currency listing (locks the EMBR immediately from seller's balance)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateListingInput"
+      responses:
+        "201":
+          description: Listing created and EMBR locked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExchangeListing"
+        "400":
+          description: Invalid input or insufficient EMBR balance
+
+  /exchange/listings/{id}:
+    get:
+      operationId: getExchangeListing
+      tags: [exchange]
+      summary: Get a single exchange listing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Listing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExchangeListing"
+        "404":
+          description: Not found
+
+  /exchange/listings/{id}/cancel:
+    post:
+      operationId: cancelListing
+      tags: [exchange]
+      summary: Cancel an open listing — unlocks EMBR back to seller
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelListingInput"
+      responses:
+        "200":
+          description: Listing cancelled and EMBR returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExchangeListing"
+        "400":
+          description: Not authorized or listing not cancellable
+        "409":
+          description: Listing is being verified by a buyer right now
+
+  /exchange/listings/{id}/buy:
+    post:
+      operationId: buyListing
+      tags: [exchange]
+      summary: >
+        Submit proof of payment. Verifies the transaction on the external
+        blockchain explorer; if valid, releases locked EMBR to the buyer.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BuyListingInput"
+      responses:
+        "200":
+          description: Payment verified — EMBR released to buyer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExchangeListing"
+        "400":
+          description: Payment verification failed (wrong amount, wrong address, insufficient confirmations)
+        "409":
+          description: Listing already taken or currently being verified
+
 components:
   schemas:
     HealthStatus:
@@ -834,3 +959,86 @@ components:
           type: array
           items:
             type: string
+
+    ExchangeListing:
+      type: object
+      required: [id, sellerAddress, amountEmbr, currency, priceAmount, receiveAddress, status, buyerAddress, paymentTxHash, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        sellerAddress:
+          type: string
+          description: EMBR address of the seller
+        amountEmbr:
+          type: string
+          description: Amount of EMBR locked for sale (wei string)
+        currency:
+          type: string
+          enum: [ETH, USDT, BTC, SOL]
+        priceAmount:
+          type: string
+          description: Asking price in the currency's natural unit (e.g. "0.05" for 0.05 ETH)
+        receiveAddress:
+          type: string
+          description: Seller's off-chain address to receive the currency payment
+        status:
+          type: string
+          enum: [open, fulfilled, cancelled]
+        buyerAddress:
+          type: ["string", "null"]
+          description: EMBR address of the buyer (set on fulfillment)
+        paymentTxHash:
+          type: ["string", "null"]
+          description: External chain tx hash submitted by the buyer
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    CreateListingInput:
+      type: object
+      required: [sellerAddress, amountEmbr, currency, priceAmount, receiveAddress]
+      properties:
+        sellerAddress:
+          type: string
+          description: Seller's EMBR address — this balance is debited immediately
+        amountEmbr:
+          type: string
+          description: Amount to lock and sell (wei string)
+        currency:
+          type: string
+          enum: [ETH, USDT, BTC, SOL]
+        priceAmount:
+          type: string
+          description: Asking price in the currency's natural unit (decimal string)
+        receiveAddress:
+          type: string
+          description: Where the seller wants to receive the off-chain payment
+
+    CancelListingInput:
+      type: object
+      required: [sellerAddress]
+      properties:
+        sellerAddress:
+          type: string
+          description: Must match the listing's sellerAddress
+
+    BuyListingInput:
+      type: object
+      required: [buyerAddress, paymentTxHash]
+      properties:
+        buyerAddress:
+          type: string
+          description: The buyer's EMBR address — EMBR will be credited here on success
+        paymentTxHash:
+          type: string
+          description: Transaction hash of the payment on the external chain
+
+    ListExchangeListingsParams:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [open, fulfilled, cancelled]
+        seller:
+          type: string

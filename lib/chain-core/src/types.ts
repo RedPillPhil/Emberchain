@@ -95,3 +95,29 @@ export interface WalletRecord {
   spendPublicKey?: PrefixedHexString;
   viewPublicKey?: PrefixedHexString;
 }
+
+// ---------- P2P Exchange ----------
+
+export type ExchangeCurrency = "ETH" | "USDT" | "BTC" | "SOL";
+export type ListingStatus = "open" | "fulfilled" | "cancelled";
+
+export interface ExchangeListing {
+  id: string;
+  /** EMBR address of the seller */
+  sellerAddress: string;
+  /** Amount of EMBR locked for sale, as a decimal wei string */
+  amountEmbr: string;
+  /** Currency the seller wants to receive */
+  currency: ExchangeCurrency;
+  /** Asking price in that currency's natural unit (e.g. "0.05" ETH) */
+  priceAmount: string;
+  /** Off-chain address (ETH/BTC/SOL) where the seller wants to receive payment */
+  receiveAddress: string;
+  status: ListingStatus;
+  /** EMBR address of the buyer, set on fulfillment */
+  buyerAddress: string | null;
+  /** External chain tx hash submitted by the buyer */
+  paymentTxHash: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

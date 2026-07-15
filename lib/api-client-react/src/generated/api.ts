@@ -24,11 +24,16 @@ type HookQueryOpts<T, E, D> = Omit<UseQueryOptions<T, E, D>, 'queryKey'> & { que
 import type {
   BlockDetail,
   BlockSummary,
+  BuyListingInput,
+  CancelListingInput,
   ChainStatus,
   ContractCall,
   ContractCallResult,
+  CreateListingInput,
+  ExchangeListing,
   HealthStatus,
   ListBlocksParams,
+  ListExchangeListingsParams,
   ListPrivacyLedgerParams,
   ListTransactionsParams,
   MiningRequest,
@@ -1659,6 +1664,154 @@ export function useListPrivacyLedger<TData = Awaited<ReturnType<typeof listPriva
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
   return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+// ── P2P Exchange ─────────────────────────────────────────────────────────────
+
+export const getListExchangeListingsUrl = (params?: ListExchangeListingsParams) => {
+  const qs = params ? '?' + new URLSearchParams(Object.entries(params).filter(([,v]) => v !== undefined) as [string, string][]).toString() : '';
+  return `/api/exchange/listings${qs}`;
+}
+
+export const listExchangeListings = async (params?: ListExchangeListingsParams, options?: RequestInit): Promise<ExchangeListing[]> => {
+  return customFetch<ExchangeListing[]>(getListExchangeListingsUrl(params), {
+    ...options,
+    method: 'GET',
+  });
+}
+
+export const getListExchangeListingsQueryKey = (params?: ListExchangeListingsParams) => {
+  return [`/api/exchange/listings`, ...(params ? [params] : [])] as const;
+}
+
+export const getListExchangeListingsQueryOptions = <TData = Awaited<ReturnType<typeof listExchangeListings>>, TError = ErrorType<unknown>>(params?: ListExchangeListingsParams, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof listExchangeListings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}) => {
+  const {query: queryOptions, request: requestOptions} = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getListExchangeListingsQueryKey(params);
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listExchangeListings>>> = ({ signal }) => listExchangeListings(params, { signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof listExchangeListings>>, TError, TData> & { queryKey: QueryKey };
+}
+
+export function useListExchangeListings<TData = Awaited<ReturnType<typeof listExchangeListings>>, TError = ErrorType<unknown>>(
+  params?: ListExchangeListingsParams, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof listExchangeListings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListExchangeListingsQueryOptions(params, options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+export const getGetExchangeListingUrl = (id: string) => `/api/exchange/listings/${id}`;
+
+export const getExchangeListing = async (id: string, options?: RequestInit): Promise<ExchangeListing> => {
+  return customFetch<ExchangeListing>(getGetExchangeListingUrl(id), { ...options, method: 'GET' });
+}
+
+export const getGetExchangeListingQueryKey = (id: string) => [`/api/exchange/listings/${id}`] as const;
+
+export const getGetExchangeListingQueryOptions = <TData = Awaited<ReturnType<typeof getExchangeListing>>, TError = ErrorType<unknown>>(id: string, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getExchangeListing>>, TError, TData>, request?: SecondParameter<typeof customFetch>}) => {
+  const {query: queryOptions, request: requestOptions} = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getGetExchangeListingQueryKey(id);
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getExchangeListing>>> = ({ signal }) => getExchangeListing(id, { signal, ...requestOptions });
+  return { queryKey, queryFn, enabled: !!id, ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof getExchangeListing>>, TError, TData> & { queryKey: QueryKey };
+}
+
+export function useGetExchangeListing<TData = Awaited<ReturnType<typeof getExchangeListing>>, TError = ErrorType<unknown>>(
+  id: string, options?: { query?:HookQueryOpts<Awaited<ReturnType<typeof getExchangeListing>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetExchangeListingQueryOptions(id, options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+export const getCreateListingMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createListing>>, TError, {data: BodyType<CreateListingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createListing>>, TError, {data: BodyType<CreateListingInput>}, TContext> => {
+  const mutationKey = ['createListing'];
+  const {mutation: mutationOptions, request: requestOptions} = options ?
+    options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+    options : {...options, mutation: {...options.mutation, mutationKey}} : {mutation: { mutationKey }, request: undefined};
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof createListing>>, {data: BodyType<CreateListingInput>}> = (props) => {
+    const {data} = props ?? {};
+    return createListing(data, requestOptions);
+  };
+  return { mutationFn, ...mutationOptions };
+}
+
+export const createListing = async (data: CreateListingInput, options?: RequestInit): Promise<ExchangeListing> => {
+  return customFetch<ExchangeListing>('/api/exchange/listings', {
+    ...options, method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(data),
+  });
+}
+
+export function useCreateListing<TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createListing>>, TError, {data: BodyType<CreateListingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationResult<Awaited<ReturnType<typeof createListing>>, TError, {data: BodyType<CreateListingInput>}, TContext> {
+  const mutationOptions = getCreateListingMutationOptions(options);
+  return useMutation(mutationOptions);
+}
+
+
+export const cancelListing = async (id: string, data: CancelListingInput, options?: RequestInit): Promise<ExchangeListing> => {
+  return customFetch<ExchangeListing>(`/api/exchange/listings/${id}/cancel`, {
+    ...options, method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(data),
+  });
+}
+
+export const getCancelListingMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelListing>>, TError, {id: string; data: BodyType<CancelListingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelListing>>, TError, {id: string; data: BodyType<CancelListingInput>}, TContext> => {
+  const mutationKey = ['cancelListing'];
+  const {mutation: mutationOptions, request: requestOptions} = options ?
+    options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+    options : {...options, mutation: {...options.mutation, mutationKey}} : {mutation: { mutationKey }, request: undefined};
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelListing>>, {id: string; data: BodyType<CancelListingInput>}> = (props) => {
+    const {id, data} = props ?? {};
+    return cancelListing(id, data, requestOptions);
+  };
+  return { mutationFn, ...mutationOptions };
+}
+
+export function useCancelListing<TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelListing>>, TError, {id: string; data: BodyType<CancelListingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationResult<Awaited<ReturnType<typeof cancelListing>>, TError, {id: string; data: BodyType<CancelListingInput>}, TContext> {
+  const mutationOptions = getCancelListingMutationOptions(options);
+  return useMutation(mutationOptions);
+}
+
+
+export const buyListing = async (id: string, data: BuyListingInput, options?: RequestInit): Promise<ExchangeListing> => {
+  return customFetch<ExchangeListing>(`/api/exchange/listings/${id}/buy`, {
+    ...options, method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(data),
+  });
+}
+
+export const getBuyListingMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof buyListing>>, TError, {id: string; data: BodyType<BuyListingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof buyListing>>, TError, {id: string; data: BodyType<BuyListingInput>}, TContext> => {
+  const mutationKey = ['buyListing'];
+  const {mutation: mutationOptions, request: requestOptions} = options ?
+    options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+    options : {...options, mutation: {...options.mutation, mutationKey}} : {mutation: { mutationKey }, request: undefined};
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof buyListing>>, {id: string; data: BodyType<BuyListingInput>}> = (props) => {
+    const {id, data} = props ?? {};
+    return buyListing(id, data, requestOptions);
+  };
+  return { mutationFn, ...mutationOptions };
+}
+
+export function useBuyListing<TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof buyListing>>, TError, {id: string; data: BodyType<BuyListingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationResult<Awaited<ReturnType<typeof buyListing>>, TError, {id: string; data: BodyType<BuyListingInput>}, TContext> {
+  const mutationOptions = getBuyListingMutationOptions(options);
+  return useMutation(mutationOptions);
 }
 
 

@@ -12,11 +12,13 @@ import {
   Wallet,
   ArrowLeftRight,
   Shield,
+  Store,
 } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "OVERVIEW", icon: Activity },
   { href: "/send", label: "TRANSFER", icon: Send },
+  { href: "/exchange", label: "EXCHANGE", icon: Store },
   { href: "/privacy", label: "PRIVACY", icon: Shield },
   { href: "/mining", label: "FORGE (MINE)", icon: Flame },
   { href: "/blocks", label: "LEDGER", icon: Blocks },

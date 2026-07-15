@@ -17,6 +17,8 @@ import type {
   ShieldedTxRecord,
   StealthMeta,
   WalletRecord,
+  ExchangeListing,
+  ExchangeCurrency,
 } from "./types";
 import { getStealthMetaAddress, deriveStealthDestination, recoverStealthOwnership, scalarToHex, hexToScalarValue } from "./privacy/stealth";
 import { pedersenCommit, randomBlindingFactor, verifyCommitmentBalance } from "./privacy/commitments";
@@ -88,6 +90,9 @@ export class Blockchain {
   private privateNotes: Map<string, PrivateNote> = new Map();
   private shieldedTxs: ShieldedTxRecord[] = [];
   private spentKeyImages: Set<string> = new Set();
+  private exchangeListings: Map<string, ExchangeListing> = new Map();
+  /** In-memory only — reset on restart is intentional; open lock lets buyers retry. */
+  private verifyingListings = new Set<string>();
   /** Serialises all shielded-pool mutations so concurrent requests never race on note selection. */
   private poolLock: Promise<void> = Promise.resolve();
   private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
@@ -132,6 +137,9 @@ export class Blockchain {
         if (note.status === "spent" && note.keyImage) this.spentKeyImages.add(note.keyImage);
       }
       this.shieldedTxs = persisted.shieldedTxs ?? [];
+      for (const listing of persisted.exchangeListings ?? []) {
+        this.exchangeListings.set(listing.id, listing);
+      }
     } else {
       this.blocks = [
         {
@@ -157,7 +165,7 @@ export class Blockchain {
 
   private persist(): void {
     const data: PersistedChain = {
-      version: 2,
+      version: 3,
       difficulty: this.difficulty.toString(),
       blocks: this.blocks,
       transactions: [...this.transactions.values()],
@@ -165,6 +173,7 @@ export class Blockchain {
       state: dumpState(this.stateManager),
       privateNotes: [...this.privateNotes.values()],
       shieldedTxs: this.shieldedTxs,
+      exchangeListings: [...this.exchangeListings.values()],
     };
     saveChainFile(this.dataFile, data);
   }
@@ -938,5 +947,117 @@ export class Blockchain {
       unspentNotes: notes.filter((n) => n.status === "unspent").length,
       shieldedTxCount: this.shieldedTxs.length,
     };
+  }
+
+  // ---------- P2P Exchange ----------
+
+  private makeListingId(): string {
+    return bytesToHex(keccak256(new TextEncoder().encode(`listing:${Date.now()}:${Math.random()}`)));
+  }
+
+  async createListing(input: {
+    sellerAddress: string;
+    amountEmbr: string;
+    currency: ExchangeCurrency;
+    priceAmount: string;
+    receiveAddress: string;
+  }): Promise<ExchangeListing> {
+    await this.whenReady();
+    if (!ADDRESS_RE.test(input.sellerAddress)) throw new Error("Invalid seller EMBR address");
+    let amount: bigint;
+    try { amount = BigInt(input.amountEmbr); } catch { throw new Error("Invalid amountEmbr value"); }
+    if (amount <= 0n) throw new Error("Amount must be positive");
+    const price = parseFloat(input.priceAmount);
+    if (!isFinite(price) || price <= 0) throw new Error("Price must be a positive number");
+    if (!input.receiveAddress.trim()) throw new Error("Receive address is required");
+    if (!(["ETH", "USDT", "BTC", "SOL"] as string[]).includes(input.currency)) throw new Error("Unsupported currency");
+
+    // Debit from seller's public balance — this is the escrow lock
+    await debit(this.stateManager, input.sellerAddress as PrefixedHexString, amount);
+
+    const now = new Date().toISOString();
+    const listing: ExchangeListing = {
+      id: this.makeListingId(),
+      sellerAddress: input.sellerAddress,
+      amountEmbr: input.amountEmbr,
+      currency: input.currency,
+      priceAmount: input.priceAmount,
+      receiveAddress: input.receiveAddress,
+      status: "open",
+      buyerAddress: null,
+      paymentTxHash: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.exchangeListings.set(listing.id, listing);
+    this.persist();
+    return listing;
+  }
+
+  async cancelListing(id: string, sellerAddress: string): Promise<ExchangeListing> {
+    await this.whenReady();
+    const listing = this.exchangeListings.get(id);
+    if (!listing) throw new Error("Listing not found");
+    if (listing.status !== "open") throw new Error(`Listing cannot be cancelled — status is '${listing.status}'`);
+    if (listing.sellerAddress.toLowerCase() !== sellerAddress.toLowerCase()) {
+      throw new Error("Only the original seller can cancel this listing");
+    }
+    if (this.verifyingListings.has(id)) {
+      throw new Error("A buyer is currently verifying payment — try again in a moment");
+    }
+    await credit(this.stateManager, listing.sellerAddress as PrefixedHexString, BigInt(listing.amountEmbr));
+    listing.status = "cancelled";
+    listing.updatedAt = new Date().toISOString();
+    this.persist();
+    return listing;
+  }
+
+  /**
+   * Synchronously checks the listing is open, marks it as being verified
+   * (blocking any concurrent buy attempt), and returns it.  Because this
+   * runs entirely within a single event-loop tick (no awaits) the check +
+   * mark is atomic in Node.js's single-threaded execution model.
+   */
+  lockListingForFulfillment(id: string): ExchangeListing {
+    if (this.verifyingListings.has(id)) {
+      throw new Error("Another buyer is already verifying payment — try again in a moment");
+    }
+    const listing = this.exchangeListings.get(id);
+    if (!listing) throw new Error("Listing not found");
+    if (listing.status !== "open") throw new Error("Listing is no longer available");
+    this.verifyingListings.add(id);
+    return listing;
+  }
+
+  /** Called after successful external verification to release EMBR to the buyer. */
+  async commitFulfillment(id: string, buyerAddress: string, paymentTxHash: string): Promise<ExchangeListing> {
+    await this.whenReady();
+    if (!ADDRESS_RE.test(buyerAddress)) throw new Error("Invalid buyer EMBR address");
+    const listing = this.exchangeListings.get(id)!;
+    await credit(this.stateManager, buyerAddress as PrefixedHexString, BigInt(listing.amountEmbr));
+    listing.status = "fulfilled";
+    listing.buyerAddress = buyerAddress;
+    listing.paymentTxHash = paymentTxHash;
+    listing.updatedAt = new Date().toISOString();
+    this.verifyingListings.delete(id);
+    this.persist();
+    return listing;
+  }
+
+  /** Releases the verification lock without fulfilling (called when verification fails). */
+  unlockListing(id: string): void {
+    this.verifyingListings.delete(id);
+  }
+
+  async listExchangeListings(status?: string): Promise<ExchangeListing[]> {
+    await this.whenReady();
+    let all = [...this.exchangeListings.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    if (status) all = all.filter((l) => l.status === status);
+    return all;
+  }
+
+  async getExchangeListing(id: string): Promise<ExchangeListing | undefined> {
+    await this.whenReady();
+    return this.exchangeListings.get(id);
   }
 }

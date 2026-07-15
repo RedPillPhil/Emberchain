@@ -286,6 +286,48 @@ export const StopMiningResponse = zod.object({
 })
 
 
+// ── P2P Exchange ────────────────────────────────────────────────────────────
+
+export const ExchangeCurrencyEnum = zod.enum(["ETH", "USDT", "BTC", "SOL"]);
+export const ListingStatusEnum = zod.enum(["open", "fulfilled", "cancelled"]);
+
+export const ExchangeListing = zod.object({
+  "id": zod.string(),
+  "sellerAddress": zod.string(),
+  "amountEmbr": zod.string(),
+  "currency": ExchangeCurrencyEnum,
+  "priceAmount": zod.string(),
+  "receiveAddress": zod.string(),
+  "status": ListingStatusEnum,
+  "buyerAddress": zod.string().nullable(),
+  "paymentTxHash": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+})
+
+export const CreateListingBody = zod.object({
+  "sellerAddress": zod.string(),
+  "amountEmbr": zod.string(),
+  "currency": ExchangeCurrencyEnum,
+  "priceAmount": zod.string(),
+  "receiveAddress": zod.string(),
+})
+
+export const CancelListingBody = zod.object({
+  "sellerAddress": zod.string(),
+})
+
+export const BuyListingBody = zod.object({
+  "buyerAddress": zod.string(),
+  "paymentTxHash": zod.string(),
+})
+
+export const ListExchangeListingsParams = zod.object({
+  "status": ListingStatusEnum.optional(),
+  "seller": zod.string().optional(),
+})
+
+
 /**
  * @summary Pool statistics (total notes, unspent, shielded tx count)
  */

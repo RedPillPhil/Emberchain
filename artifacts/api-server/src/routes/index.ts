@@ -6,6 +6,7 @@ import transactionsRouter from "./transactions";
 import contractsRouter from "./contracts";
 import miningRouter from "./mining";
 import privacyRouter from "./privacy";
+import exchangeRouter from "./exchange";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(transactionsRouter);
 router.use(contractsRouter);
 router.use(miningRouter);
 router.use(privacyRouter);
+router.use(exchangeRouter);
 
 export default router;

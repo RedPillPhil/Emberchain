@@ -2,10 +2,10 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import type { PrefixedHexString } from "@ethereumjs/util";
 import type { SerializedState } from "./state";
-import type { StoredBlock, StoredTransaction, PrivateNote, ShieldedTxRecord, WalletRecord } from "./types";
+import type { StoredBlock, StoredTransaction, PrivateNote, ShieldedTxRecord, WalletRecord, ExchangeListing } from "./types";
 
 export interface PersistedChain {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   difficulty: string;
   blocks: StoredBlock[];
   transactions: StoredTransaction[];
@@ -13,6 +13,7 @@ export interface PersistedChain {
   state: SerializedState;
   privateNotes?: PrivateNote[];
   shieldedTxs?: ShieldedTxRecord[];
+  exchangeListings?: ExchangeListing[];
 }
 
 export function loadChainFile(filePath: string): PersistedChain | null {
