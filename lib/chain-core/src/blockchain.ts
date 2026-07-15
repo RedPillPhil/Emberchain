@@ -124,6 +124,16 @@ export class Blockchain {
   private readonly dataFile: string;
   private readonly asyncLoadHook?: () => Promise<PersistedChain | null>;
   private readonly asyncPersistHook?: (data: PersistedChain) => Promise<void>;
+  /**
+   * Called once during init to hydrate usedPaymentProofs from the database.
+   * Returns an array of proof keys (`${currency}:${txHash}`).
+   */
+  private readonly asyncLoadProofsHook?: () => Promise<string[]>;
+  /**
+   * Called during commitFulfillment to durably persist a newly consumed proof
+   * key to the database, independent of the chain_state JSON blob.
+   */
+  private readonly asyncSaveProofHook?: (proofKey: string, currency: string, txHash: string, listingId: string) => Promise<void>;
   private ready: Promise<void>;
   private mining: MiningState = {
     active: false,
@@ -138,10 +148,14 @@ export class Blockchain {
   constructor(dataFile: string, options?: {
     asyncLoadHook?: () => Promise<PersistedChain | null>;
     asyncPersistHook?: (data: PersistedChain) => Promise<void>;
+    asyncLoadProofsHook?: () => Promise<string[]>;
+    asyncSaveProofHook?: (proofKey: string, currency: string, txHash: string, listingId: string) => Promise<void>;
   }) {
     this.dataFile = dataFile;
     this.asyncLoadHook = options?.asyncLoadHook;
     this.asyncPersistHook = options?.asyncPersistHook;
+    this.asyncLoadProofsHook = options?.asyncLoadProofsHook;
+    this.asyncSaveProofHook = options?.asyncSaveProofHook;
     this.difficulty = BigInt(EMBERCHAIN_CONFIG.genesisDifficulty);
     this.stateManager = createStateManager(this.common);
     this.ready = this.init();
@@ -187,7 +201,28 @@ export class Blockchain {
       for (const proof of persisted.usedPaymentProofs ?? []) {
         this.usedPaymentProofs.add(proof);
       }
-    } else {
+    }
+    // Independently hydrate usedPaymentProofs from the dedicated DB table (if
+    // wired up).  This table has its own independent durability from the chain
+    // state blob, so proofs survive even if chain_state is lost or rolled back.
+    if (this.asyncLoadProofsHook) {
+      try {
+        const dbProofs = await this.asyncLoadProofsHook();
+        let added = 0;
+        for (const key of dbProofs) {
+          if (!this.usedPaymentProofs.has(key)) {
+            this.usedPaymentProofs.add(key);
+            added++;
+          }
+        }
+        if (dbProofs.length > 0) {
+          console.log(`[chain] Loaded ${dbProofs.length} proof key(s) from DB (${added} not already in chain state).`);
+        }
+      } catch (err) {
+        console.error("[chain] Failed to load proof keys from DB:", (err as Error).message);
+      }
+    }
+    if (!persisted) {
       this.blocks = [
         {
           number: 0,
@@ -1308,6 +1343,17 @@ export class Blockchain {
     this.usedPaymentProofs.add(proofKey);
     this.verifyingListings.delete(id);
     this.persist();
+    // Durably save the proof to the dedicated DB table, independent of the
+    // chain_state blob.  This ensures replay protection survives even if the
+    // chain state file/row is lost or rolled back.  Fire-and-forget with error
+    // logging mirrors the existing persist() pattern — the local file and
+    // chain_state row still protect against replay within the same session.
+    if (this.asyncSaveProofHook) {
+      const [currency, txHashLower] = proofKey.split(":");
+      this.asyncSaveProofHook(proofKey, currency, txHashLower, id).catch((err: unknown) =>
+        console.error("[chain] Failed to save proof key to DB:", (err as Error).message),
+      );
+    }
     return listing;
   }
 

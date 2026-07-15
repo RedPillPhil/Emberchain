@@ -53,10 +53,69 @@ export async function saveChainToDB(data: PersistedChain): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// used_payment_proofs — independent replay-protection table
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensures the used_payment_proofs table exists.  Called once on startup so the
+ * server is self-bootstrapping even in environments where drizzle-kit push
+ * hasn't been run manually.
+ */
+export async function ensureProofsTable(): Promise<void> {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS used_payment_proofs (
+        proof_key   TEXT        PRIMARY KEY,
+        currency    TEXT        NOT NULL,
+        tx_hash     TEXT        NOT NULL,
+        listing_id  TEXT        NOT NULL,
+        fulfilled_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+  } catch (err) {
+    console.error("[db] Could not ensure used_payment_proofs table:", (err as Error).message);
+  }
+}
+
+/** Returns all proof keys stored in the dedicated table. */
+export async function loadProofsFromDB(): Promise<string[]> {
+  try {
+    const { rows } = await pool.query<{ proof_key: string }>(
+      "SELECT proof_key FROM used_payment_proofs",
+    );
+    return rows.map((r) => r.proof_key);
+  } catch (err) {
+    console.error("[db] Could not load proof keys from database:", (err as Error).message);
+    return [];
+  }
+}
+
+/** Inserts a consumed proof key; silently ignores duplicate-key conflicts. */
+export async function saveProofToDB(
+  proofKey: string,
+  currency: string,
+  txHash: string,
+  listingId: string,
+): Promise<void> {
+  try {
+    await pool.query(
+      `INSERT INTO used_payment_proofs (proof_key, currency, tx_hash, listing_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (proof_key) DO NOTHING`,
+      [proofKey, currency, txHash, listingId],
+    );
+  } catch (err) {
+    console.error("[db] Could not save proof key to database:", (err as Error).message);
+  }
+}
+
 /** Pass these to the Blockchain constructor so it uses PG for persistence. */
 export function createChainPersistenceHooks() {
   return {
     asyncLoadHook: loadChainFromDB,
     asyncPersistHook: saveChainToDB,
+    asyncLoadProofsHook: loadProofsFromDB,
+    asyncSaveProofHook: saveProofToDB,
   };
 }
