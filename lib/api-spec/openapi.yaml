@@ -3,13 +3,23 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Emberchain node API — a proof-of-work smart-contract blockchain
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: wallet
+    description: Wallet operations
+  - name: chain
+    description: Chain explorer operations
+  - name: transactions
+    description: Transaction submission and lookup
+  - name: contracts
+    description: Smart contract calls
+  - name: mining
+    description: Mining control
 paths:
   /healthz:
     get:
@@ -24,6 +34,251 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /wallets:
+    post:
+      operationId: createWallet
+      tags: [wallet]
+      summary: Create or import a wallet
+      description: Generates a brand-new Emberchain wallet, or imports one from an existing private key.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletImport"
+      responses:
+        "201":
+          description: Wallet created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletSecret"
+    get:
+      operationId: listWallets
+      tags: [wallet]
+      summary: List wallets known to this node
+      responses:
+        "200":
+          description: Wallets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Wallet"
+
+  /wallets/{address}:
+    get:
+      operationId: getWallet
+      tags: [wallet]
+      summary: Get wallet balance and nonce
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Wallet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "404":
+          description: Not found
+
+  /chain/status:
+    get:
+      operationId: getChainStatus
+      tags: [chain]
+      summary: Get overall chain and mining status
+      responses:
+        "200":
+          description: Chain status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChainStatus"
+
+  /chain/blocks:
+    get:
+      operationId: listBlocks
+      tags: [chain]
+      summary: List most recent blocks
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Blocks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BlockSummary"
+
+  /chain/blocks/{number}:
+    get:
+      operationId: getBlock
+      tags: [chain]
+      summary: Get a single block with its transactions
+      parameters:
+        - name: number
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Block
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockDetail"
+        "404":
+          description: Not found
+
+  /transactions:
+    post:
+      operationId: createTransaction
+      tags: [transactions]
+      summary: Sign and submit a transaction (transfer, contract deployment, or contract call)
+      description: >
+        Set `to` to null to deploy a contract (in that case `data` is the contract bytecode plus
+        constructor arguments). Set `to` to a contract address with encoded call `data` to invoke it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransactionInput"
+      responses:
+        "201":
+          description: Transaction accepted into the mempool
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "400":
+          description: Invalid transaction
+    get:
+      operationId: listTransactions
+      tags: [transactions]
+      summary: List recent transactions, optionally filtered by address
+      parameters:
+        - name: address
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transaction"
+
+  /transactions/{hash}:
+    get:
+      operationId: getTransaction
+      tags: [transactions]
+      summary: Get a transaction and its receipt
+      parameters:
+        - name: hash
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "404":
+          description: Not found
+
+  /contracts/call:
+    post:
+      operationId: callContract
+      tags: [contracts]
+      summary: Read-only contract call (no state change, no gas spent, not mined)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContractCall"
+      responses:
+        "200":
+          description: Call result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractCallResult"
+        "400":
+          description: Call failed
+
+  /mining/status:
+    get:
+      operationId: getMiningStatus
+      tags: [mining]
+      summary: Get current mining status
+      responses:
+        "200":
+          description: Mining status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MiningStatus"
+
+  /mining/start:
+    post:
+      operationId: startMining
+      tags: [mining]
+      summary: Start mining from a wallet address (block rewards pay out to this address)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MiningRequest"
+      responses:
+        "200":
+          description: Mining started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MiningStatus"
+        "400":
+          description: Invalid miner address
+
+  /mining/stop:
+    post:
+      operationId: stopMining
+      tags: [mining]
+      summary: Stop mining
+      responses:
+        "200":
+          description: Mining stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MiningStatus"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +289,226 @@ components:
       required:
         - status
 
+    WalletImport:
+      type: object
+      properties:
+        privateKey:
+          type: ["string", "null"]
+          description: Optional existing private key (0x-prefixed hex) to import instead of generating a new wallet.
+
+    Wallet:
+      type: object
+      required: [address, balance, nonce]
+      properties:
+        address:
+          type: string
+        balance:
+          type: string
+          description: Balance in the smallest unit (emb), as a decimal string.
+        nonce:
+          type: integer
+
+    WalletSecret:
+      allOf:
+        - $ref: "#/components/schemas/Wallet"
+        - type: object
+          required: [privateKey, publicKey]
+          properties:
+            privateKey:
+              type: string
+              description: 0x-prefixed hex private key. Shown once — store it safely.
+            publicKey:
+              type: string
+
+    ChainStatus:
+      type: object
+      required:
+        - chainName
+        - symbol
+        - height
+        - latestBlockHash
+        - difficulty
+        - targetBlockTimeSeconds
+        - pendingTransactionCount
+        - isMining
+        - minerAddress
+        - blockReward
+      properties:
+        chainName:
+          type: string
+        symbol:
+          type: string
+        height:
+          type: integer
+        latestBlockHash:
+          type: string
+        difficulty:
+          type: string
+        targetBlockTimeSeconds:
+          type: integer
+        pendingTransactionCount:
+          type: integer
+        isMining:
+          type: boolean
+        minerAddress:
+          type: ["string", "null"]
+        blockReward:
+          type: string
+
+    BlockSummary:
+      type: object
+      required:
+        - number
+        - hash
+        - parentHash
+        - timestamp
+        - miner
+        - difficulty
+        - transactionCount
+        - nonce
+      properties:
+        number:
+          type: integer
+        hash:
+          type: string
+        parentHash:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        miner:
+          type: string
+        difficulty:
+          type: string
+        transactionCount:
+          type: integer
+        nonce:
+          type: string
+
+    BlockDetail:
+      allOf:
+        - $ref: "#/components/schemas/BlockSummary"
+        - type: object
+          required: [stateRoot, reward, transactions]
+          properties:
+            stateRoot:
+              type: string
+            reward:
+              type: string
+            transactions:
+              type: array
+              items:
+                $ref: "#/components/schemas/Transaction"
+
+    TransactionInput:
+      type: object
+      required: [fromPrivateKey, to, value]
+      properties:
+        fromPrivateKey:
+          type: string
+          description: 0x-prefixed hex private key used to sign this transaction.
+        to:
+          type: ["string", "null"]
+          description: Recipient or contract address. Null to deploy a new contract.
+        value:
+          type: string
+          description: Amount to send in emb (smallest unit), as a decimal string. Use "0" for contract calls.
+        data:
+          type: string
+          description: 0x-prefixed hex call data or contract creation bytecode.
+          default: "0x"
+        gasLimit:
+          type: string
+          default: "3000000"
+
+    Transaction:
+      type: object
+      required:
+        - hash
+        - from
+        - to
+        - value
+        - nonce
+        - gasLimit
+        - status
+        - blockNumber
+        - contractAddress
+        - gasUsed
+        - createdAt
+      properties:
+        hash:
+          type: string
+        from:
+          type: string
+        to:
+          type: ["string", "null"]
+        value:
+          type: string
+        nonce:
+          type: integer
+        gasLimit:
+          type: string
+        status:
+          type: string
+          enum: [pending, success, failed]
+        blockNumber:
+          type: ["integer", "null"]
+        contractAddress:
+          type: ["string", "null"]
+        gasUsed:
+          type: ["string", "null"]
+        error:
+          type: ["string", "null"]
+        returnData:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    ContractCall:
+      type: object
+      required: [to, data]
+      properties:
+        to:
+          type: string
+        data:
+          type: string
+        from:
+          type: ["string", "null"]
+
+    ContractCallResult:
+      type: object
+      required: [success, returnData, gasUsed]
+      properties:
+        success:
+          type: boolean
+        returnData:
+          type: string
+        gasUsed:
+          type: string
+        error:
+          type: ["string", "null"]
+
+    MiningRequest:
+      type: object
+      required: [minerAddress]
+      properties:
+        minerAddress:
+          type: string
+
+    MiningStatus:
+      type: object
+      required: [isMining, minerAddress, difficulty, blocksMined, hashRate, blockReward]
+      properties:
+        isMining:
+          type: boolean
+        minerAddress:
+          type: ["string", "null"]
+        difficulty:
+          type: string
+        blocksMined:
+          type: integer
+        hashRate:
+          type: number
+        blockReward:
+          type: string
