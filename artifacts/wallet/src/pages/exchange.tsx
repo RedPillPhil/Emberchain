@@ -123,8 +123,22 @@ function BuyPanel({
         onClose();
       },
       onError: (err: unknown) => {
-        const msg = (err as { message?: string })?.message ?? "Verification failed";
-        toast({ variant: "destructive", title: "Verification failed", description: msg });
+        // ApiError from custom-fetch carries the parsed response body in `.data`.
+        const data = (err as { data?: { code?: string; originalListingId?: string; currency?: string; error?: string } })?.data;
+
+        if (data?.code === "DUPLICATE_PROOF") {
+          const detail = data.originalListingId
+            ? `This ${data.currency ?? ""} transaction was already used to fulfill listing ${data.originalListingId}. Each payment transaction can only be used once.`.trim()
+            : "This transaction was already used to fulfill a different listing. Each payment transaction can only be used once.";
+          toast({
+            variant: "destructive",
+            title: "Transaction already used",
+            description: detail,
+          });
+        } else {
+          const msg = (err as { message?: string })?.message ?? "Verification failed";
+          toast({ variant: "destructive", title: "Verification failed", description: msg });
+        }
       },
     },
   });

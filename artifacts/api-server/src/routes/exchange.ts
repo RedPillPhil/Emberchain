@@ -7,6 +7,7 @@ import {
 } from "@workspace/api-zod";
 import { chain } from "../lib/chain";
 import { verifyPayment } from "../lib/payment-verifier";
+import { getProofByTxHash } from "../lib/db";
 
 const router: IRouter = Router();
 
@@ -67,7 +68,22 @@ router.post("/exchange/listings/:id/buy", async (req: Request<IdParams>, res: Re
   try {
     listing = chain.lockListingForFulfillment(id, body.paymentTxHash);
   } catch (err) {
-    res.status(409).json({ error: err instanceof Error ? err.message : "Listing not available" });
+    const msg = err instanceof Error ? err.message : "Listing not available";
+    // "already used" indicates a duplicate payment proof — look up the original
+    // listing so we can surface a specific, actionable error to the buyer.
+    if (msg.includes("already used")) {
+      const existing = await getProofByTxHash(body.paymentTxHash);
+      res.status(409).json({
+        error: existing
+          ? `This ${existing.currency} transaction has already been used to fulfill listing ${existing.listingId}. Each payment transaction can only be used once.`
+          : "This transaction has already been used to fulfill a previous listing. Each payment transaction can only be used once.",
+        code: "DUPLICATE_PROOF",
+        originalListingId: existing?.listingId ?? null,
+        currency: existing?.currency ?? null,
+      });
+    } else {
+      res.status(409).json({ error: msg });
+    }
     return;
   }
 

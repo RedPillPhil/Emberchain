@@ -91,6 +91,39 @@ export async function loadProofsFromDB(): Promise<string[]> {
   }
 }
 
+/**
+ * Looks up a proof record by the external transaction hash.
+ * Used to surface the original listing ID in duplicate-proof error responses.
+ */
+export async function getProofByTxHash(txHash: string): Promise<{
+  proofKey: string;
+  currency: string;
+  txHash: string;
+  listingId: string;
+} | null> {
+  try {
+    const { rows } = await pool.query<{
+      proof_key: string;
+      currency: string;
+      tx_hash: string;
+      listing_id: string;
+    }>(
+      "SELECT proof_key, currency, tx_hash, listing_id FROM used_payment_proofs WHERE tx_hash = $1 LIMIT 1",
+      [txHash.toLowerCase()],
+    );
+    if (!rows[0]) return null;
+    return {
+      proofKey: rows[0].proof_key,
+      currency: rows[0].currency,
+      txHash: rows[0].tx_hash,
+      listingId: rows[0].listing_id,
+    };
+  } catch (err) {
+    console.error("[db] Could not query proof by tx_hash:", (err as Error).message);
+    return null;
+  }
+}
+
 /** Inserts a consumed proof key; silently ignores duplicate-key conflicts. */
 export async function saveProofToDB(
   proofKey: string,
