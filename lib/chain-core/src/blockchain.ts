@@ -122,6 +122,8 @@ export class Blockchain {
   }
   private difficulty: bigint;
   private readonly dataFile: string;
+  private readonly asyncLoadHook?: () => Promise<PersistedChain | null>;
+  private readonly asyncPersistHook?: (data: PersistedChain) => Promise<void>;
   private ready: Promise<void>;
   private mining: MiningState = {
     active: false,
@@ -133,15 +135,41 @@ export class Blockchain {
     loop: null,
   };
 
-  constructor(dataFile: string) {
+  constructor(dataFile: string, options?: {
+    asyncLoadHook?: () => Promise<PersistedChain | null>;
+    asyncPersistHook?: (data: PersistedChain) => Promise<void>;
+  }) {
     this.dataFile = dataFile;
+    this.asyncLoadHook = options?.asyncLoadHook;
+    this.asyncPersistHook = options?.asyncPersistHook;
     this.difficulty = BigInt(EMBERCHAIN_CONFIG.genesisDifficulty);
     this.stateManager = createStateManager(this.common);
     this.ready = this.init();
   }
 
   private async init(): Promise<void> {
-    const persisted = loadChainFile(this.dataFile);
+    // Try the async hook (database) first — always fresher than the local file
+    // across redeploys.  Fall back to the file when the DB row is absent
+    // (e.g. first boot after migration) so nothing is lost.
+    let persisted: PersistedChain | null = null;
+    if (this.asyncLoadHook) {
+      persisted = await this.asyncLoadHook();
+      if (persisted) console.log("[chain] State loaded from database.");
+    }
+    if (!persisted) {
+      persisted = loadChainFile(this.dataFile);
+      if (persisted) {
+        console.log("[chain] State loaded from local file.");
+        // Seed the DB immediately so future restarts load from DB.
+        if (this.asyncPersistHook) {
+          this.asyncPersistHook(persisted).then(() =>
+            console.log("[chain] Initial state seeded to database.")
+          ).catch((err: unknown) =>
+            console.error("[chain] Failed to seed state to database:", (err as Error).message)
+          );
+        }
+      }
+    }
     if (persisted) {
       this.difficulty = BigInt(persisted.difficulty);
       this.blocks = persisted.blocks;
@@ -196,6 +224,13 @@ export class Blockchain {
       usedPaymentProofs: [...this.usedPaymentProofs],
     };
     saveChainFile(this.dataFile, data);
+    // Fire-and-forget database upsert.  If PG is briefly unavailable the
+    // local file keeps us running; the next successful persist catches PG up.
+    if (this.asyncPersistHook) {
+      this.asyncPersistHook(data).catch((err: unknown) =>
+        console.error("[chain] Async DB persist failed:", (err as Error).message),
+      );
+    }
   }
 
   /** Registers (or backfills) a wallet's public stealth meta-address whenever we see its private key. */
