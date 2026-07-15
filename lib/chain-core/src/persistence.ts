@@ -14,6 +14,8 @@ export interface PersistedChain {
   privateNotes?: PrivateNote[];
   shieldedTxs?: ShieldedTxRecord[];
   exchangeListings?: ExchangeListing[];
+  /** Persisted set of `${currency}:${txHash}` strings used to prevent payment-proof replay. */
+  usedPaymentProofs?: string[];
 }
 
 export function loadChainFile(filePath: string): PersistedChain | null {

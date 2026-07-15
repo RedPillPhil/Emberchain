@@ -349,7 +349,7 @@ function CreateListingTab() {
 
     create.mutate({
       data: {
-        sellerAddress: activeWallet.address,
+        sellerPrivateKey: activeWallet.privateKey,
         amountEmbr: amountWei,
         currency,
         priceAmount: priceAmount.trim(),
@@ -532,12 +532,12 @@ function MyListingsTab() {
               size="sm"
               variant="outline"
               onClick={() =>
-                cancel.mutate({ id: listing.id, data: { sellerAddress: activeWallet!.address } })
+                cancel.mutate({ id: listing.id, data: { sellerPrivateKey: activeWallet!.privateKey } })
               }
               disabled={cancel.isPending}
               className="shrink-0 border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
             >
-              {cancel.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Cancel"}
+              {cancel.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Cancel listing"}
             </Button>
           )}
         </div>

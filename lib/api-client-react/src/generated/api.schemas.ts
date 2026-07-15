@@ -289,7 +289,8 @@ export interface ExchangeListing {
 }
 
 export interface CreateListingInput {
-  sellerAddress: string;
+  /** 0x-prefixed hex private key. Server derives the seller address — never sent as plain address. */
+  sellerPrivateKey: string;
   amountEmbr: string;
   currency: ExchangeCurrency;
   priceAmount: string;
@@ -297,7 +298,8 @@ export interface CreateListingInput {
 }
 
 export interface CancelListingInput {
-  sellerAddress: string;
+  /** 0x-prefixed hex private key of the original seller. */
+  sellerPrivateKey: string;
 }
 
 export interface BuyListingInput {

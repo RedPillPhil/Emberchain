@@ -306,7 +306,7 @@ export const ExchangeListing = zod.object({
 })
 
 export const CreateListingBody = zod.object({
-  "sellerAddress": zod.string(),
+  "sellerPrivateKey": zod.string().describe("0x-prefixed hex private key. Address is derived server-side."),
   "amountEmbr": zod.string(),
   "currency": ExchangeCurrencyEnum,
   "priceAmount": zod.string(),
@@ -314,7 +314,7 @@ export const CreateListingBody = zod.object({
 })
 
 export const CancelListingBody = zod.object({
-  "sellerAddress": zod.string(),
+  "sellerPrivateKey": zod.string().describe("0x-prefixed hex private key of the original seller."),
 })
 
 export const BuyListingBody = zod.object({

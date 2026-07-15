@@ -997,11 +997,11 @@ components:
 
     CreateListingInput:
       type: object
-      required: [sellerAddress, amountEmbr, currency, priceAmount, receiveAddress]
+      required: [sellerPrivateKey, amountEmbr, currency, priceAmount, receiveAddress]
       properties:
-        sellerAddress:
+        sellerPrivateKey:
           type: string
-          description: Seller's EMBR address — this balance is debited immediately
+          description: 0x-prefixed hex private key. Server derives the seller address — never trust the client to supply an address.
         amountEmbr:
           type: string
           description: Amount to lock and sell (wei string)
@@ -1017,11 +1017,11 @@ components:
 
     CancelListingInput:
       type: object
-      required: [sellerAddress]
+      required: [sellerPrivateKey]
       properties:
-        sellerAddress:
+        sellerPrivateKey:
           type: string
-          description: Must match the listing's sellerAddress
+          description: 0x-prefixed hex private key of the original seller. Server derives and verifies the address.
 
     BuyListingInput:
       type: object

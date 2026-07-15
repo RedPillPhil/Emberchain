@@ -93,6 +93,22 @@ export class Blockchain {
   private exchangeListings: Map<string, ExchangeListing> = new Map();
   /** In-memory only — reset on restart is intentional; open lock lets buyers retry. */
   private verifyingListings = new Set<string>();
+  /**
+   * Persisted set of already-committed payment proofs keyed by
+   * `${currency}:${txHash}` (lowercase).  Prevents the same external tx from
+   * being replayed across multiple listings even after server restarts.
+   */
+  private usedPaymentProofs: Set<string> = new Set();
+  /**
+   * In-memory proof keys currently under active verification
+   * (`${currency}:${txHash}`).  Reserved synchronously at lock time (before
+   * any await), so no two concurrent buy flows can claim the same proof
+   * simultaneously — even across different listings.  Reset on restart is
+   * intentional: any in-flight verification is abandoned, letting buyers retry.
+   */
+  private pendingProofs: Set<string> = new Set();
+  /** Maps listingId → proofKey so unlockListing can release the reservation. */
+  private listingProofKeys: Map<string, string> = new Map();
   /** Serialises all shielded-pool mutations so concurrent requests never race on note selection. */
   private poolLock: Promise<void> = Promise.resolve();
   private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
@@ -140,6 +156,9 @@ export class Blockchain {
       for (const listing of persisted.exchangeListings ?? []) {
         this.exchangeListings.set(listing.id, listing);
       }
+      for (const proof of persisted.usedPaymentProofs ?? []) {
+        this.usedPaymentProofs.add(proof);
+      }
     } else {
       this.blocks = [
         {
@@ -174,6 +193,7 @@ export class Blockchain {
       privateNotes: [...this.privateNotes.values()],
       shieldedTxs: this.shieldedTxs,
       exchangeListings: [...this.exchangeListings.values()],
+      usedPaymentProofs: [...this.usedPaymentProofs],
     };
     saveChainFile(this.dataFile, data);
   }
@@ -956,14 +976,18 @@ export class Blockchain {
   }
 
   async createListing(input: {
-    sellerAddress: string;
+    /** 0x-prefixed hex private key. Address is derived server-side — never trusted from the client. */
+    sellerPrivateKey: string;
     amountEmbr: string;
     currency: ExchangeCurrency;
     priceAmount: string;
     receiveAddress: string;
   }): Promise<ExchangeListing> {
     await this.whenReady();
-    if (!ADDRESS_RE.test(input.sellerAddress)) throw new Error("Invalid seller EMBR address");
+    // Derive the seller's address from their private key — this is the auth proof.
+    const sellerWallet = walletFromPrivateKey(input.sellerPrivateKey);
+    const sellerAddress = sellerWallet.address;
+
     let amount: bigint;
     try { amount = BigInt(input.amountEmbr); } catch { throw new Error("Invalid amountEmbr value"); }
     if (amount <= 0n) throw new Error("Amount must be positive");
@@ -973,12 +997,12 @@ export class Blockchain {
     if (!(["ETH", "USDT", "BTC", "SOL"] as string[]).includes(input.currency)) throw new Error("Unsupported currency");
 
     // Debit from seller's public balance — this is the escrow lock
-    await debit(this.stateManager, input.sellerAddress as PrefixedHexString, amount);
+    await debit(this.stateManager, sellerAddress as PrefixedHexString, amount);
 
     const now = new Date().toISOString();
     const listing: ExchangeListing = {
       id: this.makeListingId(),
-      sellerAddress: input.sellerAddress,
+      sellerAddress,
       amountEmbr: input.amountEmbr,
       currency: input.currency,
       priceAmount: input.priceAmount,
@@ -994,13 +1018,16 @@ export class Blockchain {
     return listing;
   }
 
-  async cancelListing(id: string, sellerAddress: string): Promise<ExchangeListing> {
+  async cancelListing(id: string, sellerPrivateKey: string): Promise<ExchangeListing> {
     await this.whenReady();
+    // Derive address from the supplied private key — this is the auth proof.
+    const callerWallet = walletFromPrivateKey(sellerPrivateKey);
+    const callerAddress = callerWallet.address;
     const listing = this.exchangeListings.get(id);
     if (!listing) throw new Error("Listing not found");
     if (listing.status !== "open") throw new Error(`Listing cannot be cancelled — status is '${listing.status}'`);
-    if (listing.sellerAddress.toLowerCase() !== sellerAddress.toLowerCase()) {
-      throw new Error("Only the original seller can cancel this listing");
+    if (listing.sellerAddress.toLowerCase() !== callerAddress.toLowerCase()) {
+      throw new Error("Private key does not match the seller's wallet for this listing");
     }
     if (this.verifyingListings.has(id)) {
       throw new Error("A buyer is currently verifying payment — try again in a moment");
@@ -1013,19 +1040,40 @@ export class Blockchain {
   }
 
   /**
-   * Synchronously checks the listing is open, marks it as being verified
-   * (blocking any concurrent buy attempt), and returns it.  Because this
-   * runs entirely within a single event-loop tick (no awaits) the check +
-   * mark is atomic in Node.js's single-threaded execution model.
+   * Synchronously checks the listing is open AND reserves the payment proof,
+   * then marks the listing as being verified.  Everything happens in one
+   * event-loop tick with no awaits, so the combined check+reserve is atomic
+   * in Node.js's single-threaded model.
+   *
+   * Two concurrent calls for the **same listing** are blocked by
+   * `verifyingListings`.  Two concurrent calls with the **same external tx
+   * hash** on *different* listings are blocked by `pendingProofs` +
+   * `usedPaymentProofs`, preventing any proof-replay attack.
    */
-  lockListingForFulfillment(id: string): ExchangeListing {
+  lockListingForFulfillment(id: string, paymentTxHash: string): ExchangeListing {
     if (this.verifyingListings.has(id)) {
-      throw new Error("Another buyer is already verifying payment — try again in a moment");
+      throw new Error("Another buyer is already verifying payment on this listing — try again in a moment");
     }
     const listing = this.exchangeListings.get(id);
     if (!listing) throw new Error("Listing not found");
     if (listing.status !== "open") throw new Error("Listing is no longer available");
+
+    // Reserve the proof key before any async work — prevents cross-listing replay.
+    const proofKey = `${listing.currency}:${paymentTxHash.toLowerCase()}`;
+    if (this.usedPaymentProofs.has(proofKey)) {
+      throw new Error(
+        `This ${listing.currency} transaction was already used to fulfill a previous listing`,
+      );
+    }
+    if (this.pendingProofs.has(proofKey)) {
+      throw new Error(
+        `This ${listing.currency} transaction is already being verified for another listing — try again shortly`,
+      );
+    }
+
     this.verifyingListings.add(id);
+    this.pendingProofs.add(proofKey);
+    this.listingProofKeys.set(id, proofKey);
     return listing;
   }
 
@@ -1034,18 +1082,30 @@ export class Blockchain {
     await this.whenReady();
     if (!ADDRESS_RE.test(buyerAddress)) throw new Error("Invalid buyer EMBR address");
     const listing = this.exchangeListings.get(id)!;
+
+    // The proof key was already reserved synchronously in lockListingForFulfillment;
+    // move it from pending → used and credit the buyer.
+    const proofKey = this.listingProofKeys.get(id) ?? `${listing.currency}:${paymentTxHash.toLowerCase()}`;
     await credit(this.stateManager, buyerAddress as PrefixedHexString, BigInt(listing.amountEmbr));
     listing.status = "fulfilled";
     listing.buyerAddress = buyerAddress;
     listing.paymentTxHash = paymentTxHash;
     listing.updatedAt = new Date().toISOString();
+    this.pendingProofs.delete(proofKey);
+    this.listingProofKeys.delete(id);
+    this.usedPaymentProofs.add(proofKey);
     this.verifyingListings.delete(id);
     this.persist();
     return listing;
   }
 
-  /** Releases the verification lock without fulfilling (called when verification fails). */
+  /** Releases verification lock and proof reservation (called when verification fails). */
   unlockListing(id: string): void {
+    const proofKey = this.listingProofKeys.get(id);
+    if (proofKey) {
+      this.pendingProofs.delete(proofKey);
+      this.listingProofKeys.delete(id);
+    }
     this.verifyingListings.delete(id);
   }
 
