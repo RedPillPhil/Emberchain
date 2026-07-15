@@ -38,8 +38,9 @@ function etherscanKey(): string {
 
 async function etherscanGet(params: Record<string, string>): Promise<unknown> {
   const key = etherscanKey();
-  const qs = new URLSearchParams({ ...params, apikey: key }).toString();
-  const res = await fetch(`https://api.etherscan.io/api?${qs}`, {
+  // V2 API — requires chainid; chainid=1 is Ethereum mainnet
+  const qs = new URLSearchParams({ chainid: "1", ...params, apikey: key }).toString();
+  const res = await fetch(`https://api.etherscan.io/v2/api?${qs}`, {
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`Etherscan HTTP ${res.status}`);
