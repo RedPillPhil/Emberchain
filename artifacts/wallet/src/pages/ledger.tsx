@@ -4,6 +4,7 @@ import {
   useGetWallet,
   useGetTransaction,
   useListTransactions,
+  useListWallets,
 } from "@workspace/api-client-react";
 import type { Transaction, Wallet } from "@workspace/api-client-react";
 import { Link } from "wouter";
@@ -26,6 +27,8 @@ import {
   Copy,
   Database,
   AlertTriangle,
+  Trophy,
+  Medal,
 } from "lucide-react";
 import { cn, formatEmbr, formatHash } from "@/lib/utils";
 
@@ -325,6 +328,171 @@ function NotFoundCard({ label, sub }: { label: string; sub: string }) {
   );
 }
 
+// ── top holders ───────────────────────────────────────────────────────────────
+
+function RankBadge({ rank }: { rank: number }) {
+  if (rank === 1) return (
+    <span className="inline-flex items-center justify-center w-7 h-7 rounded-sm bg-yellow-500/20 border border-yellow-500/50 text-yellow-400">
+      <Trophy className="w-3.5 h-3.5" />
+    </span>
+  );
+  if (rank === 2) return (
+    <span className="inline-flex items-center justify-center w-7 h-7 rounded-sm bg-slate-400/20 border border-slate-400/40 text-slate-300">
+      <Medal className="w-3.5 h-3.5" />
+    </span>
+  );
+  if (rank === 3) return (
+    <span className="inline-flex items-center justify-center w-7 h-7 rounded-sm bg-orange-700/20 border border-orange-700/40 text-orange-400">
+      <Medal className="w-3.5 h-3.5" />
+    </span>
+  );
+  return (
+    <span className="inline-flex items-center justify-center w-7 h-7 rounded-sm bg-secondary/50 border border-border text-muted-foreground font-mono text-xs font-bold">
+      {rank}
+    </span>
+  );
+}
+
+function TopHolders({ onAddressClick }: { onAddressClick: (a: string) => void }) {
+  const { activeWallet } = useActiveWallet();
+  const { data: wallets, isLoading } = useListWallets({
+    query: { refetchInterval: 15000 },
+  });
+
+  const sorted = wallets
+    ? [...wallets]
+        .filter((w) => BigInt(w.balance) > 0n)
+        .sort((a, b) => (BigInt(b.balance) > BigInt(a.balance) ? 1 : -1))
+        .slice(0, 20)
+    : [];
+
+  const totalSupply = wallets
+    ? wallets.reduce((sum, w) => sum + BigInt(w.balance), 0n)
+    : 0n;
+
+  return (
+    <div className="mt-8">
+      {/* Section header */}
+      <div className="flex items-center gap-2 mb-4">
+        <Trophy className="w-4 h-4 text-yellow-400" />
+        <span className="font-sans font-bold uppercase tracking-widest text-sm text-foreground">
+          Top Holders
+        </span>
+        {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
+        {sorted.length > 0 && (
+          <span className="ml-auto text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground">
+            {sorted.length} accounts with balance
+          </span>
+        )}
+      </div>
+
+      <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+        {isLoading ? (
+          <div className="p-8 text-center text-muted-foreground font-sans font-bold uppercase tracking-widest text-sm animate-pulse flex items-center justify-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading holders…
+          </div>
+        ) : sorted.length === 0 ? (
+          <div className="p-8 text-center text-muted-foreground font-sans font-bold uppercase tracking-widest text-sm">
+            No accounts with a balance yet.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-secondary/50 border-b border-border font-sans uppercase tracking-widest text-muted-foreground text-[10px]">
+                <tr>
+                  <th className="p-3 font-bold w-10">#</th>
+                  <th className="p-3 font-bold">Address</th>
+                  <th className="p-3 font-bold text-right">Balance</th>
+                  <th className="p-3 font-bold text-right hidden sm:table-cell">Share</th>
+                  <th className="p-3 font-bold text-right hidden md:table-cell">Txs Sent</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {sorted.map((w, i) => {
+                  const rank = i + 1;
+                  const isMe = activeWallet?.address.toLowerCase() === w.address.toLowerCase();
+                  const pct = totalSupply > 0n
+                    ? Number((BigInt(w.balance) * 10000n) / totalSupply) / 100
+                    : 0;
+                  const barWidth = Math.max(pct, 0.5);
+
+                  return (
+                    <tr
+                      key={w.address}
+                      className={cn(
+                        "hover:bg-secondary/20 transition-colors group",
+                        isMe && "bg-primary/5",
+                      )}
+                    >
+                      {/* Rank */}
+                      <td className="p-3">
+                        <RankBadge rank={rank} />
+                      </td>
+
+                      {/* Address */}
+                      <td className="p-3 font-mono text-sm">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            onClick={() => onAddressClick(w.address)}
+                            className="text-primary hover:underline font-bold"
+                            title={w.address}
+                          >
+                            <span className="hidden sm:inline">{w.address}</span>
+                            <span className="sm:hidden">{w.address.slice(0, 10)}…{w.address.slice(-6)}</span>
+                          </button>
+                          {isMe && (
+                            <Pill className="bg-primary/10 text-primary border-primary/40">
+                              You
+                            </Pill>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Balance + bar */}
+                      <td className="p-3 text-right">
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={cn("font-mono font-bold text-sm", rank === 1 && "text-yellow-400")}>
+                            {formatEmbr(w.balance)}
+                          </span>
+                          <span className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground">EMBR</span>
+                          {/* mini bar */}
+                          <div className="w-24 h-1 bg-secondary rounded-full overflow-hidden hidden sm:block">
+                            <div
+                              className={cn(
+                                "h-full rounded-full",
+                                rank === 1 ? "bg-yellow-400" : rank === 2 ? "bg-slate-400" : rank === 3 ? "bg-orange-500" : "bg-primary/60",
+                              )}
+                              style={{ width: `${Math.min(barWidth, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Share % */}
+                      <td className="p-3 text-right hidden sm:table-cell">
+                        <span className="font-mono text-sm text-muted-foreground font-bold">
+                          {pct.toFixed(2)}%
+                        </span>
+                      </td>
+
+                      {/* Nonce / txs sent */}
+                      <td className="p-3 text-right hidden md:table-cell">
+                        <span className="font-mono text-sm text-muted-foreground">
+                          {w.nonce}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 // ── main page ─────────────────────────────────────────────────────────────────
 
 export default function Ledger() {
@@ -418,36 +586,39 @@ export default function Ledger() {
 
       {/* Empty state */}
       {!trimmed && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="border border-border rounded-sm p-6 bg-card/30">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-8 h-8 rounded-sm bg-accent/10 border border-accent/30 flex items-center justify-center">
-                <Hash className="w-4 h-4 text-accent" />
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="border border-border rounded-sm p-6 bg-card/30">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-8 h-8 rounded-sm bg-accent/10 border border-accent/30 flex items-center justify-center">
+                  <Hash className="w-4 h-4 text-accent" />
+                </div>
+                <span className="font-sans font-bold uppercase tracking-widest text-sm">Transaction Hash</span>
               </div>
-              <span className="font-sans font-bold uppercase tracking-widest text-sm">Transaction Hash</span>
+              <p className="text-muted-foreground font-sans text-sm leading-relaxed">
+                Paste a 66-character hex string starting with <code className="text-accent font-mono text-xs">0x</code> to view status, sender, recipient, value, gas, and any revert reason.
+              </p>
+              <div className="mt-3 font-mono text-xs text-muted-foreground/60 break-all">
+                0x4f2a…b7c3
+              </div>
             </div>
-            <p className="text-muted-foreground font-sans text-sm leading-relaxed">
-              Paste a 66-character hex string starting with <code className="text-accent font-mono text-xs">0x</code> to view status, sender, recipient, value, gas, and any revert reason.
-            </p>
-            <div className="mt-3 font-mono text-xs text-muted-foreground/60 break-all">
-              0x4f2a…b7c3
+            <div className="border border-border rounded-sm p-6 bg-card/30">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-8 h-8 rounded-sm bg-primary/10 border border-primary/30 flex items-center justify-center">
+                  <WalletIcon className="w-4 h-4 text-primary" />
+                </div>
+                <span className="font-sans font-bold uppercase tracking-widest text-sm">Wallet Address</span>
+              </div>
+              <p className="text-muted-foreground font-sans text-sm leading-relaxed">
+                Paste a 42-character hex address to see live balance, account age, and full transaction history — with IN / OUT flow labelling.
+              </p>
+              <div className="mt-3 font-mono text-xs text-muted-foreground/60 break-all">
+                0x1A2b…9F0e
+              </div>
             </div>
           </div>
-          <div className="border border-border rounded-sm p-6 bg-card/30">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-8 h-8 rounded-sm bg-primary/10 border border-primary/30 flex items-center justify-center">
-                <WalletIcon className="w-4 h-4 text-primary" />
-              </div>
-              <span className="font-sans font-bold uppercase tracking-widest text-sm">Wallet Address</span>
-            </div>
-            <p className="text-muted-foreground font-sans text-sm leading-relaxed">
-              Paste a 42-character hex address to see live balance, account age, and full transaction history — with IN / OUT flow labelling.
-            </p>
-            <div className="mt-3 font-mono text-xs text-muted-foreground/60 break-all">
-              0x1A2b…9F0e
-            </div>
-          </div>
-        </div>
+          <TopHolders onAddressClick={handleAddressClick} />
+        </>
       )}
 
       {/* Result area */}
