@@ -351,6 +351,83 @@ export class Blockchain {
     return this.transactions.get(hash as PrefixedHexString);
   }
 
+  /** Look up the block that contains a given transaction hash. */
+  getBlockForTx(txHash: string): StoredBlock | undefined {
+    return this.blocks.find((b) => b.transactionHashes.includes(txHash as PrefixedHexString));
+  }
+
+  async getBlockByHash(hash: string): Promise<(StoredBlock & { transactions: StoredTransaction[] }) | undefined> {
+    await this.whenReady();
+    const block = this.blocks.find((b) => b.hash === hash);
+    if (!block) return undefined;
+    const transactions = block.transactionHashes
+      .map((h) => this.transactions.get(h))
+      .filter((tx): tx is StoredTransaction => Boolean(tx));
+    return { ...block, transactions };
+  }
+
+  /**
+   * Accept an already-signed Ethereum-format transaction (from MetaMask or any
+   * ETH-compatible wallet) and add it to the mempool.  Callers are responsible
+   * for verifying the signature before calling this method.
+   */
+  async submitRawEVMTransaction(params: {
+    hash: PrefixedHexString;
+    from: PrefixedHexString;
+    to: PrefixedHexString | null;
+    value: string;
+    data: PrefixedHexString;
+    gasLimit: string;
+    nonce: bigint;
+  }): Promise<StoredTransaction> {
+    await this.whenReady();
+
+    if (this.mempool.length >= MAX_MEMPOOL_ITEMS) {
+      throw new Error("Mempool is full, try again shortly");
+    }
+    // Idempotent: return existing record if already known
+    const existing = this.transactions.get(params.hash);
+    if (existing) return existing;
+
+    const expectedNonce = await getNonce(this.stateManager, params.from);
+    if (params.nonce !== BigInt(expectedNonce)) {
+      throw new Error(`Nonce mismatch: expected ${expectedNonce}, got ${params.nonce}`);
+    }
+    const balance = await getBalance(this.stateManager, params.from);
+    if (BigInt(params.value) > balance) {
+      throw new Error("Insufficient funds for transfer");
+    }
+
+    const tx: StoredTransaction = {
+      hash: params.hash,
+      from: params.from,
+      to: params.to,
+      value: params.value,
+      nonce: Number(params.nonce),
+      gasLimit: params.gasLimit,
+      data: params.data,
+      status: "pending",
+      blockNumber: null,
+      contractAddress: null,
+      gasUsed: null,
+      error: null,
+      returnData: null,
+      createdAt: new Date().toISOString(),
+    };
+
+    this.transactions.set(params.hash, tx);
+    this.mempool.push({
+      hash: params.hash,
+      from: params.from,
+      to: params.to,
+      value: BigInt(params.value),
+      data: params.data,
+      gasLimit: BigInt(params.gasLimit),
+    });
+    this.persist();
+    return tx;
+  }
+
   async listTransactions(address?: string, limit = 20): Promise<StoredTransaction[]> {
     await this.whenReady();
     let all = [...this.transactions.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));

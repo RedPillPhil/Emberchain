@@ -11,6 +11,8 @@
     "test": "node --import tsx/esm --test src/replay-protection.test.ts"
   },
   "dependencies": {
+    "@ethereumjs/tx": "^10.1.2",
+    "@ethereumjs/util": "10.1.2",
     "@workspace/api-zod": "workspace:*",
     "@workspace/chain-core": "workspace:*",
     "@workspace/db": "workspace:*",
