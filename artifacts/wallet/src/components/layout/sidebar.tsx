@@ -15,11 +15,13 @@ import {
   Store,
   Search,
   BookUser,
+  CreditCard,
 } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "OVERVIEW", icon: Activity },
   { href: "/send", label: "TRANSFER", icon: Send },
+  { href: "/onramp", label: "BUY EMBR", icon: CreditCard, highlight: true },
   { href: "/exchange", label: "EXCHANGE", icon: Store },
   { href: "/contacts", label: "ADDRESS BOOK", icon: BookUser },
   { href: "/privacy", label: "PRIVACY", icon: Shield },
@@ -59,19 +61,27 @@ export function Sidebar() {
         {navItems.map((item) => {
           const isActive = location === item.href;
           const Icon = item.icon;
+          const isHighlight = (item as { highlight?: boolean }).highlight && !isActive;
           return (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-sm font-sans text-sm uppercase font-bold transition-all border border-transparent",
+                "flex items-center gap-3 px-3 py-2.5 rounded-sm font-sans text-sm uppercase font-bold transition-all border",
                 isActive
                   ? "bg-primary/10 text-primary border-primary/30 box-glow"
-                  : "text-muted-foreground hover:bg-secondary hover:text-foreground hover:border-border"
+                  : isHighlight
+                  ? "bg-primary/5 text-primary border-primary/20 hover:bg-primary/10 hover:border-primary/40"
+                  : "border-transparent text-muted-foreground hover:bg-secondary hover:text-foreground hover:border-border"
               )}
             >
-              <Icon className={cn("w-4 h-4", isActive && "text-primary")} />
+              <Icon className={cn("w-4 h-4", (isActive || isHighlight) && "text-primary")} />
               {item.label}
+              {isHighlight && (
+                <span className="ml-auto text-[9px] font-bold bg-primary/20 text-primary px-1.5 py-0.5 rounded-sm border border-primary/30 leading-none">
+                  NEW
+                </span>
+              )}
             </Link>
           );
         })}

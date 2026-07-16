@@ -34,6 +34,7 @@ import {
   Info,
   Lock,
   ShieldCheck,
+  CreditCard,
 } from "lucide-react";
 import {
   LineChart,
@@ -1325,6 +1326,19 @@ export default function Exchange() {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Fiat on-ramp CTA */}
+        <div className="flex items-center gap-3 p-3 rounded-sm border border-primary/20 bg-primary/5">
+          <CreditCard className="w-4 h-4 text-primary shrink-0" />
+          <p className="text-sm text-muted-foreground flex-1">
+            <span className="font-bold text-foreground">New to EMBR?</span> Buy ETH with a credit card, then trade it for EMBR on this exchange — no bridge needed.
+          </p>
+          <a href="/onramp" className="shrink-0">
+            <Button size="sm" variant="outline" className="gap-1.5 border-primary/30 text-primary hover:bg-primary/10">
+              <CreditCard className="w-3.5 h-3.5" /> Buy with Fiat
+            </Button>
+          </a>
         </div>
 
         <div className="flex gap-1 border-b border-border overflow-x-auto">

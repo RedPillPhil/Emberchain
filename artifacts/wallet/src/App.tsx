@@ -17,6 +17,7 @@ import Contracts from '@/pages/contracts';
 import Privacy from '@/pages/privacy';
 import Exchange from '@/pages/exchange';
 import Contacts from '@/pages/contacts';
+import OnRamp from '@/pages/onramp';
 
 const queryClient = new QueryClient();
 
@@ -36,6 +37,7 @@ function Router() {
       <Route path="/privacy" component={Privacy} />
       <Route path="/exchange" component={Exchange} />
       <Route path="/contacts" component={Contacts} />
+      <Route path="/onramp" component={OnRamp} />
       <Route component={NotFound} />
     </Switch>
   );

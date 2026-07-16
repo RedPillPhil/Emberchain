@@ -8,6 +8,7 @@ import miningRouter from "./mining";
 import privacyRouter from "./privacy";
 import exchangeRouter from "./exchange";
 import rpcRouter from "./rpc";
+import onrampRouter from "./onramp";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(miningRouter);
 router.use(privacyRouter);
 router.use(exchangeRouter);
 router.use(rpcRouter);
+router.use(onrampRouter);
 
 export default router;
