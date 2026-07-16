@@ -3,10 +3,22 @@ import { Shell } from "@/components/layout/shell";
 import { useActiveWallet } from "@/hooks/use-active-wallet";
 import { useGetWallet, useGetChainStatus, useGetMiningStatus } from "@workspace/api-client-react";
 import { formatEmbr } from "@/lib/utils";
-import { Flame, Database, Clock, Activity, Zap, Cpu, ArrowUpRight, Users, QrCode, Copy, Check } from "lucide-react";
+import {
+  Flame, Database, Clock, Activity, Zap, Cpu,
+  ArrowUpRight, Users, QrCode, Copy, Check,
+  ShieldAlert, ShieldCheck,
+} from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import QRCode from "react-qr-code";
+import { Card } from "@/components/ui/card";
+import { Link } from "wouter";
+import { cn } from "@/lib/utils";
+import { BackupDialog } from "@/components/backup-dialog";
+import { isBackupConfirmed } from "@/lib/keystore";
+
+// Need Blocks icon
+import { Blocks } from "lucide-react";
 
 function abbreviateNumber(n: bigint): string {
   const num = Number(n);
@@ -16,14 +28,20 @@ function abbreviateNumber(n: bigint): string {
   if (num >= 1e3)  return (num / 1e3).toFixed(2) + "K";
   return num.toLocaleString();
 }
-import { Card } from "@/components/ui/card";
-import { Link } from "wouter";
-import { cn } from "@/lib/utils";
 
 export default function Dashboard() {
   const { activeWallet } = useActiveWallet();
-  const [showQR, setShowQR] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [showQR, setShowQR]             = useState(false);
+  const [copied, setCopied]             = useState(false);
+  const [showBackup, setShowBackup]     = useState(false);
+  const [backedUp, setBackedUp]         = useState(false);
+
+  // Re-check backup flag whenever the dialog closes or wallet changes
+  useEffect(() => {
+    if (activeWallet?.address) {
+      setBackedUp(isBackupConfirmed(activeWallet.address));
+    }
+  }, [activeWallet?.address, showBackup]);
 
   const copyAddress = () => {
     if (!activeWallet?.address) return;
@@ -33,10 +51,10 @@ export default function Dashboard() {
   };
 
   // Polling queries
-  const { data: wallet, refetch: refetchWallet } = useGetWallet(activeWallet?.address || "", {
+  const { data: wallet } = useGetWallet(activeWallet?.address || "", {
     query: {
       enabled: !!activeWallet?.address,
-      refetchInterval: 3000, // Poll every 3s
+      refetchInterval: 3000,
     }
   });
 
@@ -50,14 +68,13 @@ export default function Dashboard() {
 
   // Track balance changes to animate
   const prevBalance = useRef(wallet?.balance);
-  const balanceRef = useRef<HTMLDivElement>(null);
+  const balanceRef  = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (wallet?.balance && prevBalance.current && wallet.balance !== prevBalance.current) {
-      // Trigger a flash animation when balance increases
       if (balanceRef.current) {
         balanceRef.current.classList.remove("animate-pulse-fast");
-        void balanceRef.current.offsetWidth; // trigger reflow
+        void balanceRef.current.offsetWidth;
         balanceRef.current.classList.add("animate-pulse-fast");
       }
     }
@@ -66,6 +83,25 @@ export default function Dashboard() {
 
   return (
     <Shell>
+      {/* ── Backup nudge banner ─────────────────────────────────────────── */}
+      {activeWallet && !backedUp && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-sm border border-amber-500/40 bg-amber-500/5 -mt-2 mb-2">
+          <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+          <p className="text-sm text-amber-400/90 flex-1">
+            <span className="font-bold">Your wallet is not backed up.</span>{" "}
+            If you lose access to this browser, your EMBR is gone.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="shrink-0 border-amber-500/40 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/60 gap-1.5"
+            onClick={() => setShowBackup(true)}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" /> Back up now
+          </Button>
+        </div>
+      )}
+
       <div className="flex items-end justify-between border-b border-border pb-6">
         <div>
           <h1 className="text-4xl font-display font-bold uppercase tracking-tighter text-foreground mb-1">
@@ -76,22 +112,42 @@ export default function Dashboard() {
             {chainStatus ? "Node Online" : "Connecting..."}
           </div>
         </div>
+
+        {/* Backup button — always accessible from header area */}
+        {activeWallet && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowBackup(true)}
+            className={cn(
+              "gap-1.5 text-xs",
+              backedUp
+                ? "border-green-500/30 text-green-400 hover:bg-green-500/10"
+                : "border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+            )}
+          >
+            {backedUp
+              ? <><ShieldCheck className="w-3.5 h-3.5" /> Backed Up</>
+              : <><ShieldAlert className="w-3.5 h-3.5" /> Backup Wallet</>
+            }
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
+
         {/* Main Balance Card */}
         <Card className="md:col-span-2 border-primary/20 bg-card/50 backdrop-blur flex flex-col justify-between overflow-hidden relative">
           <div className="absolute top-0 right-0 p-8 opacity-5">
             <Flame className="w-48 h-48" />
           </div>
-          
+
           <div className="p-6 relative z-10">
             <div className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-2">
               <Activity className="w-4 h-4 text-primary" /> Active Balance
             </div>
-            
-            <div 
+
+            <div
               ref={balanceRef}
               className="text-6xl sm:text-8xl font-display font-bold tracking-tighter text-glow truncate text-foreground transition-all"
             >
@@ -101,7 +157,7 @@ export default function Dashboard() {
               EMBR
             </div>
           </div>
-          
+
           <div className="bg-secondary/50 p-4 border-t border-border flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center relative z-10">
             <div className="font-mono text-xs text-muted-foreground truncate min-w-0">
               <span className="font-sans font-bold uppercase mr-2 text-foreground">ADDR:</span>
@@ -150,6 +206,16 @@ export default function Dashboard() {
           </DialogContent>
         </Dialog>
 
+        {/* Backup dialog */}
+        {activeWallet && (
+          <BackupDialog
+            open={showBackup}
+            onOpenChange={setShowBackup}
+            address={activeWallet.address}
+            privateKey={activeWallet.privateKey}
+          />
+        )}
+
         {/* Mining Quick Status */}
         <Card className={cn(
           "border flex flex-col justify-between p-6 transition-all duration-500 relative overflow-hidden",
@@ -158,7 +224,7 @@ export default function Dashboard() {
           {miningStatus?.isMining && (
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary to-transparent animate-scanline"></div>
           )}
-          
+
           <div>
             <div className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-6 flex items-center justify-between">
               <span>Forge Status</span>
@@ -170,7 +236,7 @@ export default function Dashboard() {
                 <span className="text-muted-foreground">IDLE</span>
               )}
             </div>
-            
+
             <div className="space-y-4">
               <div>
                 <div className="text-3xl font-display font-bold">
@@ -178,7 +244,7 @@ export default function Dashboard() {
                 </div>
                 <div className="text-xs text-muted-foreground font-bold uppercase">Hashes / Sec</div>
               </div>
-              
+
               <div>
                 <div className="text-xl font-mono">
                   {miningStatus?.blocksMined || 0}
@@ -187,7 +253,7 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-          
+
           <div className="mt-8">
             <Link href="/mining" className="flex items-center text-xs font-bold uppercase text-primary hover:text-primary-foreground hover:bg-primary transition-colors py-2 px-3 border border-primary/30 rounded-sm w-fit group">
               Open Mining Control <ArrowUpRight className="w-3 h-3 ml-2 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
@@ -198,25 +264,25 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mt-4">
-        <StatBlock 
+        <StatBlock
           icon={<Blocks className="w-4 h-4" />}
-          label="Block Height" 
-          value={chainStatus?.height.toLocaleString() || "..."} 
+          label="Block Height"
+          value={chainStatus?.height.toLocaleString() || "..."}
         />
-        <StatBlock 
+        <StatBlock
           icon={<Zap className="w-4 h-4 text-accent" />}
-          label="Difficulty" 
-          value={chainStatus ? abbreviateNumber(BigInt(chainStatus.difficulty)) : "..."} 
+          label="Difficulty"
+          value={chainStatus ? abbreviateNumber(BigInt(chainStatus.difficulty)) : "..."}
         />
-        <StatBlock 
+        <StatBlock
           icon={<Clock className="w-4 h-4" />}
-          label="Avg Block Time" 
-          value={chainStatus?.avgBlockTime != null ? `${chainStatus.avgBlockTime.toFixed(1)}s` : "..."} 
+          label="Avg Block Time"
+          value={chainStatus?.avgBlockTime != null ? `${chainStatus.avgBlockTime.toFixed(1)}s` : "..."}
         />
-        <StatBlock 
+        <StatBlock
           icon={<Activity className="w-4 h-4" />}
-          label="Pending TXs" 
-          value={chainStatus?.pendingTransactionCount.toString() || "0"} 
+          label="Pending TXs"
+          value={chainStatus?.pendingTransactionCount.toString() || "0"}
         />
         <StatBlock
           icon={<Users className="w-4 h-4 text-primary" />}
@@ -239,6 +305,3 @@ function StatBlock({ label, value, icon }: { label: string, value: string, icon:
     </div>
   );
 }
-
-// Need Blocks icon since it wasn't imported from lucide-react above
-import { Blocks } from "lucide-react";
