@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "e1Cv3SOb7lFPtGXynregU"
+uri = "file://artifacts/bitcointalk-post.md"
+type = "text"
+title = "Emberchain BitcoinTalk Post — Altcoin Mining Board"
