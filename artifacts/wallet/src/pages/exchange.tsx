@@ -951,12 +951,6 @@ function CreateListingTab() {
             </div>
           )}
 
-          {/* ERC-20 warning only if ERC-20 is selected */}
-          {acceptedNets.includes("ERC-20") && (
-            <div className="p-2.5 bg-amber-500/10 border border-amber-500/40 rounded-sm text-xs text-amber-300 leading-relaxed">
-              ⚠️ Buyers paying via ERC-20 must use Ethereum mainnet — not Polygon, BSC, or any other chain, even if you accept those separately.
-            </div>
-          )}
         </div>
       )}
 
