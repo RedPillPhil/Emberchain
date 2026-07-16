@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Shell } from "@/components/layout/shell";
 import { useActiveWallet } from "@/hooks/use-active-wallet";
-import { useGetMiningStatus, useSubmitBlock, getMiningTemplate } from "@workspace/api-client-react";
+import { useGetMiningStatus, useSubmitBlock, useSubmitShare, getMiningTemplate } from "@workspace/api-client-react";
 import type { MiningTemplate, SubmitBlockInput } from "@workspace/api-client-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Flame, Zap, Hash, Database, Terminal, Cpu } from "lucide-react";
+import { Flame, Zap, Hash, Database, Terminal, Cpu, Share2 } from "lucide-react";
 import { cn, formatEmbr } from "@/lib/utils";
 import type { FromWorkerMsg, ToWorkerMsg } from "@/workers/mining.worker";
 
@@ -37,10 +37,12 @@ const MINING_CHANNEL = "emberchain_mining";
 export default function Mining() {
   const { activeWallet } = useActiveWallet();
   const submitBlock = useSubmitBlock();
+  const submitShareMutation = useSubmitShare();
 
   const [isMining, setIsMining]         = useState(false);
   const [hashRate, setHashRate]         = useState(0);
   const [sessionBlocks, setSessionBlocks] = useState(0);
+  const [sessionShares, setSessionShares] = useState(0);
   const [selectedIntensity, setSelectedIntensity] = useState(2);
   const [logs, setLogs]                 = useState<string[]>([]);
   const [tabBlocked, setTabBlocked]     = useState(false);
@@ -90,6 +92,39 @@ export default function Mining() {
           addLog(`nonce:${msg.nonce.slice(0, 12)}  hash:${msg.hash.slice(0, 18)}… miss`);
         }
 
+        if (msg.type === "share") {
+          setSessionShares((n) => n + 1);
+          // Submit share to server asynchronously — don't block hashing
+          if (templateRef.current) {
+            const t = templateRef.current;
+            submitShareMutation.mutateAsync({
+              minerAddress: t.header.miner,
+              header: t.header,
+              nonce: msg.nonce,
+            }).then((result) => {
+              if (result.blockFound) {
+                // Share nonce was also a valid block — server has already applied it
+                addLog(`★ SHARE PROMOTED TO BLOCK #${t.header.number}! Fetching next template…`, "found");
+                setSessionBlocks((n) => n + 1);
+                if (!miningRef.current) return;
+                getMiningTemplate(t.header.miner).then((nt) => {
+                  if (!miningRef.current) return;
+                  templateRef.current = nt;
+                  worker.postMessage({
+                    type: "start",
+                    header: nt.header,
+                    target: nt.target,
+                    shareTarget: nt.shareTarget,
+                    batchSize: level.batchSize,
+                  } satisfies ToWorkerMsg);
+                }).catch(() => {});
+              }
+            }).catch(() => {
+              // Stale or duplicate shares are expected — silently ignore
+            });
+          }
+        }
+
         if (msg.type === "found") {
           addLog(`BLOCK FOUND! nonce:${msg.nonce}  hash:${msg.blockHash.slice(0, 18)}… — submitting…`, "found");
 
@@ -126,6 +161,7 @@ export default function Mining() {
               type: "start",
               header: newTemplate.header,
               target: newTemplate.target,
+              shareTarget: newTemplate.shareTarget,
               batchSize: level.batchSize,
             } satisfies ToWorkerMsg);
           } catch {
@@ -135,7 +171,7 @@ export default function Mining() {
               getMiningTemplate(t.header.miner).then((nt) => {
                 if (!miningRef.current) return;
                 templateRef.current = nt;
-                worker.postMessage({ type: "start", header: nt.header, target: nt.target, batchSize: level.batchSize } satisfies ToWorkerMsg);
+                worker.postMessage({ type: "start", header: nt.header, target: nt.target, shareTarget: nt.shareTarget, batchSize: level.batchSize } satisfies ToWorkerMsg);
               }).catch(() => stopWorker());
             }, 2000);
           }
@@ -156,10 +192,11 @@ export default function Mining() {
         type: "start",
         header: template.header,
         target: template.target,
+        shareTarget: template.shareTarget,
         batchSize: level.batchSize,
       } satisfies ToWorkerMsg);
     },
-    [addLog, stopWorker, submitBlock],
+    [addLog, stopWorker, submitBlock, submitShareMutation],
   );
 
   // ── handlers ────────────────────────────────────────────────────────────────
@@ -172,6 +209,7 @@ export default function Mining() {
     miningRef.current = true;
     setIsMining(true);
     setSessionBlocks(0);
+    setSessionShares(0);
     setHashRate(0);
     const level = INTENSITY_LEVELS.find((l) => l.value === selectedIntensity) ?? INTENSITY_LEVELS[1]!;
     addLog(`IGNITE @ intensity ${selectedIntensity} (${level.label}) — mining for ${truncate(activeWallet.address)}`);
@@ -202,6 +240,7 @@ export default function Mining() {
         type: "start",
         header: templateRef.current.header,
         target: templateRef.current.target,
+        shareTarget: templateRef.current.shareTarget,
         batchSize: lvl.batchSize,
       } satisfies ToWorkerMsg);
     }
@@ -334,6 +373,37 @@ export default function Mining() {
                 </div>
                 <div className="font-mono text-3xl">{sessionBlocks}</div>
               </div>
+
+              <div>
+                <div className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2 font-sans">
+                  <Share2 className="w-3 h-3 text-accent" /> Shares This Round
+                </div>
+                <div className="font-mono text-3xl">{sessionShares}</div>
+              </div>
+
+              {(() => {
+                const sharesInRound = status?.sharesInRound ?? {};
+                const totalShares = Object.values(sharesInRound).reduce((s, n) => s + n, 0);
+                const myShares = activeWallet
+                  ? (sharesInRound[activeWallet.address.toLowerCase()] ?? 0)
+                  : 0;
+                const pct = totalShares > 0 ? ((myShares / totalShares) * 100).toFixed(1) : "0.0";
+                return (
+                  <div>
+                    <div className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2 font-sans">
+                      <Zap className="w-3 h-3 text-yellow-400" /> Est. Payout Cut
+                    </div>
+                    <div className="font-mono text-3xl">
+                      {pct}<span className="text-sm text-muted-foreground ml-1">%</span>
+                    </div>
+                    {totalShares > 0 && (
+                      <p className="text-[10px] text-muted-foreground font-sans mt-0.5">
+                        {myShares} / {totalShares} shares in round
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div className="pt-4 border-t border-border/50">
                 <div className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 font-sans">

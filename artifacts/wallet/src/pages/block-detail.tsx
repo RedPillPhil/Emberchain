@@ -3,7 +3,8 @@ import { Shell } from "@/components/layout/shell";
 import { useGetBlock } from "@workspace/api-client-react";
 import { useParams, Link } from "wouter";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { ArrowLeft, Box, Hash, Zap, Clock, Activity, FileCode2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { ArrowLeft, Box, Hash, Zap, Clock, Activity, FileCode2, Share2 } from "lucide-react";
 import { formatEmbr } from "@/lib/utils";
 
 export default function BlockDetail() {
@@ -74,6 +75,26 @@ export default function BlockDetail() {
               </dl>
             </CardContent>
           </Card>
+
+          {block.payouts && Object.keys(block.payouts).length > 0 && (
+            <Card className="border-border bg-card/80 backdrop-blur rounded-sm">
+              <CardHeader className="border-b border-border bg-secondary/30">
+                <CardTitle className="font-display tracking-tight text-xl uppercase flex items-center gap-2">
+                  <Share2 className="w-5 h-5 text-accent" /> Payout Breakdown
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <dl className="divide-y divide-border/50 font-mono text-sm">
+                  {Object.entries(block.payouts).map(([addr, amount]) => (
+                    <div key={addr} className="grid grid-cols-1 md:grid-cols-4 p-4 hover:bg-secondary/20 transition-colors">
+                      <dt className="md:col-span-3 break-all">{addr}</dt>
+                      <dd className="font-bold text-glow text-right">{formatEmbr(amount)} EMBR</dd>
+                    </div>
+                  ))}
+                </dl>
+              </CardContent>
+            </Card>
+          )}
 
           <Card className="border-border bg-card/80 backdrop-blur rounded-sm">
             <CardHeader className="border-b border-border bg-secondary/30 flex flex-row items-center justify-between">

@@ -7,7 +7,7 @@ import type { SimpleStateManager } from "@ethereumjs/statemanager";
 import { createEmberchainCommon } from "./common";
 import { createStateManager, dumpState, loadState, getBalance, getNonce, credit, debit, ensureAccount } from "./state";
 import { generateWallet, walletFromPrivateKey, encodeTxPayload, signPayload, hashTransaction } from "./crypto";
-import { mine, retargetDifficulty, batchSizeForIntensity, hashHeader, targetForDifficulty, type MinableHeader } from "./mining";
+import { mine, retargetDifficulty, batchSizeForIntensity, hashHeader, targetForDifficulty, MAX_TARGET, type MinableHeader } from "./mining";
 import { loadChainFile, saveChainFile, type PersistedChain } from "./persistence";
 import type {
   StoredBlock,
@@ -33,6 +33,8 @@ export const EMBERCHAIN_CONFIG: ChainConfig = {
   blockReward: "5000000000000000000", // 5 EMBR (18 decimals, like ether)
   genesisDifficulty: "60000",
   difficultyAdjustmentWindow: 1,
+  /** Shares are 64× easier to find than a full block. */
+  shareDifficultyDivisor: 64,
 };
 
 /** Base gas price: 1 gwei (1 × 10⁹ wei). Every transaction pays gasUsed × GAS_PRICE to the block miner. */
@@ -149,6 +151,10 @@ export class Blockchain {
   };
   /** In-memory only: tracks browser miners by address → last template fetch timestamp (ms). */
   private recentMiners: Map<string, number> = new Map();
+  /** Tracks share counts per miner for the current block round. address (lowercase) → share count. */
+  private currentRoundShares: Map<string, number> = new Map();
+  /** Dedup guard: `${blockNumber}:${nonce}` for shares already accepted this round. */
+  private submittedShareNonces: Set<string> = new Set();
 
   constructor(dataFile: string, options?: {
     asyncLoadHook?: () => Promise<PersistedChain | null>;
@@ -205,6 +211,10 @@ export class Blockchain {
       for (const [addr, ts] of persisted.recentMiners ?? []) {
         if (ts > fiveMinutesAgo) this.recentMiners.set(addr, ts);
       }
+      for (const [addr, count] of persisted.currentRoundShares ?? []) {
+        this.currentRoundShares.set(addr, count);
+      }
+      this.submittedShareNonces = new Set(persisted.submittedShareNonces ?? []);
       for (const listing of persisted.exchangeListings ?? []) {
         this.exchangeListings.set(listing.id, listing);
       }
@@ -268,6 +278,8 @@ export class Blockchain {
       exchangeListings: [...this.exchangeListings.values()],
       usedPaymentProofs: [...this.usedPaymentProofs],
       recentMiners: [...this.recentMiners.entries()],
+      currentRoundShares: [...this.currentRoundShares.entries()],
+      submittedShareNonces: [...this.submittedShareNonces],
     };
     saveChainFile(this.dataFile, data);
     // Fire-and-forget database upsert.  If PG is briefly unavailable the
@@ -595,6 +607,7 @@ export class Blockchain {
       }
     }
     const activeMiners = minerSet.size;
+    const sharesInRound = Object.fromEntries(this.currentRoundShares.entries());
     return {
       isMining: this.mining.active,
       minerAddress: this.mining.minerAddress,
@@ -604,6 +617,7 @@ export class Blockchain {
       blockReward: EMBERCHAIN_CONFIG.blockReward,
       intensity: this.mining.intensity,
       activeMiners,
+      sharesInRound,
     };
   }
 
@@ -657,6 +671,7 @@ export class Blockchain {
       transactionsRoot: string;
     };
     target: string;
+    shareTarget: string;
     pendingTxHashes: string[];
   }> {
     await this.whenReady();
@@ -677,9 +692,13 @@ export class Blockchain {
       difficulty: this.difficulty.toString(),
       transactionsRoot: transactionsRootOf(pendingSlice.map((t) => t.hash)),
     };
+    const blockTarget = targetForDifficulty(this.difficulty);
+    const rawShareTarget = blockTarget * BigInt(EMBERCHAIN_CONFIG.shareDifficultyDivisor);
+    const shareTarget = rawShareTarget > MAX_TARGET ? MAX_TARGET : rawShareTarget;
     return {
       header,
-      target: targetForDifficulty(this.difficulty).toString(),
+      target: blockTarget.toString(),
+      shareTarget: shareTarget.toString(),
       pendingTxHashes: pendingSlice.map((t) => t.hash),
     };
   }
@@ -744,6 +763,113 @@ export class Blockchain {
     return this.blocks[this.blocks.length - 1];
   }
 
+  /**
+   * Validates a partial proof-of-work (share) and credits the miner in the
+   * current round's share map.  If the nonce also meets the full block target,
+   * the share is automatically promoted to a complete block submission.
+   *
+   * Returns `{ accepted, shares, blockFound }`.
+   */
+  async submitShare(params: {
+    minerAddress: string;
+    header: {
+      number: number;
+      parentHash: string;
+      timestamp: number;
+      miner: string;
+      difficulty: string;
+      transactionsRoot: string;
+    };
+    nonce: string;
+  }): Promise<{ accepted: boolean; shares: number; blockFound: boolean }> {
+    await this.whenReady();
+    if (!ADDRESS_RE.test(params.minerAddress)) throw new Error("Invalid miner address");
+
+    // ── Validate header invariants against canonical chain state ─────────────
+    // All three checks use server-side state (not client-supplied values) so a
+    // miner cannot forge an easier difficulty, replay shares from an old round,
+    // or use a mismatched block number to bypass deduplication.
+    const parent = this.blocks[this.blocks.length - 1];
+
+    if (params.header.number !== parent.number + 1) {
+      throw new Error(
+        `Stale share: expected block number ${parent.number + 1}, got ${params.header.number}`,
+      );
+    }
+    if (params.header.parentHash !== parent.hash) {
+      throw new Error("Stale share: chain has advanced since this template was issued");
+    }
+    if (params.header.difficulty !== this.difficulty.toString()) {
+      throw new Error(
+        `Stale share: difficulty mismatch (expected ${this.difficulty}, got ${params.header.difficulty})`,
+      );
+    }
+
+    const minableHeader: MinableHeader = {
+      number: params.header.number,
+      parentHash: params.header.parentHash as PrefixedHexString,
+      timestamp: params.header.timestamp,
+      miner: params.header.miner as PrefixedHexString,
+      difficulty: this.difficulty, // use canonical chain difficulty, not the client claim
+      transactionsRoot: params.header.transactionsRoot as PrefixedHexString,
+    };
+
+    const nonce = BigInt(params.nonce);
+    const { hashHex, hashValue } = hashHeader(minableHeader, nonce);
+
+    // Share target computed from canonical chain difficulty — client cannot influence it.
+    const blockTarget = targetForDifficulty(this.difficulty);
+    const rawShareTarget = blockTarget * BigInt(EMBERCHAIN_CONFIG.shareDifficultyDivisor);
+    const shareTarget = rawShareTarget > MAX_TARGET ? MAX_TARGET : rawShareTarget;
+
+    if (hashValue > shareTarget) {
+      throw new Error("Share does not meet the share difficulty target");
+    }
+
+    // Deduplicate using canonical tip hash + nonce so the key cannot be forged
+    // by sending a different header.number.  Persisted across restarts to prevent
+    // replay after a server bounce within the same round.
+    const dedupeKey = `${parent.hash}:${params.nonce}`;
+    if (this.submittedShareNonces.has(dedupeKey)) {
+      throw new Error("Duplicate share: this nonce has already been accepted");
+    }
+    this.submittedShareNonces.add(dedupeKey);
+
+    // Credit 1 share for this miner
+    const minerKey = params.minerAddress.toLowerCase();
+    const prev = this.currentRoundShares.get(minerKey) ?? 0;
+    this.currentRoundShares.set(minerKey, prev + 1);
+
+    // Persist updated share map (survives restarts)
+    this.persist();
+
+    // If this nonce also meets the full block target, promote to a block
+    let blockFound = false;
+    if (hashValue <= blockTarget) {
+      blockFound = true;
+      // Promote: pull the matching txs from the mempool (same logic as submitMinedBlock)
+      const wantSet = new Set(
+        this.mempool.slice(0, MAX_TXS_PER_BLOCK).map((t) => t.hash)
+      );
+      const included: PendingTx[] = [];
+      this.mempool = this.mempool.filter((tx) => {
+        if (wantSet.has(tx.hash)) { included.push(tx); return false; }
+        return true;
+      });
+      const parentTimestampMs = new Date(parent.timestamp).getTime();
+      const actualBlockTimeSec = (params.header.timestamp - parentTimestampMs) / 1000;
+      await this.applyBlock(minableHeader, included, nonce, hashHex);
+      this.mining.blocksMinedThisSession += 1;
+      this.difficulty = retargetDifficulty(
+        this.difficulty,
+        actualBlockTimeSec > 0 ? actualBlockTimeSec : EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+        EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+      );
+    }
+
+    return { accepted: true, shares: prev + 1, blockFound };
+  }
+
   private async runMiningLoop(): Promise<void> {
     while (!this.mining.stopRequested) {
       const minerAddress = this.mining.minerAddress!;
@@ -773,6 +899,15 @@ export class Blockchain {
         this.mempool = [...included, ...this.mempool];
         break;
       }
+
+      // Server-side miner participates in the share round proportionally.
+      // This ensures it earns a cut alongside any browser miners who submitted
+      // shares during the same round.
+      const serverMinerKey = minerAddress.toLowerCase();
+      this.currentRoundShares.set(
+        serverMinerKey,
+        (this.currentRoundShares.get(serverMinerKey) ?? 0) + 1,
+      );
 
       await this.applyBlock(header, included, result.nonce, result.hash);
       this.mining.blocksMinedThisSession += 1;
@@ -835,8 +970,39 @@ export class Blockchain {
       }
     }
 
-    // Miner earns block reward + all transaction fees
-    await credit(this.stateManager, header.miner, BigInt(EMBERCHAIN_CONFIG.blockReward) + totalFees);
+    // ── Proportional share-based payout ─────────────────────────────────────────
+    // If no shares were submitted this round (e.g. pure server-side mining with no
+    // browser share submissions, or the very first nonce was the winning block),
+    // fall back to giving the block miner one share so they receive the reward.
+    if (this.currentRoundShares.size === 0) {
+      this.currentRoundShares.set(header.miner.toLowerCase(), 1);
+    }
+
+    const totalReward = BigInt(EMBERCHAIN_CONFIG.blockReward) + totalFees;
+    const shares = [...this.currentRoundShares.entries()];
+    const totalShares = shares.reduce((s, [, n]) => s + n, 0);
+
+    const payouts: Record<string, string> = {};
+    let distributed = 0n;
+    for (let i = 0; i < shares.length; i++) {
+      const [addr, count] = shares[i]!;
+      let payout: bigint;
+      if (i === shares.length - 1) {
+        // Last entry absorbs rounding dust
+        payout = totalReward - distributed;
+      } else {
+        payout = (totalReward * BigInt(count)) / BigInt(totalShares);
+      }
+      if (payout > 0n) {
+        await credit(this.stateManager, addr as PrefixedHexString, payout);
+        payouts[addr] = payout.toString();
+        distributed += payout;
+      }
+    }
+
+    // Reset for the next round
+    this.currentRoundShares = new Map();
+    this.submittedShareNonces = new Set();
 
     const block: StoredBlock = {
       number: header.number,
@@ -849,6 +1015,7 @@ export class Blockchain {
       stateRoot: hash, // pseudo state root: single-node chain, no external verifiers
       reward: EMBERCHAIN_CONFIG.blockReward,
       transactionHashes: included.map((t) => t.hash),
+      payouts,
     };
     this.blocks.push(block);
     this.persist();

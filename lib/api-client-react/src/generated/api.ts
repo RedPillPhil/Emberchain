@@ -48,6 +48,8 @@ import type {
   ShieldedTxRecord,
   StealthMeta,
   SubmitBlockInput,
+  SubmitShareInput,
+  SubmitShareResult,
   Transaction,
   TransactionInput,
   UnshieldInput,
@@ -1831,6 +1833,29 @@ export function useSubmitBlock<TError = ErrorType<unknown>, TContext = unknown>(
   options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof submitBlock>>, TError, BodyType<SubmitBlockInput>, TContext> }
 ): UseMutationResult<Awaited<ReturnType<typeof submitBlock>>, TError, BodyType<SubmitBlockInput>, TContext> {
   return useMutation(getSubmitBlockMutationOptions(options));
+}
+
+export const submitShare = async (data: SubmitShareInput, options?: RequestInit): Promise<SubmitShareResult> => {
+  return customFetch<SubmitShareResult>('/api/mining/share', {
+    ...options, method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(data),
+  });
+};
+
+export const getSubmitShareMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof submitShare>>, TError, BodyType<SubmitShareInput>, TContext> }
+): UseMutationOptions<Awaited<ReturnType<typeof submitShare>>, TError, BodyType<SubmitShareInput>, TContext> => {
+  const mutationKey = ['submitShare'];
+  const { mutation: mutationOptions } = options ?? { mutation: { mutationKey } };
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof submitShare>>, BodyType<SubmitShareInput>> = (data) => submitShare(data);
+  return { mutationFn, ...mutationOptions };
+};
+
+export function useSubmitShare<TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof submitShare>>, TError, BodyType<SubmitShareInput>, TContext> }
+): UseMutationResult<Awaited<ReturnType<typeof submitShare>>, TError, BodyType<SubmitShareInput>, TContext> {
+  return useMutation(getSubmitShareMutationOptions(options));
 }
 
 // ── P2P Exchange ──────────────────────────────────────────────────────────────

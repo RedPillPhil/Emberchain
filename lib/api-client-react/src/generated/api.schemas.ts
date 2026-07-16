@@ -101,6 +101,8 @@ export type BlockDetail = BlockSummary & {
   stateRoot: string;
   reward: string;
   transactions: Transaction[];
+  /** Per-miner payout breakdown. address → wei amount string. Present on blocks mined after share-based payouts were introduced. */
+  payouts?: Record<string, string>;
 };
 
 export interface TransactionInput {
@@ -154,6 +156,8 @@ export interface MiningStatus {
   intensity: number;
   /** Unique browser miners that fetched a template in the last 5 minutes. */
   activeMiners?: number;
+  /** address → share count for the current block round. */
+  sharesInRound?: Record<string, number>;
 }
 
 export interface PrivacyStatus {
@@ -319,6 +323,8 @@ export interface MiningTemplate {
   header: MiningTemplateHeader;
   /** targetForDifficulty as decimal string */
   target: string;
+  /** Share target (64× easier than block target). A nonce is a valid share if hash ≤ shareTarget. */
+  shareTarget: string;
   pendingTxHashes: string[];
 }
 
@@ -328,6 +334,20 @@ export interface SubmitBlockInput {
   nonce: string;
   blockHash: string;
   pendingTxHashes: string[];
+}
+
+export interface SubmitShareInput {
+  minerAddress: string;
+  header: MiningTemplateHeader;
+  nonce: string;
+}
+
+export interface SubmitShareResult {
+  accepted: boolean;
+  /** Total shares this miner has in the current round after this submission. */
+  shares: number;
+  /** True if this nonce also met the full block difficulty and a block was mined. */
+  blockFound: boolean;
 }
 
 // ── P2P Exchange ─────────────────────────────────────────────────────────────

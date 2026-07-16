@@ -250,7 +250,9 @@ export const GetMiningStatusResponse = zod.object({
   "blocksMined": zod.number(),
   "hashRate": zod.number(),
   "blockReward": zod.string(),
-  "activeMiners": zod.number().optional()
+  "activeMiners": zod.number().optional(),
+  /** address → share count for the current round. */
+  "sharesInRound": zod.record(zod.number()).optional(),
 })
 
 
@@ -270,7 +272,8 @@ export const StartMiningResponse = zod.object({
   "hashRate": zod.number(),
   "blockReward": zod.string(),
   "intensity": zod.number(),
-  "activeMiners": zod.number().optional()
+  "activeMiners": zod.number().optional(),
+  "sharesInRound": zod.record(zod.number()).optional(),
 })
 
 
@@ -285,7 +288,8 @@ export const StopMiningResponse = zod.object({
   "hashRate": zod.number(),
   "blockReward": zod.string(),
   "intensity": zod.number(),
-  "activeMiners": zod.number().optional()
+  "activeMiners": zod.number().optional(),
+  "sharesInRound": zod.record(zod.number()).optional(),
 })
 
 
@@ -305,7 +309,21 @@ export const MiningTemplate = zod.object({
   header: MiningTemplateHeader,
   /** targetForDifficulty as decimal string */
   target: zod.string(),
+  /** Share target (64× easier than block target). A nonce is a valid share if hash ≤ shareTarget. */
+  shareTarget: zod.string(),
   pendingTxHashes: zod.array(zod.string()),
+});
+
+export const SubmitShareBody = zod.object({
+  minerAddress: zod.string(),
+  header: MiningTemplateHeader,
+  nonce: zod.string(),
+});
+
+export const SubmitShareResponse = zod.object({
+  accepted: zod.boolean(),
+  shares: zod.number(),
+  blockFound: zod.boolean(),
 });
 
 export const SubmitBlockBody = zod.object({

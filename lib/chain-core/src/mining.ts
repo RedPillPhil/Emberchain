@@ -1,7 +1,7 @@
 import { keccak256 } from "ethereum-cryptography/keccak.js";
 import type { PrefixedHexString } from "@ethereumjs/util";
 
-const MAX_TARGET = 2n ** 256n - 1n;
+export const MAX_TARGET = 2n ** 256n - 1n;
 
 export interface MinableHeader {
   number: number;

@@ -6,12 +6,13 @@
  *
  * Message contract
  * ─────────────────
- * Receive { type:'start', header, target, batchSize }  → begin grinding nonces
- * Receive { type:'stop' }                              → halt and ack
+ * Receive { type:'start', header, target, shareTarget, batchSize }  → begin grinding nonces
+ * Receive { type:'stop' }                                           → halt and ack
  *
- * Send { type:'progress', hashRate, nonce, hash }      → periodic update
- * Send { type:'found', nonce, blockHash }              → winning nonce found
- * Send { type:'stopped' }                              → acknowledged stop
+ * Send { type:'progress', hashRate, nonce, hash }  → periodic update
+ * Send { type:'share', nonce }                     → nonce meets shareTarget (not block target)
+ * Send { type:'found', nonce, blockHash }          → nonce meets block target
+ * Send { type:'stopped' }                          → acknowledged stop
  */
 
 import { keccak256 } from "ethereum-cryptography/keccak.js";
@@ -27,11 +28,12 @@ export interface WorkerHeader {
 }
 
 export type ToWorkerMsg =
-  | { type: "start"; header: WorkerHeader; target: string; batchSize: number }
+  | { type: "start"; header: WorkerHeader; target: string; shareTarget: string; batchSize: number }
   | { type: "stop" };
 
 export type FromWorkerMsg =
   | { type: "progress"; hashRate: number; nonce: string; hash: string }
+  | { type: "share"; nonce: string }
   | { type: "found"; nonce: string; blockHash: string }
   | { type: "stopped" };
 
@@ -82,7 +84,8 @@ self.onmessage = async (e: MessageEvent<ToWorkerMsg>) => {
   if (msg.type === "start") {
     running = true;
     const { header, batchSize } = msg;
-    const target = BigInt(msg.target);
+    const blockTarget  = BigInt(msg.target);
+    const shareTarget  = BigInt(msg.shareTarget);
 
     let nonce = BigInt(Math.floor(Math.random() * 1_000_000));
     let hashCount = 0;
@@ -99,7 +102,8 @@ self.onmessage = async (e: MessageEvent<ToWorkerMsg>) => {
         progressNonce = nonce.toString();
         progressHash = hex;
 
-        if (value <= target) {
+        if (value <= blockTarget) {
+          // Full block found — stop hashing
           running = false;
           (self as unknown as Worker).postMessage({
             type: "found",
@@ -108,6 +112,15 @@ self.onmessage = async (e: MessageEvent<ToWorkerMsg>) => {
           } satisfies FromWorkerMsg);
           return;
         }
+
+        if (value <= shareTarget) {
+          // Valid share (easier than block target) — report but keep hashing
+          (self as unknown as Worker).postMessage({
+            type: "share",
+            nonce: nonce.toString(),
+          } satisfies FromWorkerMsg);
+        }
+
         nonce++;
       }
 

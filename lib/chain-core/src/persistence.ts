@@ -18,6 +18,10 @@ export interface PersistedChain {
   usedPaymentProofs?: string[];
   /** address → last-template-fetch timestamp (ms). Persisted so active-miner count survives restarts. */
   recentMiners?: [string, number][];
+  /** address → share count for the current (in-progress) round. Persisted so in-flight rounds survive restarts. */
+  currentRoundShares?: [string, number][];
+  /** "tipHash:nonce" keys of shares already accepted this round. Prevents replay after a server restart. */
+  submittedShareNonces?: string[];
 }
 
 export function loadChainFile(filePath: string): PersistedChain | null {

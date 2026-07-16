@@ -30,6 +30,8 @@ export interface StoredBlock {
   stateRoot: PrefixedHexString;
   reward: string;
   transactionHashes: PrefixedHexString[];
+  /** Per-miner payout breakdown for proportional share-based rewards. address → wei amount string. */
+  payouts?: Record<string, string>;
 }
 
 export interface ChainConfig {
@@ -39,6 +41,8 @@ export interface ChainConfig {
   blockReward: string;
   genesisDifficulty: string;
   difficultyAdjustmentWindow: number;
+  /** Shares are this many times easier to find than full blocks (default 64). */
+  shareDifficultyDivisor: number;
 }
 
 // ---------- Shielded pool (private transactions) ----------
