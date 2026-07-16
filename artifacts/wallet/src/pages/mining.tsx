@@ -39,10 +39,11 @@ export default function Mining() {
   const submitBlock = useSubmitBlock();
   const submitShareMutation = useSubmitShare();
 
-  const [isMining, setIsMining]         = useState(false);
-  const [hashRate, setHashRate]         = useState(0);
+  const [isMining, setIsMining]           = useState(false);
+  const [hashRate, setHashRate]           = useState(0);
   const [sessionBlocks, setSessionBlocks] = useState(0);
   const [sessionShares, setSessionShares] = useState(0);
+  const [confirmedShares, setConfirmedShares] = useState(0);
   const [selectedIntensity, setSelectedIntensity] = useState(2);
   const [logs, setLogs]                 = useState<string[]>([]);
   const [tabBlocked, setTabBlocked]     = useState(false);
@@ -102,6 +103,10 @@ export default function Mining() {
               header: t.header,
               nonce: msg.nonce,
             }).then((result) => {
+              if (result.accepted) {
+                // Server credited this share — increment cumulative confirmed counter
+                setConfirmedShares((n) => n + 1);
+              }
               if (result.blockFound) {
                 // Share nonce was also a valid block — server has already applied it
                 addLog(`★ SHARE PROMOTED TO BLOCK #${t.header.number}! Fetching next template…`, "found");
@@ -210,6 +215,7 @@ export default function Mining() {
     setIsMining(true);
     setSessionBlocks(0);
     setSessionShares(0);
+    setConfirmedShares(0);
     setHashRate(0);
     const level = INTENSITY_LEVELS.find((l) => l.value === selectedIntensity) ?? INTENSITY_LEVELS[1]!;
     addLog(`IGNITE @ intensity ${selectedIntensity} (${level.label}) — mining for ${truncate(activeWallet.address)}`);
@@ -374,26 +380,15 @@ export default function Mining() {
                 <div className="font-mono text-3xl">{sessionBlocks}</div>
               </div>
 
-              {(() => {
-                const sharesInRound = status?.sharesInRound ?? {};
-                const totalShares = Object.values(sharesInRound).reduce((s, n) => s + n, 0);
-                const myShares = activeWallet
-                  ? (sharesInRound[activeWallet.address.toLowerCase()] ?? 0)
-                  : 0;
-                return (
-                  <div>
-                    <div className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2 font-sans">
-                      <Share2 className="w-3 h-3 text-accent" /> Confirmed Shares
-                    </div>
-                    <div className="font-mono text-3xl">{myShares}</div>
-                    {totalShares > 0 && (
-                      <p className="text-[10px] text-muted-foreground font-sans mt-0.5">
-                        {myShares} / {totalShares} in round
-                      </p>
-                    )}
-                  </div>
-                );
-              })()}
+              <div>
+                <div className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2 font-sans">
+                  <Share2 className="w-3 h-3 text-accent" /> Confirmed Shares
+                </div>
+                <div className="font-mono text-3xl">{confirmedShares}</div>
+                <p className="text-[10px] text-muted-foreground font-sans mt-0.5">
+                  server-credited this session
+                </p>
+              </div>
 
               {(() => {
                 const sharesInRound = status?.sharesInRound ?? {};
@@ -411,7 +406,7 @@ export default function Mining() {
                       {pct}<span className="text-sm text-muted-foreground ml-1">%</span>
                     </div>
                     <p className="text-[10px] text-muted-foreground font-sans mt-0.5">
-                      resets each block
+                      {myShares} / {totalShares} shares this round
                     </p>
                   </div>
                 );

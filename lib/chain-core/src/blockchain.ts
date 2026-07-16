@@ -852,7 +852,7 @@ export class Blockchain {
     };
 
     const nonce = BigInt(params.nonce);
-    const { hashHex: _hashHex, hashValue } = hashHeader(minableHeader, nonce);
+    const { hashHex, hashValue } = hashHeader(minableHeader, nonce);
 
     // Share target derived from the effective difficulty.
     const blockTarget = targetForDifficulty(effectiveDifficulty);
