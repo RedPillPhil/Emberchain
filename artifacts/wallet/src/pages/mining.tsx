@@ -95,7 +95,8 @@ export default function Mining() {
 
         if (msg.type === "share") {
           setSessionShares((n) => n + 1);
-          // Submit share to server asynchronously — don't block hashing
+          // Submit share asynchronously — worker has already paused and will send
+          // 'needTemplate' to restart with a fresh template.
           if (templateRef.current) {
             const t = templateRef.current;
             submitShareMutation.mutateAsync({
@@ -104,25 +105,11 @@ export default function Mining() {
               nonce: msg.nonce,
             }).then((result) => {
               if (result.accepted) {
-                // Server credited this share — increment cumulative confirmed counter
                 setConfirmedShares((n) => n + 1);
               }
               if (result.blockFound) {
-                // Share nonce was also a valid block — server has already applied it
-                addLog(`★ SHARE PROMOTED TO BLOCK #${t.header.number}! Fetching next template…`, "found");
+                addLog(`★ SHARE PROMOTED TO BLOCK #${t.header.number}!`, "found");
                 setSessionBlocks((n) => n + 1);
-                if (!miningRef.current) return;
-                getMiningTemplate(t.header.miner).then((nt) => {
-                  if (!miningRef.current) return;
-                  templateRef.current = nt;
-                  worker.postMessage({
-                    type: "start",
-                    header: nt.header,
-                    target: nt.target,
-                    shareTarget: nt.shareTarget,
-                    batchSize: level.batchSize,
-                  } satisfies ToWorkerMsg);
-                }).catch(() => {});
               }
             }).catch(() => {
               // Stale or duplicate shares are expected — silently ignore
@@ -180,6 +167,35 @@ export default function Mining() {
               }).catch(() => stopWorker());
             }, 2000);
           }
+        }
+
+        if (msg.type === "needTemplate") {
+          // Worker paused after a share or after exhausting MAX_HASHES_PER_TEMPLATE.
+          // Fetch a fresh template and restart — mirrors Python's outer while-True loop.
+          if (!miningRef.current) return;
+          const minerAddr = templateRef.current?.header.miner ?? activeWallet?.address;
+          if (!minerAddr) return;
+          getMiningTemplate(minerAddr).then((nt) => {
+            if (!miningRef.current) return;
+            templateRef.current = nt;
+            worker.postMessage({
+              type: "start",
+              header: nt.header,
+              target: nt.target,
+              shareTarget: nt.shareTarget,
+              batchSize: level.batchSize,
+            } satisfies ToWorkerMsg);
+          }).catch(() => {
+            // Retry once after 2s if the template fetch fails
+            setTimeout(() => {
+              if (!miningRef.current) return;
+              getMiningTemplate(minerAddr).then((nt) => {
+                if (!miningRef.current) return;
+                templateRef.current = nt;
+                worker.postMessage({ type: "start", header: nt.header, target: nt.target, shareTarget: nt.shareTarget, batchSize: level.batchSize } satisfies ToWorkerMsg);
+              }).catch(() => stopWorker());
+            }, 2000);
+          });
         }
 
         if (msg.type === "stopped") {
