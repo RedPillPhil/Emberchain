@@ -95,8 +95,7 @@ export default function Mining() {
 
         if (msg.type === "share") {
           setSessionShares((n) => n + 1);
-          // Submit share asynchronously — worker has already paused and will send
-          // 'needTemplate' to restart with a fresh template.
+          // Submit share asynchronously — worker continues hashing on the same template.
           if (templateRef.current) {
             const t = templateRef.current;
             submitShareMutation.mutateAsync({

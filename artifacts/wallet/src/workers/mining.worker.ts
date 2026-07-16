@@ -3,8 +3,15 @@
  *
  * Ported from the working Python desktop miner:
  *   - 48-bit random starting nonce (matches Python's random.randint(0, 2**48))
- *   - Auto-refreshes template after MAX_HASHES_PER_TEMPLATE iterations
- *   - Breaks and requests a fresh template after every share submission
+ *   - Auto-refreshes template after MAX_HASHES_PER_TEMPLATE iterations (matches
+ *     Python's `if hashes >= 2000000: break` outer-loop behaviour)
+ *
+ * NOTE: Unlike the Python miner, we do NOT break after every share.  The Python
+ * script can afford to do so because subprocess startup + HTTP latency naturally
+ * throttles the loop.  In the browser at low difficulty the share target is very
+ * easy, so breaking after every share creates an infinite template-fetch storm.
+ * We report shares and keep hashing; template refreshes only happen on the
+ * MAX_HASHES_PER_TEMPLATE boundary (or after a block find).
  *
  * Message contract
  * ─────────────────
@@ -12,9 +19,9 @@
  * Receive { type:'stop' }                                           → halt and ack
  *
  * Send { type:'progress', hashRate, nonce, hash }  → periodic update
- * Send { type:'share', nonce }                     → nonce meets shareTarget; worker pauses for fresh template
+ * Send { type:'share', nonce }                     → nonce meets shareTarget; hashing continues
  * Send { type:'found', nonce, blockHash }          → nonce meets block target; worker stops
- * Send { type:'needTemplate' }                     → MAX_HASHES_PER_TEMPLATE reached; worker pauses for fresh template
+ * Send { type:'needTemplate' }                     → MAX_HASHES_PER_TEMPLATE reached; worker pauses
  * Send { type:'stopped' }                          → acknowledged stop
  */
 
@@ -78,7 +85,7 @@ function hashHeader(h: WorkerHeader, nonce: bigint): { hex: string; value: bigin
 
 /** 48-bit random starting nonce — matches Python's random.randint(0, 2**48) */
 function randomNonce(): bigint {
-  // Use two 24-bit random values combined to stay within safe integer range
+  // Two 24-bit random values combined to stay within safe integer range
   const hi = Math.floor(Math.random() * 0x1000000); // 24 bits
   const lo = Math.floor(Math.random() * 0x1000000); // 24 bits
   return (BigInt(hi) << 24n) | BigInt(lo);
@@ -107,19 +114,13 @@ self.onmessage = async (e: MessageEvent<ToWorkerMsg>) => {
     let nonce = randomNonce();
     let hashCount = 0;
     let startTime = Date.now();
-    let shareFound = false;
-    let templateExhausted = false;
 
-    outer:
     while (running) {
-      shareFound = false;
-      templateExhausted = false;
-
       let progressNonce = nonce.toString();
       let progressHash = "0x";
 
       for (let i = 0; i < batchSize; i++) {
-        if (!running) break outer;
+        if (!running) break;
         const { hex, value } = hashHeader(header, nonce);
         hashCount++;
         progressNonce = nonce.toString();
@@ -137,28 +138,30 @@ self.onmessage = async (e: MessageEvent<ToWorkerMsg>) => {
         }
 
         if (value <= shareTarget) {
-          // Valid share — report it, then break out to request a fresh template.
-          // This matches the Python miner: after a share, the outer loop re-fetches
-          // the template so the next round of work is always up-to-date.
+          // Valid share — report it and keep hashing on the same template.
+          // We do NOT break here (unlike the Python miner) because at low
+          // difficulty the share target is trivially easy and breaking would
+          // cause an infinite template-fetch storm.
           (self as unknown as Worker).postMessage({
             type: "share",
             nonce: nonce.toString(),
           } satisfies FromWorkerMsg);
-          shareFound = true;
-          nonce++;
-          break;
         }
 
         nonce++;
 
-        // Refresh template after MAX_HASHES_PER_TEMPLATE — matches Python's hashes >= 2000000 break
+        // Template exhaustion check — refresh after MAX_HASHES_PER_TEMPLATE.
+        // This mirrors Python's outer while-True loop that re-fetches the
+        // template every 2M hashes.
         if (hashCount >= MAX_HASHES_PER_TEMPLATE) {
-          templateExhausted = true;
-          break;
+          // Signal the main thread and stop — it will send a new 'start'.
+          running = false;
+          (self as unknown as Worker).postMessage({ type: "needTemplate" } satisfies FromWorkerMsg);
+          return;
         }
       }
 
-      // Report progress
+      // Report progress after each batch
       const elapsed = (Date.now() - startTime) / 1000;
       const hashRate = elapsed > 0 ? Math.round(hashCount / elapsed) : 0;
       (self as unknown as Worker).postMessage({
@@ -167,14 +170,6 @@ self.onmessage = async (e: MessageEvent<ToWorkerMsg>) => {
         nonce: progressNonce,
         hash: progressHash,
       } satisfies FromWorkerMsg);
-
-      if (shareFound || templateExhausted) {
-        // Pause and ask the main thread for a fresh template.
-        // Main thread will send a new 'start' message when ready.
-        running = false;
-        (self as unknown as Worker).postMessage({ type: "needTemplate" } satisfies FromWorkerMsg);
-        return;
-      }
 
       // Yield for a tick so the stop message can arrive before the next batch.
       await new Promise<void>((r) => setTimeout(r, 0));

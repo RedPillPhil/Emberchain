@@ -891,10 +891,12 @@ export class Blockchain {
     const prev = this.currentRoundShares.get(minerKey) ?? 0;
     this.currentRoundShares.set(minerKey, prev + 1);
 
-    // Persist share map to local file only — shares are transient (reset each
-    // round) so losing them on a restart is acceptable.  Skipping the DB write
-    // here prevents the connection pool from saturating at high mining intensity.
-    this.persist(false);
+    // Do NOT persist here — share state is written to disk and DB when a block
+    // closes (via applyBlock → persist()).  Writing the full chain JSON on every
+    // share submission at high mining intensity costs 200–1000 ms per request
+    // because the JSON can be many megabytes at chain height.  In-memory dedup
+    // and share counts are sufficient; losing them on an unexpected restart is
+    // acceptable since the round resets anyway.
 
     // If this nonce also meets the full block target, promote to a block
     let blockFound = false;

@@ -25,6 +25,44 @@ pool.on("error", (err) => {
 
 const STATE_ID = "main";
 
+// ---------------------------------------------------------------------------
+// Debounced save — prevent DB saturation when blocks close in rapid succession
+// (e.g. low difficulty, many miners).  The local file is always written
+// synchronously first, so no state is lost; the DB just catches up on the
+// next flush.
+// ---------------------------------------------------------------------------
+let _pendingSave: PersistedChain | null = null;
+let _saveTimer: ReturnType<typeof setTimeout> | null = null;
+const SAVE_DEBOUNCE_MS = 4_000; // flush to DB at most every 4 seconds
+
+function scheduleSave(data: PersistedChain): Promise<void> {
+  _pendingSave = data;
+  if (_saveTimer !== null) {
+    // Already scheduled — just update the payload; the timer will pick it up
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    _saveTimer = setTimeout(async () => {
+      _saveTimer = null;
+      const payload = _pendingSave!;
+      _pendingSave = null;
+      try {
+        await pool.query(
+          `INSERT INTO chain_state (id, data, updated_at)
+           VALUES ($1, $2::jsonb, NOW())
+           ON CONFLICT (id) DO UPDATE
+             SET data = EXCLUDED.data,
+                 updated_at = NOW()`,
+          [STATE_ID, JSON.stringify(payload)],
+        );
+      } catch (err) {
+        console.error("[db] Could not save chain state to database:", (err as Error).message);
+      }
+      resolve();
+    }, SAVE_DEBOUNCE_MS);
+  });
+}
+
 export async function loadChainFromDB(): Promise<PersistedChain | null> {
   try {
     const { rows } = await pool.query<{ data: PersistedChain }>(
@@ -39,18 +77,9 @@ export async function loadChainFromDB(): Promise<PersistedChain | null> {
 }
 
 export async function saveChainToDB(data: PersistedChain): Promise<void> {
-  try {
-    await pool.query(
-      `INSERT INTO chain_state (id, data, updated_at)
-       VALUES ($1, $2::jsonb, NOW())
-       ON CONFLICT (id) DO UPDATE
-         SET data = EXCLUDED.data,
-             updated_at = NOW()`,
-      [STATE_ID, JSON.stringify(data)],
-    );
-  } catch (err) {
-    console.error("[db] Could not save chain state to database:", (err as Error).message);
-  }
+  // Debounced — coalesces rapid calls (e.g. back-to-back block closes at low
+  // difficulty) into a single DB write every SAVE_DEBOUNCE_MS milliseconds.
+  await scheduleSave(data);
 }
 
 // ---------------------------------------------------------------------------
