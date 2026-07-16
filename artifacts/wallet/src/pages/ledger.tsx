@@ -363,7 +363,6 @@ function TopHolders({ onAddressClick }: { onAddressClick: (a: string) => void })
     ? [...wallets]
         .filter((w) => BigInt(w.balance) > 0n)
         .sort((a, b) => (BigInt(b.balance) > BigInt(a.balance) ? 1 : -1))
-        .slice(0, 20)
     : [];
 
   const totalSupply = wallets

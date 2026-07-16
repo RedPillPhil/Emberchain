@@ -574,7 +574,21 @@ export class Blockchain {
 
   getMiningStatus() {
     const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
-    const activeMiners = [...this.recentMiners.values()].filter((t) => t > fiveMinutesAgo).length;
+    // Seed from recentMiners (in-memory, resets on restart)
+    const minerSet = new Set<string>(
+      [...this.recentMiners.entries()]
+        .filter(([, t]) => t > fiveMinutesAgo)
+        .map(([addr]) => addr),
+    );
+    // Also count unique miner addresses from blocks mined in the last 5 minutes
+    // (persisted — survives server restarts)
+    const cutoff = new Date(fiveMinutesAgo).toISOString();
+    for (const block of this.blocks) {
+      if (block.timestamp >= cutoff && block.miner) {
+        minerSet.add(block.miner.toLowerCase());
+      }
+    }
+    const activeMiners = minerSet.size;
     return {
       isMining: this.mining.active,
       minerAddress: this.mining.minerAddress,

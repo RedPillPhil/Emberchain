@@ -22,6 +22,14 @@ import { formatHash, formatEmbr, cn } from "@/lib/utils";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
+function abbreviateNumber(n: number): string {
+  if (n >= 1e12) return `${(n / 1e12).toFixed(2)}T`;
+  if (n >= 1e9)  return `${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6)  return `${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3)  return `${(n / 1e3).toFixed(1)}K`;
+  return n.toLocaleString();
+}
+
 function formatSupply(weiStr: string): string {
   try {
     const wei = BigInt(weiStr);
@@ -123,7 +131,7 @@ export default function BlockExplorer() {
         <StatCard
           icon={<Zap className="w-3.5 h-3.5" />}
           label="Difficulty"
-          value={chain ? Number(chain.difficulty).toLocaleString() : "…"}
+          value={chain ? abbreviateNumber(Number(chain.difficulty)) : "…"}
           sub={`Target ${chain?.targetBlockTimeSeconds ?? 8}s/block`}
         />
         <StatCard
