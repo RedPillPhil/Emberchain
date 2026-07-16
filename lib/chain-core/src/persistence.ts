@@ -16,6 +16,8 @@ export interface PersistedChain {
   exchangeListings?: ExchangeListing[];
   /** Persisted set of `${currency}:${txHash}` strings used to prevent payment-proof replay. */
   usedPaymentProofs?: string[];
+  /** address → last-template-fetch timestamp (ms). Persisted so active-miner count survives restarts. */
+  recentMiners?: [string, number][];
 }
 
 export function loadChainFile(filePath: string): PersistedChain | null {

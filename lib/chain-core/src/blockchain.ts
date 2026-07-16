@@ -200,6 +200,11 @@ export class Blockchain {
         if (note.status === "spent" && note.keyImage) this.spentKeyImages.add(note.keyImage);
       }
       this.shieldedTxs = persisted.shieldedTxs ?? [];
+      // Restore recent-miner timestamps (only keep entries still within 5 min window)
+      const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+      for (const [addr, ts] of persisted.recentMiners ?? []) {
+        if (ts > fiveMinutesAgo) this.recentMiners.set(addr, ts);
+      }
       for (const listing of persisted.exchangeListings ?? []) {
         this.exchangeListings.set(listing.id, listing);
       }
@@ -262,6 +267,7 @@ export class Blockchain {
       shieldedTxs: this.shieldedTxs,
       exchangeListings: [...this.exchangeListings.values()],
       usedPaymentProofs: [...this.usedPaymentProofs],
+      recentMiners: [...this.recentMiners.entries()],
     };
     saveChainFile(this.dataFile, data);
     // Fire-and-forget database upsert.  If PG is briefly unavailable the
