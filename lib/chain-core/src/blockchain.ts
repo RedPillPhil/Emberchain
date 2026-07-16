@@ -810,56 +810,83 @@ export class Blockchain {
     if (!ADDRESS_RE.test(params.minerAddress)) throw new Error("Invalid miner address");
 
     // ── Validate header invariants against canonical chain state ─────────────
-    // All three checks use server-side state (not client-supplied values) so a
-    // miner cannot forge an easier difficulty, replay shares from an old round,
-    // or use a mismatched block number to bypass deduplication.
     const parent = this.blocks[this.blocks.length - 1];
 
-    if (params.header.number !== parent.number + 1) {
+    // Stale-share credit: if the share is exactly 1 block late (i.e. the round
+    // closed while the HTTP request was in flight), accept it into the current
+    // round rather than discarding the real work the miner did.
+    const isStaleByOne = params.header.number === parent.number;
+
+    if (!isStaleByOne && params.header.number !== parent.number + 1) {
       throw new Error(
         `Stale share: expected block number ${parent.number + 1}, got ${params.header.number}`,
       );
     }
-    if (params.header.parentHash !== parent.hash) {
-      throw new Error("Stale share: chain has advanced since this template was issued");
+    // For on-time shares, also check parentHash and difficulty against canonical state
+    // so a miner cannot replay shares from an earlier round or forge an easier target.
+    if (!isStaleByOne) {
+      if (params.header.parentHash !== parent.hash) {
+        throw new Error("Stale share: chain has advanced since this template was issued");
+      }
+      if (params.header.difficulty !== this.difficulty.toString()) {
+        throw new Error(
+          `Stale share: difficulty mismatch (expected ${this.difficulty}, got ${params.header.difficulty})`,
+        );
+      }
     }
-    if (params.header.difficulty !== this.difficulty.toString()) {
-      throw new Error(
-        `Stale share: difficulty mismatch (expected ${this.difficulty}, got ${params.header.difficulty})`,
-      );
-    }
+
+    // For stale shares use the difficulty that was in effect when the work was done
+    // (submitted by the client); for current shares use the canonical chain difficulty
+    // so a miner cannot forge a lower difficulty to reach an easier target.
+    const effectiveDifficulty = isStaleByOne
+      ? BigInt(params.header.difficulty)
+      : this.difficulty;
 
     const minableHeader: MinableHeader = {
       number: params.header.number,
       parentHash: params.header.parentHash as PrefixedHexString,
       timestamp: params.header.timestamp,
       miner: params.header.miner as PrefixedHexString,
-      difficulty: this.difficulty, // use canonical chain difficulty, not the client claim
+      difficulty: effectiveDifficulty,
       transactionsRoot: params.header.transactionsRoot as PrefixedHexString,
     };
 
     const nonce = BigInt(params.nonce);
-    const { hashHex, hashValue } = hashHeader(minableHeader, nonce);
+    const { hashHex: _hashHex, hashValue } = hashHeader(minableHeader, nonce);
 
-    // Share target computed from canonical chain difficulty — client cannot influence it.
-    const blockTarget = targetForDifficulty(this.difficulty);
+    // Share target derived from the effective difficulty.
+    const blockTarget = targetForDifficulty(effectiveDifficulty);
     const rawShareTarget = blockTarget * BigInt(EMBERCHAIN_CONFIG.shareDifficultyDivisor);
     const shareTarget = rawShareTarget > MAX_TARGET ? MAX_TARGET : rawShareTarget;
 
     if (hashValue > shareTarget) {
+      // Stale shares that miss the target are silently dropped — the work was
+      // for an easier old round; don't error so the client keeps mining.
+      if (isStaleByOne) {
+        const minerKey = params.minerAddress.toLowerCase();
+        return { accepted: false, shares: this.currentRoundShares.get(minerKey) ?? 0, blockFound: false };
+      }
       throw new Error("Share does not meet the share difficulty target");
     }
 
-    // Deduplicate using canonical tip hash + nonce so the key cannot be forged
-    // by sending a different header.number.  Persisted across restarts to prevent
-    // replay after a server bounce within the same round.
-    const dedupeKey = `${parent.hash}:${params.nonce}`;
+    // Deduplicate:
+    // • Current shares — keyed on canonical tip hash so old nonces can't be replayed.
+    // • Stale shares   — keyed on the submitted parentHash (the old tip) so the same
+    //   late nonce can't be submitted twice across the round boundary.
+    const dedupeKey = isStaleByOne
+      ? `stale:${params.header.parentHash}:${params.nonce}`
+      : `${parent.hash}:${params.nonce}`;
+
     if (this.submittedShareNonces.has(dedupeKey)) {
+      const minerKey = params.minerAddress.toLowerCase();
+      if (isStaleByOne) {
+        return { accepted: false, shares: this.currentRoundShares.get(minerKey) ?? 0, blockFound: false };
+      }
       throw new Error("Duplicate share: this nonce has already been accepted");
     }
     this.submittedShareNonces.add(dedupeKey);
 
-    // Credit 1 share for this miner
+    // Credit 1 share for this miner (into the current round regardless of staleness)
     const minerKey = params.minerAddress.toLowerCase();
     const prev = this.currentRoundShares.get(minerKey) ?? 0;
     this.currentRoundShares.set(minerKey, prev + 1);

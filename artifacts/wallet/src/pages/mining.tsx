@@ -374,12 +374,26 @@ export default function Mining() {
                 <div className="font-mono text-3xl">{sessionBlocks}</div>
               </div>
 
-              <div>
-                <div className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2 font-sans">
-                  <Share2 className="w-3 h-3 text-accent" /> Shares This Round
-                </div>
-                <div className="font-mono text-3xl">{sessionShares}</div>
-              </div>
+              {(() => {
+                const sharesInRound = status?.sharesInRound ?? {};
+                const totalShares = Object.values(sharesInRound).reduce((s, n) => s + n, 0);
+                const myShares = activeWallet
+                  ? (sharesInRound[activeWallet.address.toLowerCase()] ?? 0)
+                  : 0;
+                return (
+                  <div>
+                    <div className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2 font-sans">
+                      <Share2 className="w-3 h-3 text-accent" /> Confirmed Shares
+                    </div>
+                    <div className="font-mono text-3xl">{myShares}</div>
+                    {totalShares > 0 && (
+                      <p className="text-[10px] text-muted-foreground font-sans mt-0.5">
+                        {myShares} / {totalShares} in round
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               {(() => {
                 const sharesInRound = status?.sharesInRound ?? {};
@@ -396,11 +410,9 @@ export default function Mining() {
                     <div className="font-mono text-3xl">
                       {pct}<span className="text-sm text-muted-foreground ml-1">%</span>
                     </div>
-                    {totalShares > 0 && (
-                      <p className="text-[10px] text-muted-foreground font-sans mt-0.5">
-                        {myShares} / {totalShares} shares in round
-                      </p>
-                    )}
+                    <p className="text-[10px] text-muted-foreground font-sans mt-0.5">
+                      resets each block
+                    </p>
                   </div>
                 );
               })()}
