@@ -6,7 +6,7 @@ import { formatEmbr } from "@/lib/utils";
 import {
   Flame, Database, Clock, Activity, Zap, Cpu,
   ArrowUpRight, Users, QrCode, Copy, Check,
-  ShieldAlert, ShieldCheck,
+  ShieldAlert, ShieldCheck, Share2,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -216,40 +216,36 @@ export default function Dashboard() {
           />
         )}
 
-        {/* Mining Quick Status */}
-        <Card className={cn(
-          "border flex flex-col justify-between p-6 transition-all duration-500 relative overflow-hidden",
-          miningStatus?.isMining ? "border-primary bg-primary/5 box-glow" : "border-border bg-card/50"
-        )}>
-          {miningStatus?.isMining && (
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary to-transparent animate-scanline"></div>
-          )}
-
+        {/* Pool Activity */}
+        <Card className="border border-border bg-card/50 flex flex-col justify-between p-6 relative overflow-hidden">
           <div>
             <div className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-6 flex items-center justify-between">
-              <span>Forge Status</span>
-              {miningStatus?.isMining ? (
-                <span className="text-primary flex items-center gap-1 animate-pulse">
-                  <Flame className="w-3 h-3" /> ACTIVE
-                </span>
-              ) : (
-                <span className="text-muted-foreground">IDLE</span>
-              )}
+              <span>Pool Activity</span>
+              <span className="text-primary flex items-center gap-1 animate-pulse">
+                <span className="w-2 h-2 rounded-full bg-primary inline-block" /> LIVE
+              </span>
             </div>
 
             <div className="space-y-4">
               <div>
                 <div className="text-3xl font-display font-bold">
-                  {miningStatus?.isMining ? miningStatus.hashRate.toLocaleString() : "0"}
+                  {miningStatus?.activeMiners ?? 0}
                 </div>
-                <div className="text-xs text-muted-foreground font-bold uppercase">Hashes / Sec</div>
+                <div className="text-xs text-muted-foreground font-bold uppercase">Active Miners</div>
+              </div>
+
+              <div>
+                <div className="text-3xl font-display font-bold">
+                  {Object.values(miningStatus?.sharesInRound ?? {}).reduce((s, n) => s + n, 0)}
+                </div>
+                <div className="text-xs text-muted-foreground font-bold uppercase">Shares This Round</div>
               </div>
 
               <div>
                 <div className="text-xl font-mono">
-                  {miningStatus?.blocksMined || 0}
+                  {chainStatus?.avgBlockTime != null ? `${chainStatus.avgBlockTime.toFixed(1)}s` : "…"}
                 </div>
-                <div className="text-xs text-muted-foreground font-bold uppercase">Blocks Forged (Session)</div>
+                <div className="text-xs text-muted-foreground font-bold uppercase">Avg Block Time</div>
               </div>
             </div>
           </div>
