@@ -27,6 +27,7 @@ router.get("/chain/blocks", async (req: Request, res: Response): Promise<void> =
     difficulty: block.difficulty,
     transactionCount: block.transactionHashes.length,
     nonce: block.nonce,
+    payouts: block.payouts,
   }));
   res.status(200).json(ListBlocksResponse.parse(summaries));
 });
@@ -51,6 +52,7 @@ router.get("/chain/blocks/:number", async (req: Request, res: Response): Promise
       stateRoot: block.stateRoot,
       reward: block.reward,
       transactions: block.transactions,
+      payouts: block.payouts,
     }),
   );
 });

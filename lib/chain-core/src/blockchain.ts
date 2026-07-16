@@ -753,6 +753,15 @@ export class Blockchain {
     });
     const parentTimestampMs = new Date(parent.timestamp).getTime();
     const actualBlockTimeSec = (params.header.timestamp - parentTimestampMs) / 1000;
+
+    // Credit the block finder a share for finding the winning nonce.
+    // Without this, if other miners already have shares in the round map but the
+    // block finder submitted none (or their share POST hasn't landed yet), the
+    // block finder receives zero reward — all EMBR goes to the share-holders.
+    // Adding 1 share here ensures the block finder always earns a proportional cut.
+    const finderKey = minableHeader.miner.toLowerCase();
+    this.currentRoundShares.set(finderKey, (this.currentRoundShares.get(finderKey) ?? 0) + 1);
+
     await this.applyBlock(minableHeader, included, nonce, hashHex);
     this.mining.blocksMinedThisSession += 1;
     this.difficulty = retargetDifficulty(

@@ -97,7 +97,8 @@ export const ListBlocksResponseItem = zod.object({
   "miner": zod.string(),
   "difficulty": zod.string(),
   "transactionCount": zod.number(),
-  "nonce": zod.string()
+  "nonce": zod.string(),
+  "payouts": zod.record(zod.string()).optional()
 })
 export const ListBlocksResponse = zod.array(ListBlocksResponseItem)
 
@@ -117,7 +118,8 @@ export const GetBlockResponse = zod.object({
   "miner": zod.string(),
   "difficulty": zod.string(),
   "transactionCount": zod.number(),
-  "nonce": zod.string()
+  "nonce": zod.string(),
+  "payouts": zod.record(zod.string()).optional()
 }).and(zod.object({
   "stateRoot": zod.string(),
   "reward": zod.string(),
