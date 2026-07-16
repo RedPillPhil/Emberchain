@@ -333,6 +333,15 @@ export const ExchangeListing = zod.object({
   "paymentTxHash": zod.string().nullable(),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
+  // Multi-chain USDT
+  "acceptedNetworks": zod.array(zod.string()).nullable(),
+  "networkAddresses": zod.record(zod.string()).nullable(),
+  // Buy reservation
+  "reservedBy": zod.string().nullable(),
+  "reservedAt": zod.number().nullable(),
+  "reservedUntil": zod.number().nullable(),
+  // Fulfillment metadata
+  "selectedNetwork": zod.string().nullable(),
 })
 
 export const CreateListingBody = zod.object({
@@ -341,15 +350,25 @@ export const CreateListingBody = zod.object({
   "currency": ExchangeCurrencyEnum,
   "priceAmount": zod.string(),
   "receiveAddress": zod.string(),
+  /** For USDT: which networks seller accepts, e.g. ["ERC-20", "TRC-20"] */
+  "acceptedNetworks": zod.array(zod.string()).optional(),
+  /** For USDT multi-chain: receive address per network */
+  "networkAddresses": zod.record(zod.string()).optional(),
 })
 
 export const CancelListingBody = zod.object({
   "sellerPrivateKey": zod.string().describe("0x-prefixed hex private key of the original seller."),
 })
 
+export const ReserveListingBody = zod.object({
+  "buyerAddress": zod.string().describe("EMBR address of the buyer reserving this listing."),
+})
+
 export const BuyListingBody = zod.object({
   "buyerAddress": zod.string(),
   "paymentTxHash": zod.string(),
+  /** For USDT multi-chain: which network the buyer paid on (e.g. "ERC-20", "TRC-20"). */
+  "selectedNetwork": zod.string().optional(),
 })
 
 export const ListExchangeListingsParams = zod.object({

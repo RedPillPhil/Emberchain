@@ -1278,6 +1278,27 @@ export class Blockchain {
     return bytesToHex(keccak256(new TextEncoder().encode(`listing:${Date.now()}:${Math.random()}`)));
   }
 
+  /** Clears expired reservations (check-on-read). Never touches listings under active verification. */
+  private releaseExpiredReservations(): void {
+    const now = Date.now();
+    let changed = false;
+    for (const listing of this.exchangeListings.values()) {
+      if (
+        listing.reservedBy &&
+        listing.reservedUntil !== null &&
+        listing.reservedUntil <= now &&
+        !this.verifyingListings.has(listing.id)
+      ) {
+        listing.reservedBy = null;
+        listing.reservedAt = null;
+        listing.reservedUntil = null;
+        listing.updatedAt = new Date().toISOString();
+        changed = true;
+      }
+    }
+    if (changed) this.persist();
+  }
+
   async createListing(input: {
     /** 0x-prefixed hex private key. Address is derived server-side — never trusted from the client. */
     sellerPrivateKey: string;
@@ -1285,6 +1306,10 @@ export class Blockchain {
     currency: ExchangeCurrency;
     priceAmount: string;
     receiveAddress: string;
+    /** For USDT: which networks the seller will accept payment on. */
+    acceptedNetworks?: string[];
+    /** For USDT multi-chain: maps network name → receive address. */
+    networkAddresses?: Record<string, string>;
   }): Promise<ExchangeListing> {
     await this.whenReady();
     // Derive the seller's address from their private key — this is the auth proof.
@@ -1315,8 +1340,52 @@ export class Blockchain {
       paymentTxHash: null,
       createdAt: now,
       updatedAt: now,
+      // Multi-chain USDT
+      acceptedNetworks: input.currency === "USDT"
+        ? (input.acceptedNetworks && input.acceptedNetworks.length > 0 ? input.acceptedNetworks : ["ERC-20"])
+        : null,
+      networkAddresses: input.currency === "USDT"
+        ? (input.networkAddresses ?? { "ERC-20": input.receiveAddress })
+        : null,
+      // Reservation
+      reservedBy: null,
+      reservedAt: null,
+      reservedUntil: null,
+      // Fulfillment metadata
+      selectedNetwork: null,
     };
     this.exchangeListings.set(listing.id, listing);
+    this.persist();
+    return listing;
+  }
+
+  /**
+   * Atomically reserves a listing for a buyer for the given window.
+   * Throws if the listing is already reserved by a different buyer.
+   * Idempotent: the same buyer can refresh their reservation.
+   */
+  reserveListing(id: string, buyerAddress: string, durationMs = 15 * 60 * 1000): ExchangeListing {
+    const listing = this.exchangeListings.get(id);
+    if (!listing) throw new Error("Listing not found");
+    if (listing.status !== "open") throw new Error("Listing is no longer available");
+
+    const now = Date.now();
+    // Check whether another buyer holds an active reservation
+    if (
+      listing.reservedBy &&
+      listing.reservedUntil !== null &&
+      listing.reservedUntil > now &&
+      listing.reservedBy.toLowerCase() !== buyerAddress.toLowerCase()
+    ) {
+      const remaining = Math.ceil((listing.reservedUntil - now) / 1000);
+      throw new Error(`Listing is reserved by another buyer (${remaining}s remaining)`);
+    }
+
+    // Set or refresh reservation
+    listing.reservedBy = buyerAddress;
+    listing.reservedAt = now;
+    listing.reservedUntil = now + durationMs;
+    listing.updatedAt = new Date().toISOString();
     this.persist();
     return listing;
   }
@@ -1337,6 +1406,10 @@ export class Blockchain {
     }
     await credit(this.stateManager, listing.sellerAddress as PrefixedHexString, BigInt(listing.amountEmbr));
     listing.status = "cancelled";
+    // Clear any reservation — seller's cancellation overrides it
+    listing.reservedBy = null;
+    listing.reservedAt = null;
+    listing.reservedUntil = null;
     listing.updatedAt = new Date().toISOString();
     this.persist();
     return listing;
@@ -1352,14 +1425,31 @@ export class Blockchain {
    * `verifyingListings`.  Two concurrent calls with the **same external tx
    * hash** on *different* listings are blocked by `pendingProofs` +
    * `usedPaymentProofs`, preventing any proof-replay attack.
+   *
+   * If the listing is reserved, only the reserving buyer (buyerAddress) may
+   * proceed.  A buyer who holds the reservation may retry after a failed
+   * verification without losing their reservation window.
    */
-  lockListingForFulfillment(id: string, paymentTxHash: string): ExchangeListing {
+  lockListingForFulfillment(id: string, paymentTxHash: string, buyerAddress?: string): ExchangeListing {
     if (this.verifyingListings.has(id)) {
       throw new Error("Another buyer is already verifying payment on this listing — try again in a moment");
     }
     const listing = this.exchangeListings.get(id);
     if (!listing) throw new Error("Listing not found");
     if (listing.status !== "open") throw new Error("Listing is no longer available");
+
+    // Enforce reservation: if an active reservation exists, only the reserving buyer may proceed.
+    const now = Date.now();
+    if (
+      listing.reservedBy &&
+      listing.reservedUntil !== null &&
+      listing.reservedUntil > now
+    ) {
+      if (!buyerAddress || listing.reservedBy.toLowerCase() !== buyerAddress.toLowerCase()) {
+        const remaining = Math.ceil((listing.reservedUntil - now) / 1000);
+        throw new Error(`Listing is reserved by another buyer (${remaining}s remaining) — please reserve this listing first`);
+      }
+    }
 
     // Reserve the proof key before any async work — prevents cross-listing replay.
     const proofKey = `${listing.currency}:${paymentTxHash.toLowerCase()}`;
@@ -1381,7 +1471,12 @@ export class Blockchain {
   }
 
   /** Called after successful external verification to release EMBR to the buyer. */
-  async commitFulfillment(id: string, buyerAddress: string, paymentTxHash: string): Promise<ExchangeListing> {
+  async commitFulfillment(
+    id: string,
+    buyerAddress: string,
+    paymentTxHash: string,
+    selectedNetwork?: string,
+  ): Promise<ExchangeListing> {
     await this.whenReady();
     if (!ADDRESS_RE.test(buyerAddress)) throw new Error("Invalid buyer EMBR address");
     const listing = this.exchangeListings.get(id)!;
@@ -1397,6 +1492,11 @@ export class Blockchain {
     listing.status = "fulfilled";
     listing.buyerAddress = buyerAddress;
     listing.paymentTxHash = paymentTxHash;
+    listing.selectedNetwork = selectedNetwork ?? null;
+    // Clear reservation — listing is done
+    listing.reservedBy = null;
+    listing.reservedAt = null;
+    listing.reservedUntil = null;
     listing.updatedAt = new Date().toISOString();
     this.pendingProofs.delete(proofKey);
     this.listingProofKeys.delete(id);
@@ -1429,6 +1529,7 @@ export class Blockchain {
 
   async listExchangeListings(status?: string): Promise<ExchangeListing[]> {
     await this.whenReady();
+    this.releaseExpiredReservations();
     let all = [...this.exchangeListings.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
     if (status) all = all.filter((l) => l.status === status);
     return all;
@@ -1436,6 +1537,7 @@ export class Blockchain {
 
   async getExchangeListing(id: string): Promise<ExchangeListing | undefined> {
     await this.whenReady();
+    this.releaseExpiredReservations();
     return this.exchangeListings.get(id);
   }
 }

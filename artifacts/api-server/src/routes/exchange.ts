@@ -3,6 +3,7 @@ import {
   CreateListingBody,
   CancelListingBody,
   BuyListingBody,
+  ReserveListingBody,
   ListExchangeListingsParams,
 } from "@workspace/api-zod";
 import { chain } from "../lib/chain";
@@ -55,22 +56,38 @@ router.post("/exchange/listings/:id/cancel", async (req: Request<IdParams>, res:
   }
 });
 
+// POST /exchange/listings/:id/reserve — buyer reserves the listing for 15 minutes
+router.post("/exchange/listings/:id/reserve", async (req: Request<IdParams>, res: Response): Promise<void> => {
+  let body: { buyerAddress: string };
+  try {
+    body = ReserveListingBody.parse(req.body ?? {});
+  } catch {
+    res.status(400).json({ error: "buyerAddress is required" });
+    return;
+  }
+  try {
+    const listing = chain.reserveListing(req.params.id, body.buyerAddress);
+    res.status(200).json(listing);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Could not reserve listing";
+    // 409 = already reserved by someone else
+    const status = msg.includes("reserved by another buyer") ? 409 : 400;
+    res.status(status).json({ error: msg });
+  }
+});
+
 // POST /exchange/listings/:id/buy — submit payment proof; verifies then releases EMBR
 router.post("/exchange/listings/:id/buy", async (req: Request<IdParams>, res: Response): Promise<void> => {
   const body = BuyListingBody.parse(req.body ?? {});
   const id = req.params.id;
 
-  // Synchronously lock the listing AND reserve the proof key before any async work.
-  // All checks+reservations happen in one event-loop tick, so this is atomic in
-  // Node.js's single-threaded model — no two requests can race past the gate for
-  // the same listing OR the same external tx hash across different listings.
+  // Synchronously lock the listing AND reserve the payment proof before any async work.
+  // Everything in one event-loop tick — atomicity via Node.js's single-threaded model.
   let listing;
   try {
-    listing = chain.lockListingForFulfillment(id, body.paymentTxHash);
+    listing = chain.lockListingForFulfillment(id, body.paymentTxHash, body.buyerAddress);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Listing not available";
-    // "already used" indicates a duplicate payment proof — look up the original
-    // listing so we can surface a specific, actionable error to the buyer.
     if (msg.includes("already used")) {
       const existing = await getProofByTxHash(body.paymentTxHash);
       res.status(409).json({
@@ -81,18 +98,29 @@ router.post("/exchange/listings/:id/buy", async (req: Request<IdParams>, res: Re
         originalListingId: existing?.listingId ?? null,
         currency: existing?.currency ?? null,
       });
+    } else if (msg.includes("reserved by another buyer") || msg.includes("reserve this listing first")) {
+      res.status(409).json({ error: msg, code: "LISTING_RESERVED" });
     } else {
       res.status(409).json({ error: msg });
     }
     return;
   }
 
+  // Determine which receive address to verify against
+  const selectedNetwork = body.selectedNetwork;
+  let receiveAddress = listing.receiveAddress;
+  if (listing.currency === "USDT" && selectedNetwork && listing.networkAddresses) {
+    const networkAddr = listing.networkAddresses[selectedNetwork];
+    if (networkAddr) receiveAddress = networkAddr;
+  }
+
   try {
     const result = await verifyPayment(
       listing.currency,
       body.paymentTxHash,
-      listing.receiveAddress,
+      receiveAddress,
       listing.priceAmount,
+      selectedNetwork,
     );
 
     if (!result.valid) {
@@ -105,7 +133,7 @@ router.post("/exchange/listings/:id/buy", async (req: Request<IdParams>, res: Re
       return;
     }
 
-    const fulfilled = await chain.commitFulfillment(id, body.buyerAddress, body.paymentTxHash);
+    const fulfilled = await chain.commitFulfillment(id, body.buyerAddress, body.paymentTxHash, selectedNetwork);
     res.status(200).json(fulfilled);
   } catch (err) {
     chain.unlockListing(id);

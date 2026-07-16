@@ -101,6 +101,9 @@ export interface WalletRecord {
 export type ExchangeCurrency = "ETH" | "USDT" | "BTC" | "SOL";
 export type ListingStatus = "open" | "fulfilled" | "cancelled";
 
+/** USDT network names supported by the exchange. */
+export type UsdtNetwork = "ERC-20" | "TRC-20" | "BEP-20" | "Polygon";
+
 export interface ExchangeListing {
   id: string;
   /** EMBR address of the seller */
@@ -111,7 +114,11 @@ export interface ExchangeListing {
   currency: ExchangeCurrency;
   /** Asking price in that currency's natural unit (e.g. "0.05" ETH) */
   priceAmount: string;
-  /** Off-chain address (ETH/BTC/SOL) where the seller wants to receive payment */
+  /**
+   * Primary receive address (used for all non-USDT currencies, and for
+   * ERC-20 USDT for backward compat).  For multi-chain USDT, per-network
+   * addresses live in networkAddresses.
+   */
   receiveAddress: string;
   status: ListingStatus;
   /** EMBR address of the buyer, set on fulfillment */
@@ -120,4 +127,26 @@ export interface ExchangeListing {
   paymentTxHash: string | null;
   createdAt: string;
   updatedAt: string;
+
+  // ── Multi-chain USDT ──────────────────────────────────────────────────────
+  /** For USDT listings: which networks the seller will accept payment on. */
+  acceptedNetworks: string[] | null;
+  /**
+   * Maps network name → seller receive address on that network.
+   * ERC-20/BEP-20/Polygon share the same 0x address; TRC-20 uses a T… address.
+   * Null for non-USDT currencies.
+   */
+  networkAddresses: Record<string, string> | null;
+
+  // ── Buy reservation ───────────────────────────────────────────────────────
+  /** EMBR address of the buyer who reserved this listing. */
+  reservedBy: string | null;
+  /** Unix timestamp (ms) when the reservation was made. */
+  reservedAt: number | null;
+  /** Unix timestamp (ms) when the reservation expires. */
+  reservedUntil: number | null;
+
+  // ── Fulfillment metadata ─────────────────────────────────────────────────
+  /** For USDT: which network the buyer used (recorded at fulfillment). */
+  selectedNetwork: string | null;
 }

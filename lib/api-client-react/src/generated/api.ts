@@ -26,6 +26,7 @@ import type {
   BlockSummary,
   BuyListingInput,
   CancelListingInput,
+  ReserveListingInput,
   ChainStatus,
   ContractCall,
   ContractCallResult,
@@ -1833,6 +1834,35 @@ export function useSubmitBlock<TError = ErrorType<unknown>, TContext = unknown>(
 }
 
 // ── P2P Exchange ──────────────────────────────────────────────────────────────
+
+export const reserveListing = async (id: string, data: ReserveListingInput, options?: RequestInit): Promise<ExchangeListing> => {
+  return customFetch<ExchangeListing>(`/api/exchange/listings/${id}/reserve`, {
+    ...options, method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(data),
+  });
+}
+
+export const getReserveListingMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reserveListing>>, TError, {id: string; data: BodyType<ReserveListingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reserveListing>>, TError, {id: string; data: BodyType<ReserveListingInput>}, TContext> => {
+  const mutationKey = ['reserveListing'];
+  const {mutation: mutationOptions, request: requestOptions} = options ?
+    options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+    options : {...options, mutation: {...options.mutation, mutationKey}} : {mutation: { mutationKey }, request: undefined};
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof reserveListing>>, {id: string; data: BodyType<ReserveListingInput>}> = (props) => {
+    const {id, data} = props ?? {};
+    return reserveListing(id, data, requestOptions);
+  };
+  return { mutationFn, ...mutationOptions };
+}
+
+export function useReserveListing<TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reserveListing>>, TError, {id: string; data: BodyType<ReserveListingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationResult<Awaited<ReturnType<typeof reserveListing>>, TError, {id: string; data: BodyType<ReserveListingInput>}, TContext> {
+  const mutationOptions = getReserveListingMutationOptions(options);
+  return useMutation(mutationOptions);
+}
 
 export const buyListing = async (id: string, data: BuyListingInput, options?: RequestInit): Promise<ExchangeListing> => {
   return customFetch<ExchangeListing>(`/api/exchange/listings/${id}/buy`, {

@@ -269,6 +269,7 @@ export interface ShieldedTxRecord {
 
 export type ExchangeCurrency = 'ETH' | 'USDT' | 'BTC' | 'SOL';
 export type ListingStatus = 'open' | 'fulfilled' | 'cancelled';
+export type UsdtNetwork = 'ERC-20' | 'TRC-20' | 'BEP-20' | 'Polygon';
 
 export interface ExchangeListing {
   id: string;
@@ -279,7 +280,7 @@ export interface ExchangeListing {
   currency: ExchangeCurrency;
   /** Asking price in currency natural unit, e.g. "0.05" for 0.05 ETH */
   priceAmount: string;
-  /** Seller's off-chain address to receive the payment */
+  /** Seller's primary off-chain receive address (used for non-USDT and ERC-20 USDT) */
   receiveAddress: string;
   status: ListingStatus;
   /** @nullable */
@@ -288,6 +289,18 @@ export interface ExchangeListing {
   paymentTxHash: string | null;
   createdAt: string;
   updatedAt: string;
+  /** For USDT: which networks seller accepts, e.g. ["ERC-20", "TRC-20"]. Null for other currencies. @nullable */
+  acceptedNetworks: string[] | null;
+  /** For USDT multi-chain: maps network name to seller receive address. Null for other currencies. @nullable */
+  networkAddresses: Record<string, string> | null;
+  /** EMBR address of the buyer who reserved this listing. Null if unreserved. @nullable */
+  reservedBy: string | null;
+  /** Unix ms timestamp when reservation was made. @nullable */
+  reservedAt: number | null;
+  /** Unix ms timestamp when reservation expires. @nullable */
+  reservedUntil: number | null;
+  /** For USDT: which network the buyer paid on (recorded at fulfillment). @nullable */
+  selectedNetwork: string | null;
 }
 
 // ── Browser mining ───────────────────────────────────────────────────────────
@@ -326,6 +339,10 @@ export interface CreateListingInput {
   currency: ExchangeCurrency;
   priceAmount: string;
   receiveAddress: string;
+  /** For USDT: which networks seller accepts, e.g. ["ERC-20", "TRC-20"] */
+  acceptedNetworks?: string[];
+  /** For USDT multi-chain: maps network name to seller receive address */
+  networkAddresses?: Record<string, string>;
 }
 
 export interface CancelListingInput {
@@ -333,10 +350,17 @@ export interface CancelListingInput {
   sellerPrivateKey: string;
 }
 
+export interface ReserveListingInput {
+  /** EMBR address of the buyer reserving this listing. */
+  buyerAddress: string;
+}
+
 export interface BuyListingInput {
   /** Buyer's EMBR address — credited on success */
   buyerAddress: string;
   paymentTxHash: string;
+  /** For USDT multi-chain: which network the buyer paid on, e.g. "ERC-20", "TRC-20" */
+  selectedNetwork?: string;
 }
 
 export type ListExchangeListingsParams = {
