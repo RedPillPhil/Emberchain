@@ -265,7 +265,18 @@ export class Blockchain {
     await this.ready;
   }
 
-  private persist(): void {
+  /**
+   * Persist chain state to the local file and optionally to the database.
+   *
+   * @param toDB - When true (default), also fires the async DB upsert.
+   *               Pass false for high-frequency hot paths (e.g. share
+   *               submissions) where only the local file needs updating —
+   *               shares are transient and reset each round anyway, so losing
+   *               them on a restart is acceptable.  Block closes, transactions,
+   *               and exchange actions always pass toDB = true so that durable
+   *               state is never lost across server restarts.
+   */
+  private persist(toDB = true): void {
     const data: PersistedChain = {
       version: 3,
       difficulty: this.difficulty.toString(),
@@ -282,9 +293,10 @@ export class Blockchain {
       submittedShareNonces: [...this.submittedShareNonces],
     };
     saveChainFile(this.dataFile, data);
-    // Fire-and-forget database upsert.  If PG is briefly unavailable the
-    // local file keeps us running; the next successful persist catches PG up.
-    if (this.asyncPersistHook) {
+    // Fire-and-forget database upsert.  Skipped for share submissions
+    // (toDB = false) because they happen 10-20× per second at high mining
+    // intensity and would saturate the connection pool.
+    if (toDB && this.asyncPersistHook) {
       this.asyncPersistHook(data).catch((err: unknown) =>
         console.error("[chain] Async DB persist failed:", (err as Error).message),
       );
@@ -852,8 +864,10 @@ export class Blockchain {
     const prev = this.currentRoundShares.get(minerKey) ?? 0;
     this.currentRoundShares.set(minerKey, prev + 1);
 
-    // Persist updated share map (survives restarts)
-    this.persist();
+    // Persist share map to local file only — shares are transient (reset each
+    // round) so losing them on a restart is acceptable.  Skipping the DB write
+    // here prevents the connection pool from saturating at high mining intensity.
+    this.persist(false);
 
     // If this nonce also meets the full block target, promote to a block
     let blockFound = false;
