@@ -66,6 +66,19 @@ const CONFIRMATION_LABELS: Record<ExchangeCurrency, string> = {
   SOL:  "Finalized (~30 s)",
 };
 
+// Which network each currency lives on — shown prominently to buyers and sellers
+const CURRENCY_NETWORK: Record<ExchangeCurrency, string> = {
+  ETH:  "Ethereum mainnet",
+  USDT: "Ethereum mainnet (ERC-20 only)",
+  BTC:  "Bitcoin mainnet",
+  SOL:  "Solana mainnet",
+};
+
+// Extra warning shown only for currencies where the wrong network is a common mistake
+const CURRENCY_NETWORK_WARNING: Partial<Record<ExchangeCurrency, string>> = {
+  USDT: "⚠️ This is ERC-20 USDT on Ethereum. Do NOT send TRC-20 (Tron), BEP-20 (BSC), Polygon, or any other network — those transactions cannot be verified and your payment will not be released.",
+};
+
 const EXPLORER_LINKS: Record<ExchangeCurrency, (hash: string) => string> = {
   ETH:  (h) => `https://etherscan.io/tx/${h}`,
   USDT: (h) => `https://etherscan.io/tx/${h}`,
@@ -283,6 +296,13 @@ function BuyPanel({
         <Store className="w-4 h-4" /> Buy this listing
       </h4>
 
+      {/* USDT / network warning — shown before payment instructions */}
+      {CURRENCY_NETWORK_WARNING[listing.currency] && (
+        <div className="mb-3 p-3 bg-amber-500/10 border border-amber-500/40 rounded-sm text-xs text-amber-300 leading-relaxed">
+          {CURRENCY_NETWORK_WARNING[listing.currency]}
+        </div>
+      )}
+
       {/* payment instructions */}
       <div className="mb-4 p-3 bg-secondary/60 border border-border rounded-sm text-sm space-y-1">
         <p className="text-muted-foreground font-bold uppercase text-xs mb-2">Step 1 — Send payment externally</p>
@@ -294,6 +314,10 @@ function BuyPanel({
           <span className="text-muted-foreground">To address:</span>
           <code className="font-mono text-xs text-foreground bg-background/60 px-1 py-0.5 rounded">{listing.receiveAddress}</code>
           <CopyButton text={listing.receiveAddress} />
+        </div>
+        <div className="flex items-center gap-1 mt-1">
+          <span className="text-muted-foreground text-xs">Network:</span>
+          <span className="text-xs font-bold text-foreground ml-1">{CURRENCY_NETWORK[listing.currency]}</span>
         </div>
         <p className="text-muted-foreground text-xs mt-1">
           Wait for {CONFIRMATION_LABELS[listing.currency]} before submitting.
@@ -576,8 +600,13 @@ function CreateListingTab() {
           required
         />
         <p className="text-xs text-muted-foreground">
-          Buyers will send {currency} here. The system verifies it before releasing EMBR.
+          Buyers will send {currency} here on <span className="text-foreground font-bold">{CURRENCY_NETWORK[currency]}</span>. The system verifies it before releasing EMBR.
         </p>
+        {CURRENCY_NETWORK_WARNING[currency] && (
+          <div className="mt-1 p-2.5 bg-amber-500/10 border border-amber-500/40 rounded-sm text-xs text-amber-300 leading-relaxed">
+            {CURRENCY_NETWORK_WARNING[currency]}
+          </div>
+        )}
       </div>
 
       <Button type="submit" disabled={create.isPending} className="w-full">
