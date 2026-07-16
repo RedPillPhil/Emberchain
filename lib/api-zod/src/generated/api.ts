@@ -249,7 +249,8 @@ export const GetMiningStatusResponse = zod.object({
   "difficulty": zod.string(),
   "blocksMined": zod.number(),
   "hashRate": zod.number(),
-  "blockReward": zod.string()
+  "blockReward": zod.string(),
+  "activeMiners": zod.number().optional()
 })
 
 
@@ -268,7 +269,8 @@ export const StartMiningResponse = zod.object({
   "blocksMined": zod.number(),
   "hashRate": zod.number(),
   "blockReward": zod.string(),
-  "intensity": zod.number()
+  "intensity": zod.number(),
+  "activeMiners": zod.number().optional()
 })
 
 
@@ -282,7 +284,8 @@ export const StopMiningResponse = zod.object({
   "blocksMined": zod.number(),
   "hashRate": zod.number(),
   "blockReward": zod.string(),
-  "intensity": zod.number()
+  "intensity": zod.number(),
+  "activeMiners": zod.number().optional()
 })
 
 
