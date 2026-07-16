@@ -8,11 +8,13 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Send, AlertCircle, ArrowRight, CheckCircle2, Shield, Eye, EyeOff, Lock } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Send, AlertCircle, ArrowRight, CheckCircle2, Shield, Eye, Lock, BookUser } from "lucide-react";
 import { formatEmbr } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
+import { loadContacts, type Contact } from "@/lib/contacts";
 
 const sendSchema = z.object({
   to: z.string().min(40, "Address must be at least 40 characters").startsWith("0x", "Address must start with 0x"),
@@ -30,6 +32,13 @@ export default function Transfer() {
   const createTx = useCreateTransaction();
   const [successTxHash, setSuccessTxHash] = useState<string | null>(null);
   const [mode, setMode] = useState<TxMode>("public");
+  const [showContacts, setShowContacts] = useState(false);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+
+  // Pre-fill address from ?to= query param (e.g. from contacts page)
+  const initialTo = new URLSearchParams(window.location.search).get("to") ?? "";
+
+  useEffect(() => { setContacts(loadContacts()); }, []);
 
   const { data: wallet } = useGetWallet(activeWallet?.address || "", {
     query: { enabled: !!activeWallet?.address }
@@ -37,7 +46,7 @@ export default function Transfer() {
 
   const form = useForm<SendFormValues>({
     resolver: zodResolver(sendSchema),
-    defaultValues: { to: "", amount: "" },
+    defaultValues: { to: initialTo, amount: "" },
   });
 
   const onSubmit = (data: SendFormValues) => {
@@ -166,7 +175,18 @@ export default function Transfer() {
                       name="to"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Recipient Address</FormLabel>
+                          <FormLabel className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center justify-between">
+                            <span>Recipient Address</span>
+                            {contacts.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setShowContacts(true)}
+                                className="flex items-center gap-1 text-primary hover:text-primary/80 transition-colors text-[11px] font-bold uppercase tracking-widest"
+                              >
+                                <BookUser className="w-3.5 h-3.5" /> Address Book
+                              </button>
+                            )}
+                          </FormLabel>
                           <FormControl>
                             <Input placeholder="0x..." className="font-mono bg-input border-border rounded-sm h-12" {...field} />
                           </FormControl>
@@ -216,6 +236,37 @@ export default function Transfer() {
           </>
         )}
       </div>
+
+      {/* Contact picker dialog */}
+      <Dialog open={showContacts} onOpenChange={setShowContacts}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display uppercase tracking-tight flex items-center gap-2">
+              <BookUser className="w-5 h-5 text-primary" /> Address Book
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {contacts.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => { form.setValue("to", c.address); setShowContacts(false); }}
+                className="w-full text-left p-3 rounded-sm border border-border hover:border-primary/50 hover:bg-primary/5 transition-all flex items-center gap-3"
+              >
+                <div className="w-9 h-9 rounded-sm bg-primary/10 border border-primary/30 flex items-center justify-center font-display font-bold text-primary text-base uppercase shrink-0">
+                  {c.name[0]}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-bold text-sm text-foreground">{c.name}</div>
+                  <div className="font-mono text-xs text-muted-foreground truncate">
+                    {c.address.slice(0, 12)}…{c.address.slice(-8)}
+                  </div>
+                  {c.notes && <div className="text-xs text-muted-foreground truncate">{c.notes}</div>}
+                </div>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Shell>
   );
 }

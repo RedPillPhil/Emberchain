@@ -1,9 +1,12 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Shell } from "@/components/layout/shell";
 import { useActiveWallet } from "@/hooks/use-active-wallet";
 import { useGetWallet, useGetChainStatus, useGetMiningStatus } from "@workspace/api-client-react";
 import { formatEmbr } from "@/lib/utils";
-import { Flame, Database, Clock, Activity, Zap, Cpu, ArrowUpRight, Users } from "lucide-react";
+import { Flame, Database, Clock, Activity, Zap, Cpu, ArrowUpRight, Users, QrCode, Copy, Check } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import QRCode from "react-qr-code";
 
 function abbreviateNumber(n: bigint): string {
   const num = Number(n);
@@ -19,7 +22,16 @@ import { cn } from "@/lib/utils";
 
 export default function Dashboard() {
   const { activeWallet } = useActiveWallet();
-  
+  const [showQR, setShowQR] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copyAddress = () => {
+    if (!activeWallet?.address) return;
+    navigator.clipboard.writeText(activeWallet.address);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   // Polling queries
   const { data: wallet, refetch: refetchWallet } = useGetWallet(activeWallet?.address || "", {
     query: {
@@ -91,18 +103,52 @@ export default function Dashboard() {
           </div>
           
           <div className="bg-secondary/50 p-4 border-t border-border flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center relative z-10">
-            <div className="font-mono text-xs text-muted-foreground truncate w-full sm:w-auto">
+            <div className="font-mono text-xs text-muted-foreground truncate min-w-0">
               <span className="font-sans font-bold uppercase mr-2 text-foreground">ADDR:</span>
-              {activeWallet?.address}
+              <span className="truncate">{activeWallet?.address}</span>
             </div>
-            <div className="flex gap-4">
+            <div className="flex items-center gap-3 shrink-0">
               <div className="font-mono text-xs">
                 <span className="font-sans font-bold uppercase mr-2 text-muted-foreground">NONCE:</span>
                 {wallet?.nonce || 0}
               </div>
+              <button
+                onClick={copyAddress}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                title="Copy address"
+              >
+                {copied ? <Check className="w-4 h-4 text-primary" /> : <Copy className="w-4 h-4" />}
+              </button>
+              <button
+                onClick={() => setShowQR(true)}
+                className="text-muted-foreground hover:text-primary transition-colors"
+                title="Show QR code"
+              >
+                <QrCode className="w-4 h-4" />
+              </button>
             </div>
           </div>
         </Card>
+
+        {/* QR receive dialog */}
+        <Dialog open={showQR} onOpenChange={setShowQR}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="font-display uppercase tracking-tight">Receive EMBR</DialogTitle>
+            </DialogHeader>
+            <div className="flex flex-col items-center gap-4 py-2">
+              <div className="bg-white p-4 rounded-sm border border-border">
+                <QRCode value={activeWallet?.address ?? ""} size={200} />
+              </div>
+              <p className="font-mono text-xs text-muted-foreground text-center break-all px-2">
+                {activeWallet?.address}
+              </p>
+              <Button onClick={copyAddress} variant="outline" className="w-full">
+                {copied ? <><Check className="w-4 h-4 mr-2 text-primary" /> Copied!</> : <><Copy className="w-4 h-4 mr-2" /> Copy Address</>}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Mining Quick Status */}
         <Card className={cn(

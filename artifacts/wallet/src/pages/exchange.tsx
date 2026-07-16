@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Shell } from "@/components/layout/shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,19 @@ import {
   Clock,
   AlertTriangle,
   Loader2,
+  TrendingUp,
+  Info,
 } from "lucide-react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+} from "recharts";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -213,7 +225,7 @@ function TradeHistoryTab() {
 
 // ── tabs ──────────────────────────────────────────────────────────────────────
 
-type Tab = "marketplace" | "create" | "mine" | "history";
+type Tab = "marketplace" | "create" | "mine" | "history" | "price";
 
 // ── buy panel (inline per listing) ───────────────────────────────────────────
 
@@ -676,6 +688,197 @@ function MyListingsTab() {
   );
 }
 
+// ── price history tab ─────────────────────────────────────────────────────────
+
+// CoinGecko historical price cache: "ethereum|30-06-2025" → usd price
+const priceCache = new Map<string, number>();
+
+const COINGECKO_ID: Record<ExchangeCurrency, string | null> = {
+  ETH:  "ethereum",
+  SOL:  "solana",
+  BTC:  "bitcoin",
+  USDT: null, // always $1
+};
+
+async function fetchUsdPrice(currency: ExchangeCurrency, isoDate: string): Promise<number> {
+  if (currency === "USDT") return 1;
+  const coinId = COINGECKO_ID[currency];
+  if (!coinId) return 0;
+  // CoinGecko date format: dd-mm-yyyy
+  const d = new Date(isoDate);
+  const dateStr = [
+    String(d.getUTCDate()).padStart(2, "0"),
+    String(d.getUTCMonth() + 1).padStart(2, "0"),
+    d.getUTCFullYear(),
+  ].join("-");
+  const key = `${coinId}|${dateStr}`;
+  if (priceCache.has(key)) return priceCache.get(key)!;
+  try {
+    const res = await fetch(
+      `https://api.coingecko.com/api/v3/coins/${coinId}/history?date=${dateStr}&localization=false`,
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json() as { market_data?: { current_price?: { usd?: number } } };
+    const usd = json.market_data?.current_price?.usd ?? 0;
+    priceCache.set(key, usd);
+    return usd;
+  } catch {
+    return 0;
+  }
+}
+
+interface PricePoint { date: string; price: number; currency: string }
+
+function PriceHistoryTab() {
+  const { data: listings = [] } = useListExchangeListings({ status: "fulfilled" });
+  const [points, setPoints] = useState<PricePoint[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const prevListingCount = useRef(-1);
+
+  useEffect(() => {
+    if (listings.length === 0 || listings.length === prevListingCount.current) return;
+    prevListingCount.current = listings.length;
+
+    setLoading(true);
+    setError(null);
+
+    void (async () => {
+      try {
+        const results: PricePoint[] = [];
+        // Fetch prices in small batches to respect CoinGecko rate limits
+        for (const l of listings) {
+          const date = l.updatedAt ?? l.createdAt ?? "";
+          const coinUsd = await fetchUsdPrice(l.currency, date);
+          if (coinUsd === 0 && l.currency !== "USDT") continue; // price unavailable
+          const embrAmount = Number(BigInt(l.amountEmbr)) / 1e18;
+          const paidInCoin = parseFloat(l.priceAmount);
+          if (embrAmount <= 0 || paidInCoin <= 0) continue;
+          const embrUsd = (paidInCoin * coinUsd) / embrAmount;
+          results.push({
+            date: new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }),
+            price: Math.round(embrUsd * 1_000_000) / 1_000_000, // 6 dp
+            currency: l.currency,
+          });
+        }
+        // Sort by original date ascending
+        const sorted = results.sort((a, b) => a.date.localeCompare(b.date));
+        setPoints(sorted);
+      } catch {
+        setError("Failed to load price history.");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [listings]);
+
+  const latest = points.at(-1);
+  const earliest = points[0];
+  const pctChange = latest && earliest && earliest.price > 0
+    ? ((latest.price - earliest.price) / earliest.price) * 100
+    : null;
+
+  if (listings.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+        <TrendingUp className="w-12 h-12 text-muted-foreground/40" />
+        <p className="text-muted-foreground font-bold uppercase">No trade data yet</p>
+        <p className="text-sm text-muted-foreground">Price history appears once trades are completed on the exchange.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* summary row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: "Latest Price", value: latest ? `${latest.price.toFixed(6)}` : "—" },
+          { label: "All-time High", value: points.length ? `${Math.max(...points.map(p => p.price)).toFixed(6)}` : "—" },
+          { label: "All-time Low",  value: points.length ? `${Math.min(...points.map(p => p.price)).toFixed(6)}` : "—" },
+          {
+            label: "Total Change",
+            value: pctChange !== null ? `${pctChange >= 0 ? "+" : ""}${pctChange.toFixed(1)}%` : "—",
+          },
+        ].map(({ label, value }) => (
+          <div key={label} className="border border-border rounded-sm p-3 bg-secondary/30">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">{label}</div>
+            <div className="font-mono text-sm font-bold text-foreground">{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* chart */}
+      {loading ? (
+        <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Fetching historical prices from CoinGecko…
+        </div>
+      ) : error ? (
+        <div className="flex items-center gap-2 text-destructive text-sm py-8 justify-center">
+          <AlertTriangle className="w-4 h-4" /> {error}
+        </div>
+      ) : points.length > 0 ? (
+        <div className="border border-border rounded-sm p-4 bg-secondary/10">
+          <div className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-4 flex items-center gap-2">
+            <TrendingUp className="w-3.5 h-3.5 text-primary" /> EMBR / USD — Trade Price History
+          </div>
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={points} margin={{ top: 4, right: 16, bottom: 0, left: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis
+                dataKey="date"
+                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                tickFormatter={(v: number) => `${v.toFixed(4)}`}
+                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
+                tickLine={false}
+                axisLine={false}
+                width={72}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: "hsl(var(--card))",
+                  border: "1px solid hsl(var(--border))",
+                  borderRadius: 4,
+                  fontSize: 12,
+                }}
+                labelStyle={{ color: "hsl(var(--foreground))", fontWeight: "bold" }}
+                formatter={(v: number, _: string, entry: { payload?: PricePoint }) => [
+                  `${v.toFixed(6)} (via ${entry.payload?.currency ?? ""})`,
+                  "EMBR Price",
+                ]}
+              />
+              <Line
+                type="monotone"
+                dataKey="price"
+                stroke="hsl(var(--primary))"
+                strokeWidth={2}
+                dot={{ fill: "hsl(var(--primary))", r: 3, strokeWidth: 0 }}
+                activeDot={{ r: 5 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <div className="text-center py-10 text-muted-foreground text-sm">
+          Could not resolve USD prices for any trades.
+        </div>
+      )}
+
+      {/* attribution */}
+      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-sans">
+        <Info className="w-3 h-3" />
+        Historical ETH, SOL, and BTC prices sourced from CoinGecko. USDT trades use $1.00.
+        Price = (amount paid × coin USD price) ÷ EMBR received.
+      </div>
+    </div>
+  );
+}
+
 // ── page ──────────────────────────────────────────────────────────────────────
 
 export default function Exchange() {
@@ -688,6 +891,7 @@ export default function Exchange() {
     { id: "create",      label: "List EMBR" },
     { id: "mine",        label: "My Listings" },
     { id: "history",     label: "Trade History", badge: fulfilledListings?.length },
+    { id: "price",       label: "Price Chart" },
   ];
 
   return (
@@ -756,6 +960,7 @@ export default function Exchange() {
             {tab === "create"      && <CreateListingTab />}
             {tab === "mine"        && <MyListingsTab />}
             {tab === "history"     && <TradeHistoryTab />}
+            {tab === "price"       && <PriceHistoryTab />}
           </CardContent>
         </Card>
       </div>

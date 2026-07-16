@@ -16,6 +16,7 @@ import TransactionDetail from '@/pages/transaction-detail';
 import Contracts from '@/pages/contracts';
 import Privacy from '@/pages/privacy';
 import Exchange from '@/pages/exchange';
+import Contacts from '@/pages/contacts';
 
 const queryClient = new QueryClient();
 
@@ -34,6 +35,7 @@ function Router() {
       <Route path="/contracts" component={Contracts} />
       <Route path="/privacy" component={Privacy} />
       <Route path="/exchange" component={Exchange} />
+      <Route path="/contacts" component={Contacts} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -14,12 +14,14 @@ import {
   Shield,
   Store,
   Search,
+  BookUser,
 } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "OVERVIEW", icon: Activity },
   { href: "/send", label: "TRANSFER", icon: Send },
   { href: "/exchange", label: "EXCHANGE", icon: Store },
+  { href: "/contacts", label: "ADDRESS BOOK", icon: BookUser },
   { href: "/privacy", label: "PRIVACY", icon: Shield },
   { href: "/mining", label: "FORGE (MINE)", icon: Flame },
   { href: "/ledger", label: "EXPLORER", icon: Search },
