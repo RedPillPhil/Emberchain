@@ -14,9 +14,9 @@ import type { PersistedChain } from "@workspace/chain-core";
 
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 3,
+  max: 5,
   idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 5_000,
+  connectionTimeoutMillis: 3_000,
 });
 
 pool.on("error", (err) => {
@@ -38,7 +38,20 @@ export async function loadChainFromDB(): Promise<PersistedChain | null> {
   }
 }
 
-export async function saveChainToDB(data: PersistedChain): Promise<void> {
+// ---------------------------------------------------------------------------
+// Debounced DB save — coalesces rapid calls (e.g. share floods at max mining
+// intensity) into one write per DEBOUNCE_MS.  The local file is written
+// synchronously on every persist() call, so no state is lost between writes.
+// ---------------------------------------------------------------------------
+const DEBOUNCE_MS = 2_000;
+let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let _pendingData: PersistedChain | null = null;
+
+async function flushToDB(): Promise<void> {
+  const data = _pendingData;
+  _pendingData = null;
+  _debounceTimer = null;
+  if (!data) return;
   try {
     await pool.query(
       `INSERT INTO chain_state (id, data, updated_at)
@@ -51,6 +64,12 @@ export async function saveChainToDB(data: PersistedChain): Promise<void> {
   } catch (err) {
     console.error("[db] Could not save chain state to database:", (err as Error).message);
   }
+}
+
+export async function saveChainToDB(data: PersistedChain): Promise<void> {
+  _pendingData = data; // always keep the latest snapshot
+  if (_debounceTimer) return; // already scheduled — latest data will be flushed
+  _debounceTimer = setTimeout(flushToDB, DEBOUNCE_MS);
 }
 
 // ---------------------------------------------------------------------------
