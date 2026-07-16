@@ -3,7 +3,16 @@ import { Shell } from "@/components/layout/shell";
 import { useActiveWallet } from "@/hooks/use-active-wallet";
 import { useGetWallet, useGetChainStatus, useGetMiningStatus } from "@workspace/api-client-react";
 import { formatEmbr } from "@/lib/utils";
-import { Flame, Database, Clock, Activity, Zap, Cpu, ArrowUpRight } from "lucide-react";
+import { Flame, Database, Clock, Activity, Zap, Cpu, ArrowUpRight, Users } from "lucide-react";
+
+function abbreviateNumber(n: bigint): string {
+  const num = Number(n);
+  if (num >= 1e12) return (num / 1e12).toFixed(2) + "T";
+  if (num >= 1e9)  return (num / 1e9).toFixed(2) + "B";
+  if (num >= 1e6)  return (num / 1e6).toFixed(2) + "M";
+  if (num >= 1e3)  return (num / 1e3).toFixed(2) + "K";
+  return num.toLocaleString();
+}
 import { Card } from "@/components/ui/card";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
@@ -142,7 +151,7 @@ export default function Dashboard() {
 
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mt-4">
         <StatBlock 
           icon={<Blocks className="w-4 h-4" />}
           label="Block Height" 
@@ -151,17 +160,22 @@ export default function Dashboard() {
         <StatBlock 
           icon={<Zap className="w-4 h-4 text-accent" />}
           label="Difficulty" 
-          value={chainStatus ? parseInt(chainStatus.difficulty).toLocaleString() : "..."} 
+          value={chainStatus ? abbreviateNumber(BigInt(chainStatus.difficulty)) : "..."} 
         />
         <StatBlock 
           icon={<Clock className="w-4 h-4" />}
-          label="Target Time" 
-          value={chainStatus ? `${chainStatus.targetBlockTimeSeconds}s` : "..."} 
+          label="Avg Block Time" 
+          value={chainStatus?.avgBlockTime != null ? `${chainStatus.avgBlockTime.toFixed(1)}s` : "..."} 
         />
         <StatBlock 
           icon={<Activity className="w-4 h-4" />}
           label="Pending TXs" 
           value={chainStatus?.pendingTransactionCount.toString() || "0"} 
+        />
+        <StatBlock
+          icon={<Users className="w-4 h-4 text-primary" />}
+          label="Active Miners"
+          value={(miningStatus?.activeMiners ?? 0).toString()}
         />
       </div>
 

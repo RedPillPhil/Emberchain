@@ -95,9 +95,125 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+// ── trade history + avg price ─────────────────────────────────────────────────
+
+function TradeHistoryTab() {
+  const { data: fulfilled = [], isLoading } = useListExchangeListings({ status: "fulfilled" });
+
+  // Average EMBR price per currency from fulfilled trades
+  const avgPrices = React.useMemo(() => {
+    const byCurrency: Record<string, { totalPrice: number; totalEmbr: number; count: number }> = {};
+    for (const l of fulfilled) {
+      const embr = Number(BigInt(l.amountEmbr)) / 1e18;
+      const price = parseFloat(l.priceAmount);
+      if (!isFinite(embr) || !isFinite(price) || embr === 0) continue;
+      if (!byCurrency[l.currency]) byCurrency[l.currency] = { totalPrice: 0, totalEmbr: 0, count: 0 };
+      byCurrency[l.currency]!.totalPrice += price;
+      byCurrency[l.currency]!.totalEmbr += embr;
+      byCurrency[l.currency]!.count += 1;
+    }
+    return Object.entries(byCurrency).map(([currency, { totalPrice, totalEmbr, count }]) => ({
+      currency: currency as ExchangeCurrency,
+      avgPerEmbr: totalPrice / totalEmbr,
+      count,
+    }));
+  }, [fulfilled]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading history…
+      </div>
+    );
+  }
+
+  if (!fulfilled.length) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+        <CheckCircle2 className="w-12 h-12 text-muted-foreground/40" />
+        <p className="text-muted-foreground font-bold uppercase">No completed trades yet</p>
+        <p className="text-sm text-muted-foreground">Fulfilled listings will appear here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Average price summary */}
+      {avgPrices.length > 0 && (
+        <div>
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3">Average Price (from completed trades)</p>
+          <div className="flex flex-wrap gap-3">
+            {avgPrices.map(({ currency, avgPerEmbr, count }) => (
+              <div key={currency} className={`border rounded-sm px-4 py-3 ${CURRENCY_COLORS[currency]}`}>
+                <div className="text-xs font-bold uppercase mb-1">{currency}</div>
+                <div className="font-mono font-bold text-lg">
+                  {CURRENCY_SYMBOLS[currency]}{avgPerEmbr.toFixed(6)}
+                  <span className="text-xs font-normal ml-1">/ EMBR</span>
+                </div>
+                <div className="text-xs opacity-70 mt-0.5">{count} trade{count !== 1 ? "s" : ""}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Trade list */}
+      <div>
+        <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3">Completed Trades</p>
+        <div className="space-y-2">
+          {fulfilled.map((listing) => (
+            <div key={listing.id} className="border border-border rounded-sm bg-secondary/30 px-4 py-3">
+              <div className="flex items-center gap-3 flex-wrap">
+                <Badge className={`text-xs uppercase border ${CURRENCY_COLORS[listing.currency]} font-bold w-14 justify-center shrink-0`}>
+                  {listing.currency}
+                </Badge>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-foreground">{formatEmbr(listing.amountEmbr)}</div>
+                  <div className="text-xs text-muted-foreground">
+                    for {CURRENCY_SYMBOLS[listing.currency]}{listing.priceAmount} {listing.currency}
+                  </div>
+                </div>
+                <div className="text-right text-xs text-muted-foreground shrink-0">
+                  <div className="font-mono">
+                    {(() => {
+                      const embr = Number(BigInt(listing.amountEmbr)) / 1e18;
+                      const price = parseFloat(listing.priceAmount);
+                      return embr > 0 ? `${CURRENCY_SYMBOLS[listing.currency]}${(price / embr).toFixed(6)}/EMBR` : null;
+                    })()}
+                  </div>
+                  <div className="text-muted-foreground/60 mt-0.5">
+                    {new Date(listing.updatedAt).toLocaleDateString()}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-2 pt-2 border-t border-border/50 flex gap-4 text-xs text-muted-foreground flex-wrap">
+                <span>Seller: <code className="font-mono">{truncate(listing.sellerAddress)}</code></span>
+                {listing.buyerAddress && (
+                  <span>Buyer: <code className="font-mono">{truncate(listing.buyerAddress)}</code></span>
+                )}
+                {listing.paymentTxHash && (
+                  <a
+                    href={EXPLORER_LINKS[listing.currency](listing.paymentTxHash)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    View payment ↗
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── tabs ──────────────────────────────────────────────────────────────────────
 
-type Tab = "marketplace" | "create" | "mine";
+type Tab = "marketplace" | "create" | "mine" | "history";
 
 // ── buy panel (inline per listing) ───────────────────────────────────────────
 
@@ -566,10 +682,12 @@ export default function Exchange() {
   const [tab, setTab] = useState<Tab>("marketplace");
   const { data: openListings } = useListExchangeListings({ status: "open" });
 
+  const { data: fulfilledListings } = useListExchangeListings({ status: "fulfilled" });
   const tabs: { id: Tab; label: string; badge?: number }[] = [
     { id: "marketplace", label: "Marketplace", badge: openListings?.length },
     { id: "create",      label: "List EMBR" },
     { id: "mine",        label: "My Listings" },
+    { id: "history",     label: "Trade History", badge: fulfilledListings?.length },
   ];
 
   return (
@@ -637,6 +755,7 @@ export default function Exchange() {
             {tab === "marketplace" && <MarketplaceTab />}
             {tab === "create"      && <CreateListingTab />}
             {tab === "mine"        && <MyListingsTab />}
+            {tab === "history"     && <TradeHistoryTab />}
           </CardContent>
         </Card>
       </div>

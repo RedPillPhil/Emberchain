@@ -14,4 +14,6 @@ export interface MiningStatus {
   blocksMined: number;
   hashRate: number;
   blockReward: string;
+  /** Number of unique browser miners that fetched a template in the last 5 minutes. */
+  activeMiners?: number;
 }

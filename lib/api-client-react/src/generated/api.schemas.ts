@@ -152,6 +152,8 @@ export interface MiningStatus {
   hashRate: number;
   blockReward: string;
   intensity: number;
+  /** Unique browser miners that fetched a template in the last 5 minutes. */
+  activeMiners?: number;
 }
 
 export interface PrivacyStatus {

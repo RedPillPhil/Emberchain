@@ -27,6 +27,11 @@ function makeWorker() {
   return new Worker(new URL("../workers/mining.worker.ts", import.meta.url), { type: "module" });
 }
 
+// ── BroadcastChannel tab coordination ────────────────────────────────────────
+// Prevents two tabs in the same browser from mining simultaneously.
+// Different devices/browsers are unaffected (each has its own channel scope).
+const MINING_CHANNEL = "emberchain_mining";
+
 // ── component ─────────────────────────────────────────────────────────────────
 
 export default function Mining() {
@@ -38,10 +43,12 @@ export default function Mining() {
   const [sessionBlocks, setSessionBlocks] = useState(0);
   const [selectedIntensity, setSelectedIntensity] = useState(2);
   const [logs, setLogs]                 = useState<string[]>([]);
+  const [tabBlocked, setTabBlocked]     = useState(false);
 
-  const workerRef   = useRef<Worker | null>(null);
-  const miningRef   = useRef(false);   // mirrors isMining without stale-closure issues
-  const templateRef = useRef<MiningTemplate | null>(null);
+  const workerRef    = useRef<Worker | null>(null);
+  const miningRef    = useRef(false);   // mirrors isMining without stale-closure issues
+  const templateRef  = useRef<MiningTemplate | null>(null);
+  const channelRef   = useRef<BroadcastChannel | null>(null);
 
   const { data: status } = useGetMiningStatus({ query: { refetchInterval: 3000 } });
 
@@ -159,6 +166,9 @@ export default function Mining() {
 
   const handleStart = useCallback(async () => {
     if (!activeWallet || miningRef.current) return;
+    // Notify other tabs on this device to stop
+    channelRef.current?.postMessage({ type: "mining_started" });
+    setTabBlocked(false);
     miningRef.current = true;
     setIsMining(true);
     setSessionBlocks(0);
@@ -179,6 +189,7 @@ export default function Mining() {
   const handleStop = useCallback(() => {
     addLog("HALT — cooling down forge.");
     stopWorker();
+    channelRef.current?.postMessage({ type: "mining_stopped" });
   }, [addLog, stopWorker]);
 
   const handleIntensityChange = useCallback((level: number) => {
@@ -196,9 +207,34 @@ export default function Mining() {
     }
   }, [activeWallet, addLog]);
 
+  // ── BroadcastChannel: single-tab enforcement ────────────────────────────────
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return;
+    const ch = new BroadcastChannel(MINING_CHANNEL);
+    channelRef.current = ch;
+    ch.onmessage = (e) => {
+      if (e.data?.type === "mining_started") {
+        // Another tab on this device just started mining — stop ours
+        if (miningRef.current) {
+          addLog("! Another tab started mining on this device — pausing this tab.", "warn");
+          stopWorker();
+        }
+        setTabBlocked(true);
+      }
+      if (e.data?.type === "mining_stopped") {
+        setTabBlocked(false);
+      }
+    };
+    return () => { ch.close(); channelRef.current = null; };
+  }, [addLog, stopWorker]);
+
   // Cleanup on unmount
   useEffect(() => {
-    return () => { miningRef.current = false; workerRef.current?.terminate(); };
+    return () => {
+      miningRef.current = false;
+      workerRef.current?.terminate();
+      channelRef.current?.postMessage({ type: "mining_stopped" });
+    };
   }, []);
 
   // ── render ───────────────────────────────────────────────────────────────────
@@ -238,6 +274,17 @@ export default function Mining() {
           )}
         </div>
       </div>
+
+      {/* Tab-blocked warning */}
+      {tabBlocked && (
+        <div className="mb-4 flex items-start gap-3 bg-amber-500/10 border border-amber-500/40 rounded-sm p-4 text-sm">
+          <Zap className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+          <p className="text-amber-300 font-sans">
+            <span className="font-bold">Another tab on this device is already mining.</span>{" "}
+            Click <span className="font-bold">Ignite Forge</span> here to switch mining to this tab — the other tab will pause automatically.
+          </p>
+        </div>
+      )}
 
       {/* Info banner */}
       <div className="mb-6 flex items-start gap-3 bg-secondary/40 border border-border rounded-sm p-4 text-sm">

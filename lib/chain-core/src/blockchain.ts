@@ -147,6 +147,8 @@ export class Blockchain {
     intensity: 2,
     loop: null,
   };
+  /** In-memory only: tracks browser miners by address → last template fetch timestamp (ms). */
+  private recentMiners: Map<string, number> = new Map();
 
   constructor(dataFile: string, options?: {
     asyncLoadHook?: () => Promise<PersistedChain | null>;
@@ -571,6 +573,8 @@ export class Blockchain {
   // ---------- Mining ----------
 
   getMiningStatus() {
+    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+    const activeMiners = [...this.recentMiners.values()].filter((t) => t > fiveMinutesAgo).length;
     return {
       isMining: this.mining.active,
       minerAddress: this.mining.minerAddress,
@@ -579,6 +583,7 @@ export class Blockchain {
       hashRate: this.mining.hashRate,
       blockReward: EMBERCHAIN_CONFIG.blockReward,
       intensity: this.mining.intensity,
+      activeMiners,
     };
   }
 
@@ -640,6 +645,8 @@ export class Blockchain {
       this.wallets.set(minerAddress as PrefixedHexString, { createdAt: new Date().toISOString() });
       this.persist();
     }
+    // Track as an active browser miner (last seen now)
+    this.recentMiners.set(minerAddress.toLowerCase(), Date.now());
     const parent = this.blocks[this.blocks.length - 1];
     const pendingSlice = this.mempool.slice(0, MAX_TXS_PER_BLOCK);
     const header = {
@@ -801,6 +808,11 @@ export class Blockchain {
       }
 
       stored.blockNumber = header.number;
+
+      // Register recipient so listWallets() picks up new addresses that receive EMBR
+      if (tx.to && !this.wallets.has(tx.to as PrefixedHexString)) {
+        this.wallets.set(tx.to as PrefixedHexString, { createdAt: new Date().toISOString() });
+      }
     }
 
     // Miner earns block reward + all transaction fees
@@ -1358,6 +1370,10 @@ export class Blockchain {
     // move it from pending → used and credit the buyer.
     const proofKey = this.listingProofKeys.get(id) ?? `${listing.currency}:${paymentTxHash.toLowerCase()}`;
     await credit(this.stateManager, buyerAddress as PrefixedHexString, BigInt(listing.amountEmbr));
+    // Register buyer so listWallets() includes the new address
+    if (!this.wallets.has(buyerAddress as PrefixedHexString)) {
+      this.wallets.set(buyerAddress as PrefixedHexString, { createdAt: new Date().toISOString() });
+    }
     listing.status = "fulfilled";
     listing.buyerAddress = buyerAddress;
     listing.paymentTxHash = paymentTxHash;

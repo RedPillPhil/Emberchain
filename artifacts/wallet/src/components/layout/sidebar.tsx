@@ -29,11 +29,12 @@ const navItems = [
 ];
 
 export function Sidebar() {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const { activeWallet, setActiveWallet } = useActiveWallet();
 
   const handleDisconnect = () => {
     setActiveWallet(null);
+    navigate("/setup");
   };
 
   return (
