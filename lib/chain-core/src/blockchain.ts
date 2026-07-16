@@ -34,7 +34,7 @@ export const EMBERCHAIN_CONFIG: ChainConfig = {
   genesisDifficulty: "60000",
   difficultyAdjustmentWindow: 1,
   /** Shares are 64× easier to find than a full block. */
-  shareDifficultyDivisor: 64,
+  shareDifficultyDivisor: 256,
 };
 
 /** Base gas price: 1 gwei (1 × 10⁹ wei). Every transaction pays gasUsed × GAS_PRICE to the block miner. */
@@ -754,13 +754,16 @@ export class Blockchain {
     const parentTimestampMs = new Date(parent.timestamp).getTime();
     const actualBlockTimeSec = (params.header.timestamp - parentTimestampMs) / 1000;
 
-    // Credit the block finder a share for finding the winning nonce.
-    // Without this, if other miners already have shares in the round map but the
-    // block finder submitted none (or their share POST hasn't landed yet), the
-    // block finder receives zero reward — all EMBR goes to the share-holders.
-    // Adding 1 share here ensures the block finder always earns a proportional cut.
+    // Credit the block finder shares proportional to the work of finding a block.
+    // A block is shareDifficultyDivisor× harder than a share, so finding one is
+    // worth shareDifficultyDivisor share credits.  This ensures the block finder
+    // always earns a fair cut even if their share POSTs haven't landed yet, and
+    // prevents miners who skip share submission from taking 100% of the reward.
     const finderKey = minableHeader.miner.toLowerCase();
-    this.currentRoundShares.set(finderKey, (this.currentRoundShares.get(finderKey) ?? 0) + 1);
+    this.currentRoundShares.set(
+      finderKey,
+      (this.currentRoundShares.get(finderKey) ?? 0) + EMBERCHAIN_CONFIG.shareDifficultyDivisor,
+    );
 
     await this.applyBlock(minableHeader, included, nonce, hashHex);
     this.mining.blocksMinedThisSession += 1;
@@ -910,12 +913,12 @@ export class Blockchain {
       }
 
       // Server-side miner participates in the share round proportionally.
-      // This ensures it earns a cut alongside any browser miners who submitted
-      // shares during the same round.
+      // Credits shareDifficultyDivisor shares (same as submitMinedBlock) so
+      // server-mined blocks are weighted consistently with browser submissions.
       const serverMinerKey = minerAddress.toLowerCase();
       this.currentRoundShares.set(
         serverMinerKey,
-        (this.currentRoundShares.get(serverMinerKey) ?? 0) + 1,
+        (this.currentRoundShares.get(serverMinerKey) ?? 0) + EMBERCHAIN_CONFIG.shareDifficultyDivisor,
       );
 
       await this.applyBlock(header, included, result.nonce, result.hash);

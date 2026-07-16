@@ -82,10 +82,10 @@ Block rewards are [b]not[/b] winner-takes-all. Every miner who submitted a valid
 The template response includes two targets:
 [list]
 [li][b]target[/b] — full block difficulty. Hit this and you win the block.[/li]
-[li][b]shareTarget[/b] — 64× easier (target × 64). Hit this and you bank a share.[/li]
+[li][b]shareTarget[/b] — 256× easier (target × 256). Hit this and you bank a share.[/li]
 [/list]
 
-At current difficulty you can expect roughly [b]64 shares per block[/b] on average. Every share earns you a fraction of the 5 EMBR block reward proportional to your contribution.
+At current difficulty you can expect roughly [b]256 shares per block[/b] on average. Every share earns you a fraction of the 5 EMBR block reward proportional to your contribution.
 
 [b]What this means in practice:[/b]
 [list]

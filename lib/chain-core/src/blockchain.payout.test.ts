@@ -240,11 +240,11 @@ describe("submitShare() rejection cases", () => {
     //
     // difficulty = 256 →
     //   blockTarget  = MAX_TARGET / 256
-    //   shareTarget  = MAX_TARGET / 4   (256 / 64 = 4)
+    //   shareTarget  = MAX_TARGET       (256 / 256 = 1, clamped to MAX_TARGET)
     //
     // We search for a nonce where:
     //   hashValue  > blockTarget   (not a full block)
-    //   hashValue <= shareTarget   (valid share)
+    //   hashValue <= shareTarget   (valid share — all hashes qualify)
     const DIFFICULTY = 256n;
     priv(bc).difficulty = DIFFICULTY;
 
@@ -424,10 +424,10 @@ describe("mid-round server restart — share payout survives serialise/reload cy
   test("proportional payout uses pre-restart share counts after chain state is reloaded", async () => {
     // ── Phase 1: accumulate shares on the first instance ──────────────────────
     //
-    // Use difficulty=256 so the share target is 64× easier than the block
-    // target — this lets us find nonces that satisfy the share requirement
-    // WITHOUT triggering a full block promotion, giving us time to accumulate
-    // multiple shares before the round ends.
+    // Use difficulty=256 so the share target (256× easier) equals MAX_TARGET,
+    // meaning all hashes are valid shares.  We search for nonces that satisfy
+    // the share requirement WITHOUT triggering a full block promotion, giving
+    // us time to accumulate multiple shares before the round ends.
     const DIFFICULTY = 256n;
     const chainFile = join(tmpDir, "chain-restart-payout.json");
 

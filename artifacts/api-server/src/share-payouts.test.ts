@@ -323,13 +323,14 @@ test("block finder receives the full reward when no shares were submitted", asyn
 // Test 8 — proportional payout: 3 shares vs 1 share → 75% / 25%
 // ---------------------------------------------------------------------------
 
-test("block reward split 3:1:1 → miner A earns 60%, miner B earns 20%, block finder (C) earns 20%", async () => {
+test("block finder C gets shareDifficultyDivisor (256) shares; A=3 and B=1 pre-submitted shares split the rest", async () => {
   const dir = mkdtempSync(join(tmpdir(), "sp-t8-"));
   try {
     const { dataFile, walletA, walletB, walletC, template, blockTarget } = await setup(dir);
 
-    // A has 3 shares, B has 1 share; C finds the block via submitMinedBlock with no prior shares.
-    // submitMinedBlock credits C 1 share before applying payouts, so total = 5 shares.
+    // A has 3 shares, B has 1 share pre-submitted.
+    // C finds the block via submitMinedBlock with no prior shares.
+    // submitMinedBlock credits C shareDifficultyDivisor (256) shares, so total = 260 shares.
     injectShares(dataFile, [
       [walletA.address.toLowerCase(), 3],
       [walletB.address.toLowerCase(), 1],
@@ -357,11 +358,13 @@ test("block reward split 3:1:1 → miner A earns 60%, miner B earns 20%, block f
     const payoutB = BigInt(block.payouts![walletB.address.toLowerCase()] ?? "0");
     const payoutC = BigInt(block.payouts![walletC.address.toLowerCase()] ?? "0");
 
-    // Total shares: A=3, B=1, C=1 (credited by submitMinedBlock) → 5 shares
-    // A: 5 EMBR × 3/5 = 3 EMBR; B: 5 EMBR × 1/5 = 1 EMBR; C (last): 1 EMBR (absorbs dust)
-    assert.equal(payoutA, BLOCK_REWARD * 3n / 5n, "miner A (3/5 shares) earns 60%");
-    assert.equal(payoutB, BLOCK_REWARD * 1n / 5n, "miner B (1/5 shares) earns 20%");
-    assert.equal(payoutC, BLOCK_REWARD - payoutA - payoutB, "block finder C (1/5 shares) earns 20% (absorbs dust)");
+    // Total shares: A=3, B=1, C=256 (credited by submitMinedBlock) → 260 shares
+    // A: BLOCK_REWARD × 3/260; B: BLOCK_REWARD × 1/260; C (last): absorbs dust
+    const DIVISOR = 256n; // shareDifficultyDivisor
+    const total = 3n + 1n + DIVISOR; // 260
+    assert.equal(payoutA, BLOCK_REWARD * 3n / total, "miner A earns 3/260 of block reward");
+    assert.equal(payoutB, BLOCK_REWARD * 1n / total, "miner B earns 1/260 of block reward");
+    assert.equal(payoutC, BLOCK_REWARD - payoutA - payoutB, "block finder C earns 256/260 (absorbs dust)");
     assert.equal(payoutA + payoutB + payoutC, BLOCK_REWARD, "payouts must sum to exactly 5 EMBR");
   } finally {
     rmSync(dir, { recursive: true, force: true });
