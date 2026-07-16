@@ -548,4 +548,74 @@ describe("mid-round server restart — share payout survives serialise/reload cy
       "share map must be empty after the round closes",
     );
   });
+
+  test("restarted instance rejects a duplicate nonce with 'Duplicate share' error", async () => {
+    // ── Phase 1: submit a share on the first instance ─────────────────────────
+    const DIFFICULTY = 256n;
+    const chainFile = join(tmpDir, "chain-restart-dedup.json");
+
+    const bc1 = new Blockchain(chainFile);
+    await bc1.whenReady();
+    priv(bc1).difficulty = DIFFICULTY;
+
+    const blocks1: any[] = priv(bc1).blocks;
+    const parent = blocks1[blocks1.length - 1];
+
+    const blockTarget = MAX_TARGET / DIFFICULTY;
+    const shareTarget = MAX_TARGET / (DIFFICULTY / 64n); // = MAX_TARGET / 4
+
+    const minableHdr: MinableHeader = {
+      number: parent.number + 1,
+      parentHash: parent.hash as PrefixedHexString,
+      timestamp: Date.now(),
+      miner: ADDR_A,
+      difficulty: DIFFICULTY,
+      transactionsRoot: "0x0000000000000000000000000000000000000000000000000000000000000000" as PrefixedHexString,
+    };
+
+    // Find a nonce that qualifies as a share but NOT as a full block.
+    let shareOnlyNonce: bigint | null = null;
+    for (let n = 0n; n < 1_000_000n; n++) {
+      const { hashValue } = hashHeader(minableHdr, n);
+      if (hashValue <= shareTarget && hashValue > blockTarget) {
+        shareOnlyNonce = n;
+        break;
+      }
+    }
+    assert.ok(shareOnlyNonce !== null, "must find a share-only nonce within 1M attempts");
+
+    const shareHeader = {
+      number: parent.number + 1,
+      parentHash: parent.hash as string,
+      timestamp: minableHdr.timestamp,
+      miner: ADDR_A as string,
+      difficulty: DIFFICULTY.toString(),
+      transactionsRoot: "0x0000000000000000000000000000000000000000000000000000000000000000",
+    };
+
+    // Submit the share on bc1 — this persists the nonce to disk.
+    const r1 = await bc1.submitShare({ minerAddress: ADDR_A, header: shareHeader, nonce: shareOnlyNonce!.toString() });
+    assert.ok(r1.accepted && !r1.blockFound, "share must be accepted without block promotion");
+
+    // ── Phase 2: simulate a server restart ────────────────────────────────────
+    const bc2 = new Blockchain(chainFile);
+    await bc2.whenReady();
+    // Restore the same difficulty so the share header is still valid.
+    priv(bc2).difficulty = DIFFICULTY;
+
+    // ── Phase 3: re-submit the same nonce to the restarted instance ───────────
+    // The persisted submittedShareNonces set must cause bc2 to reject this as a
+    // duplicate even though bc2 is a brand-new in-memory instance.
+    await assert.rejects(
+      () => bc2.submitShare({ minerAddress: ADDR_A, header: shareHeader, nonce: shareOnlyNonce!.toString() }),
+      (err: Error) => {
+        assert.ok(
+          err.message.startsWith("Duplicate share"),
+          `expected 'Duplicate share', got: ${err.message}`,
+        );
+        return true;
+      },
+      "restarted instance must reject a previously-accepted nonce as a duplicate",
+    );
+  });
 });
