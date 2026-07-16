@@ -12,6 +12,8 @@
  *  8. submitShare rejects a stale block number with "Stale share" error.
  *  9. submitShare rejects a difficulty mismatch with "Stale share" error.
  * 10. Block-finder with zero prior shares still gets credited after auto-promotion.
+ * 11. Share map and nonce dedup set survive a mid-round server restart; payout
+ *     remains proportional to pre-restart share counts.
  */
 
 import { test, describe, before, after } from "node:test";
@@ -403,5 +405,147 @@ describe("submitShare() rejection cases", () => {
     const balC = await getBalance(sm, ADDR_C);
     const expected = BigInt(EMBERCHAIN_CONFIG.blockReward);
     assert.equal(balC, expected, "block finder with no prior shares should receive the full reward");
+  });
+});
+
+// ─── Restart-survival test ───────────────────────────────────────────────────
+
+describe("mid-round server restart — share payout survives serialise/reload cycle", () => {
+  let tmpDir: string;
+
+  before(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "emberchain-restart-test-"));
+  });
+
+  after(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  test("proportional payout uses pre-restart share counts after chain state is reloaded", async () => {
+    // ── Phase 1: accumulate shares on the first instance ──────────────────────
+    //
+    // Use difficulty=256 so the share target is 64× easier than the block
+    // target — this lets us find nonces that satisfy the share requirement
+    // WITHOUT triggering a full block promotion, giving us time to accumulate
+    // multiple shares before the round ends.
+    const DIFFICULTY = 256n;
+    const chainFile = join(tmpDir, "chain-restart-payout.json");
+
+    const bc1 = new Blockchain(chainFile);
+    await bc1.whenReady();
+    priv(bc1).difficulty = DIFFICULTY;
+
+    const blocks1: any[] = priv(bc1).blocks;
+    const parent = blocks1[blocks1.length - 1];
+
+    const blockTarget = MAX_TARGET / DIFFICULTY;
+    const shareTarget = MAX_TARGET / (DIFFICULTY / 64n); // = MAX_TARGET / 4
+
+    const minableHdr: MinableHeader = {
+      number: parent.number + 1,
+      parentHash: parent.hash as PrefixedHexString,
+      timestamp: Date.now(),
+      miner: ADDR_A,
+      difficulty: DIFFICULTY,
+      transactionsRoot: "0x0000000000000000000000000000000000000000000000000000000000000000" as PrefixedHexString,
+    };
+
+    const shareHeader = {
+      number: parent.number + 1,
+      parentHash: parent.hash as string,
+      timestamp: minableHdr.timestamp,
+      miner: ADDR_A as string,
+      difficulty: DIFFICULTY.toString(),
+      transactionsRoot: "0x0000000000000000000000000000000000000000000000000000000000000000",
+    };
+
+    // Collect nonces that are valid shares but NOT valid blocks.
+    const shareOnlyNonces: bigint[] = [];
+    for (let n = 0n; n < 1_000_000n && shareOnlyNonces.length < 3; n++) {
+      const { hashValue } = hashHeader(minableHdr, n);
+      if (hashValue <= shareTarget && hashValue > blockTarget) {
+        shareOnlyNonces.push(n);
+      }
+    }
+    assert.ok(shareOnlyNonces.length >= 3, "must find at least 3 share-only nonces within 1 M attempts");
+
+    // ADDR_A submits 2 shares, ADDR_B submits 1 share.
+    // Each submitShare call persists the updated share map to disk.
+    const r1 = await bc1.submitShare({ minerAddress: ADDR_A, header: shareHeader, nonce: shareOnlyNonces[0]!.toString() });
+    assert.ok(r1.accepted && !r1.blockFound, "first share must be accepted without block promotion");
+
+    const r2 = await bc1.submitShare({ minerAddress: ADDR_A, header: shareHeader, nonce: shareOnlyNonces[1]!.toString() });
+    assert.ok(r2.accepted && !r2.blockFound, "second share must be accepted without block promotion");
+
+    const r3 = await bc1.submitShare({ minerAddress: ADDR_B, header: shareHeader, nonce: shareOnlyNonces[2]!.toString() });
+    assert.ok(r3.accepted && !r3.blockFound, "third share (B) must be accepted without block promotion");
+
+    // Verify the in-memory map is correct before simulating the restart.
+    assert.equal(priv(bc1).currentRoundShares.get(ADDR_A.toLowerCase()), 2, "bc1: A must have 2 shares");
+    assert.equal(priv(bc1).currentRoundShares.get(ADDR_B.toLowerCase()), 1, "bc1: B must have 1 share");
+
+    // ── Phase 2: simulate a server restart ────────────────────────────────────
+    //
+    // Create a brand-new Blockchain instance from the same file.  This mirrors
+    // a real process restart: all in-memory state is gone; only the persisted
+    // JSON survives.
+    const bc2 = new Blockchain(chainFile);
+    await bc2.whenReady();
+
+    // Confirm the share map was fully restored.
+    assert.equal(
+      priv(bc2).currentRoundShares.get(ADDR_A.toLowerCase()),
+      2,
+      "after restart: A's 2 shares must be restored from disk",
+    );
+    assert.equal(
+      priv(bc2).currentRoundShares.get(ADDR_B.toLowerCase()),
+      1,
+      "after restart: B's 1 share must be restored from disk",
+    );
+
+    // Confirm the nonce dedup set was also restored (replaying an already-accepted
+    // nonce on the new instance must still be rejected as a duplicate).
+    const dedupeKey0 = `${parent.hash}:${shareOnlyNonces[0]!.toString()}`;
+    assert.ok(
+      priv(bc2).submittedShareNonces.has(dedupeKey0),
+      "after restart: already-accepted nonce must still be in the dedup set",
+    );
+
+    // ── Phase 3: find the winning block on the restarted instance ─────────────
+    //
+    // Lower the difficulty to 1 so nonce 0 immediately meets the block target —
+    // this keeps the test fast and deterministic without any PoW search.
+    priv(bc2).difficulty = 1n;
+
+    const sm2 = priv(bc2).stateManager;
+    const hdr2 = nextHeader(bc2, ADDR_A);
+    const { hashHex: winningHash } = hashHeader(hdr2, 0n);
+
+    // applyBlock is private; cast through `any` to call it directly (same
+    // pattern used throughout this test suite).
+    await priv(bc2).applyBlock(hdr2, [], 0n, winningHash);
+
+    // ── Phase 4: verify proportional payouts ──────────────────────────────────
+    //
+    // Share split: A=2, B=1 → total=3.
+    // A receives floor(blockReward × 2 / 3); B receives the remainder.
+    const total = BigInt(EMBERCHAIN_CONFIG.blockReward);
+    const balA = await getBalance(sm2, ADDR_A);
+    const balB = await getBalance(sm2, ADDR_B);
+
+    const expectedA = (total * 2n) / 3n;
+    const expectedB = total - expectedA; // absorbs rounding dust
+
+    assert.equal(balA, expectedA, `A should receive 2/3 of blockReward (${expectedA})`);
+    assert.equal(balB, expectedB, `B should receive 1/3 of blockReward + dust (${expectedB})`);
+    assert.equal(balA + balB, total, "A + B must equal the full blockReward (no EMBR lost)");
+
+    // The share map must be cleared after the block is applied.
+    assert.equal(
+      priv(bc2).currentRoundShares.size,
+      0,
+      "share map must be empty after the round closes",
+    );
   });
 });
