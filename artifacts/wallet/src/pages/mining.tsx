@@ -12,12 +12,18 @@ import type { FromWorkerMsg, ToWorkerMsg, WorkerErrorMsg } from "@/workers/minin
 // ── intensity levels ──────────────────────────────────────────────────────────
 
 const INTENSITY_LEVELS = [
-  { value: 1, label: "Eco",        batchSize: 100,   description: "~100 H/batch — barely perceptible CPU load",              color: "text-blue-400",   bgColor: "bg-blue-400/10",   borderColor: "border-blue-400/40"   },
-  { value: 2, label: "Balanced",   batchSize: 500,   description: "~500 H/batch — quiet fan, UI stays smooth",               color: "text-green-400",  bgColor: "bg-green-400/10",  borderColor: "border-green-400/40"  },
-  { value: 3, label: "High",       batchSize: 2000,  description: "~2k H/batch — fan spins up, noticeably faster",           color: "text-yellow-400", bgColor: "bg-yellow-400/10", borderColor: "border-yellow-400/40" },
-  { value: 4, label: "Aggressive", batchSize: 8000,  description: "~8k H/batch — one core pegged, tab stays responsive",     color: "text-orange-400", bgColor: "bg-orange-400/10", borderColor: "border-orange-400/40" },
-  { value: 5, label: "Max",        batchSize: 25000, description: "~25k H/batch — full core, browser may slow other tabs",   color: "text-primary",    bgColor: "bg-primary/10",    borderColor: "border-primary/40"    },
+  { value: 1, label: "Eco",        batchSize: 100,   description: "~100 H/batch per core — barely perceptible CPU load",         color: "text-blue-400",   bgColor: "bg-blue-400/10",   borderColor: "border-blue-400/40"   },
+  { value: 2, label: "Balanced",   batchSize: 500,   description: "~500 H/batch per core — quiet fan, UI stays smooth",          color: "text-green-400",  bgColor: "bg-green-400/10",  borderColor: "border-green-400/40"  },
+  { value: 3, label: "High",       batchSize: 2000,  description: "~2k H/batch per core — fan spins up, noticeably faster",      color: "text-yellow-400", bgColor: "bg-yellow-400/10", borderColor: "border-yellow-400/40" },
+  { value: 4, label: "Aggressive", batchSize: 8000,  description: "~8k H/batch per core — all cores pegged, tab stays smooth",   color: "text-orange-400", bgColor: "bg-orange-400/10", borderColor: "border-orange-400/40" },
+  { value: 5, label: "Max",        batchSize: 25000, description: "~25k H/batch per core — full multi-core, fan will spin up",   color: "text-primary",    bgColor: "bg-primary/10",    borderColor: "border-primary/40"    },
 ] as const;
+
+// ── core count — one worker per logical CPU, capped at 8 ─────────────────────
+
+const CORE_COUNT = (() => {
+  try { return Math.min(navigator.hardwareConcurrency || 4, 8); } catch { return 4; }
+})();
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -29,7 +35,6 @@ function makeWorker() {
 
 // ── BroadcastChannel tab coordination ────────────────────────────────────────
 // Prevents two tabs in the same browser from mining simultaneously.
-// Different devices/browsers are unaffected (each has its own channel scope).
 const MINING_CHANNEL = "emberchain_mining";
 
 // ── component ─────────────────────────────────────────────────────────────────
@@ -39,19 +44,23 @@ export default function Mining() {
   const submitBlock = useSubmitBlock();
   const submitShareMutation = useSubmitShare();
 
-  const [isMining, setIsMining]           = useState(false);
-  const [hashRate, setHashRate]           = useState(0);
-  const [sessionBlocks, setSessionBlocks] = useState(0);
-  const [sessionShares, setSessionShares] = useState(0);
+  const [isMining, setIsMining]               = useState(false);
+  const [hashRate, setHashRate]               = useState(0);
+  const [sessionBlocks, setSessionBlocks]     = useState(0);
+  const [sessionShares, setSessionShares]     = useState(0);
   const [confirmedShares, setConfirmedShares] = useState(0);
   const [selectedIntensity, setSelectedIntensity] = useState(2);
-  const [logs, setLogs]                 = useState<string[]>([]);
-  const [tabBlocked, setTabBlocked]     = useState(false);
+  const [logs, setLogs]                       = useState<string[]>([]);
+  const [tabBlocked, setTabBlocked]           = useState(false);
 
-  const workerRef    = useRef<Worker | null>(null);
-  const miningRef    = useRef(false);   // mirrors isMining without stale-closure issues
-  const templateRef  = useRef<MiningTemplate | null>(null);
-  const channelRef   = useRef<BroadcastChannel | null>(null);
+  // Pool of workers — one per CPU core
+  const workerPoolRef       = useRef<Worker[]>([]);
+  // Per-worker hash rates — summed for display
+  const hashRatesRef        = useRef<Map<Worker, number>>(new Map());
+  const miningRef           = useRef(false);   // mirrors isMining without stale-closure issues
+  const templateRef         = useRef<MiningTemplate | null>(null);
+  const templateFetchingRef = useRef(false);   // prevents duplicate simultaneous fetches
+  const channelRef          = useRef<BroadcastChannel | null>(null);
 
   const { data: status } = useGetMiningStatus({ query: { refetchInterval: 3000 } });
 
@@ -66,163 +75,176 @@ export default function Mining() {
     miningRef.current = false;
     setIsMining(false);
     setHashRate(0);
-    if (workerRef.current) {
-      workerRef.current.postMessage({ type: "stop" } satisfies ToWorkerMsg);
-      // Terminate after a short grace period
-      setTimeout(() => { workerRef.current?.terminate(); workerRef.current = null; }, 300);
+    for (const w of workerPoolRef.current) {
+      w.postMessage({ type: "stop" } satisfies ToWorkerMsg);
+      setTimeout(() => w.terminate(), 300);
     }
+    workerPoolRef.current = [];
+    hashRatesRef.current.clear();
+    templateFetchingRef.current = false;
   }, []);
 
   const startWorkerWithTemplate = useCallback(
     (template: MiningTemplate, intensity: number) => {
-      // Terminate any existing worker first
-      workerRef.current?.terminate();
-
-      const worker = makeWorker();
-      workerRef.current = worker;
-      templateRef.current = template;
-
       const level = INTENSITY_LEVELS.find((l) => l.value === intensity) ?? INTENSITY_LEVELS[1]!;
 
-      worker.onmessage = async (e: MessageEvent<FromWorkerMsg>) => {
-        const msg = e.data;
+      /** Terminate the current pool and spawn a fresh one for `tmpl`. */
+      function spawnPool(tmpl: MiningTemplate) {
+        // Tear down old pool
+        for (const w of workerPoolRef.current) w.terminate();
+        workerPoolRef.current = [];
+        hashRatesRef.current.clear();
+        templateFetchingRef.current = false;
+        templateRef.current = tmpl;
 
-        if (msg.type === "progress") {
-          setHashRate(msg.hashRate);
-          // Log a sample nonce every few seconds (throttled by batchSize)
-          addLog(`nonce:${msg.nonce.slice(0, 12)}  hash:${msg.hash.slice(0, 18)}… miss`);
-        }
+        const newPool: Worker[] = [];
 
-        if (msg.type === "share") {
-          setSessionShares((n) => n + 1);
-          // Submit share asynchronously — worker continues hashing on the same template.
-          if (templateRef.current) {
-            const t = templateRef.current;
-            submitShareMutation.mutateAsync({
-              minerAddress: t.header.miner,
-              header: t.header,
-              nonce: msg.nonce,
-            }).then((result) => {
-              if (result.accepted) {
-                setConfirmedShares((n) => n + 1);
+        for (let i = 0; i < CORE_COUNT; i++) {
+          const worker = makeWorker();
+          newPool.push(worker);
+
+          worker.onmessage = async (e: MessageEvent<FromWorkerMsg | WorkerErrorMsg>) => {
+            const msg = e.data;
+
+            // ── progress ────────────────────────────────────────────────────
+            if (msg.type === "progress") {
+              hashRatesRef.current.set(worker, msg.hashRate);
+              const total = Array.from(hashRatesRef.current.values()).reduce((s, r) => s + r, 0);
+              setHashRate(total);
+              // Only log from the first worker to avoid flooding the terminal
+              if (worker === newPool[0]) {
+                addLog(`nonce:${msg.nonce.slice(0, 12)}  hash:${msg.hash.slice(0, 18)}… miss`);
               }
-              if (result.blockFound) {
-                addLog(`★ SHARE PROMOTED TO BLOCK #${t.header.number}!`, "found");
+            }
+
+            // ── share ────────────────────────────────────────────────────────
+            if (msg.type === "share") {
+              setSessionShares((n) => n + 1);
+              if (templateRef.current) {
+                const t = templateRef.current;
+                submitShareMutation.mutateAsync({
+                  minerAddress: t.header.miner,
+                  header: t.header,
+                  nonce: msg.nonce,
+                }).then((result) => {
+                  if (result.accepted) setConfirmedShares((n) => n + 1);
+                  if (result.blockFound) {
+                    addLog(`★ SHARE PROMOTED TO BLOCK #${t.header.number}!`, "found");
+                    setSessionBlocks((n) => n + 1);
+                  }
+                }).catch(() => {
+                  // Stale or duplicate shares are expected — silently ignore
+                });
+              }
+            }
+
+            // ── block found ──────────────────────────────────────────────────
+            if (msg.type === "found") {
+              addLog(`BLOCK FOUND! nonce:${msg.nonce}  hash:${msg.blockHash.slice(0, 18)}… — submitting…`, "found");
+
+              // Stop all OTHER workers immediately — this one already halted itself
+              for (const w of workerPoolRef.current) {
+                if (w !== worker) w.postMessage({ type: "stop" } satisfies ToWorkerMsg);
+              }
+
+              if (!templateRef.current) return;
+              const t = templateRef.current;
+              const submitPayload: SubmitBlockInput = {
+                minerAddress: t.header.miner,
+                header: t.header,
+                nonce: msg.nonce,
+                blockHash: msg.blockHash,
+                pendingTxHashes: t.pendingTxHashes,
+              };
+
+              try {
+                await submitBlock.mutateAsync(submitPayload);
                 setSessionBlocks((n) => n + 1);
+                addLog(`★ BLOCK FORGED! Fetching next template…`, "found");
+              } catch (err) {
+                const errorMsg = (err as { message?: string })?.message ?? "Submit failed";
+                if (errorMsg.includes("Stale")) {
+                  addLog(`Template stale — chain advanced. Refreshing…`, "warn");
+                } else {
+                  addLog(`Submit error: ${errorMsg}`, "warn");
+                }
               }
-            }).catch(() => {
-              // Stale or duplicate shares are expected — silently ignore
-            });
-          }
-        }
 
-        if (msg.type === "found") {
-          addLog(`BLOCK FOUND! nonce:${msg.nonce}  hash:${msg.blockHash.slice(0, 18)}… — submitting…`, "found");
+              if (!miningRef.current) return;
+              try {
+                const newTemplate = await getMiningTemplate(t.header.miner);
+                if (!miningRef.current) return;
+                spawnPool(newTemplate);
+              } catch {
+                addLog("Failed to fetch next template — retrying in 2s…", "warn");
+                setTimeout(() => {
+                  if (!miningRef.current) return;
+                  getMiningTemplate(t.header.miner)
+                    .then((nt) => { if (miningRef.current) spawnPool(nt); })
+                    .catch(() => stopWorker());
+                }, 2000);
+              }
+            }
 
-          if (!templateRef.current) return;
-          const t = templateRef.current;
-          const submitPayload: SubmitBlockInput = {
-            minerAddress: t.header.miner,
-            header: t.header,
-            nonce: msg.nonce,
-            blockHash: msg.blockHash,
-            pendingTxHashes: t.pendingTxHashes,
+            // ── need template ────────────────────────────────────────────────
+            if (msg.type === "needTemplate") {
+              // Debounce — only one worker in the pool should trigger a fetch
+              if (templateFetchingRef.current) return;
+              templateFetchingRef.current = true;
+
+              if (!miningRef.current) { templateFetchingRef.current = false; return; }
+              const minerAddr = templateRef.current?.header.miner ?? activeWallet?.address;
+              if (!minerAddr) { templateFetchingRef.current = false; return; }
+
+              getMiningTemplate(minerAddr).then((nt) => {
+                templateFetchingRef.current = false;
+                if (!miningRef.current) return;
+                // Restart the whole pool on the new template
+                spawnPool(nt);
+              }).catch(() => {
+                templateFetchingRef.current = false;
+                setTimeout(() => {
+                  if (!miningRef.current) return;
+                  const addr = templateRef.current?.header.miner ?? activeWallet?.address;
+                  if (!addr) return;
+                  getMiningTemplate(addr)
+                    .then((nt) => { if (miningRef.current) spawnPool(nt); })
+                    .catch(() => stopWorker());
+                }, 2000);
+              });
+            }
+
+            // ── stopped ──────────────────────────────────────────────────────
+            if (msg.type === "stopped") {
+              worker.terminate();
+            }
+
+            // ── error ────────────────────────────────────────────────────────
+            if ((msg as unknown as WorkerErrorMsg).type === "error") {
+              addLog(`Worker error: ${(msg as unknown as WorkerErrorMsg).message}`, "warn");
+              stopWorker();
+            }
           };
 
-          try {
-            await submitBlock.mutateAsync(submitPayload);
-            setSessionBlocks((n) => n + 1);
-            addLog(`★ BLOCK FORGED! Fetching next template…`, "found");
-          } catch (err) {
-            const errorMsg = (err as { message?: string })?.message ?? "Submit failed";
-            if (errorMsg.includes("Stale")) {
-              addLog(`Template stale — chain advanced. Refreshing…`, "warn");
-            } else {
-              addLog(`Submit error: ${errorMsg}`, "warn");
-            }
-          }
+          worker.onerror = (e) => {
+            const detail = [e.message, e.filename ? `${e.filename}:${e.lineno}` : ""].filter(Boolean).join(" ");
+            addLog(`Worker load error: ${detail || "(no detail — check browser console)"}`, "warn");
+            stopWorker();
+          };
 
-          // Always fetch a fresh template and keep mining as long as active
-          if (!miningRef.current) return;
-          try {
-            const newTemplate = await getMiningTemplate(t.header.miner);
-            if (!miningRef.current) return;
-            templateRef.current = newTemplate;
-            worker.postMessage({
-              type: "start",
-              header: newTemplate.header,
-              target: newTemplate.target,
-              shareTarget: newTemplate.shareTarget,
-              batchSize: level.batchSize,
-            } satisfies ToWorkerMsg);
-          } catch {
-            addLog("Failed to fetch next template — retrying in 2s…", "warn");
-            setTimeout(() => {
-              if (!miningRef.current) return;
-              getMiningTemplate(t.header.miner).then((nt) => {
-                if (!miningRef.current) return;
-                templateRef.current = nt;
-                worker.postMessage({ type: "start", header: nt.header, target: nt.target, shareTarget: nt.shareTarget, batchSize: level.batchSize } satisfies ToWorkerMsg);
-              }).catch(() => stopWorker());
-            }, 2000);
-          }
+          worker.postMessage({
+            type: "start",
+            header: tmpl.header,
+            target: tmpl.target,
+            shareTarget: tmpl.shareTarget,
+            batchSize: level.batchSize,
+          } satisfies ToWorkerMsg);
         }
 
-        if (msg.type === "needTemplate") {
-          // Worker paused after a share or after exhausting MAX_HASHES_PER_TEMPLATE.
-          // Fetch a fresh template and restart — mirrors Python's outer while-True loop.
-          if (!miningRef.current) return;
-          const minerAddr = templateRef.current?.header.miner ?? activeWallet?.address;
-          if (!minerAddr) return;
-          getMiningTemplate(minerAddr).then((nt) => {
-            if (!miningRef.current) return;
-            templateRef.current = nt;
-            worker.postMessage({
-              type: "start",
-              header: nt.header,
-              target: nt.target,
-              shareTarget: nt.shareTarget,
-              batchSize: level.batchSize,
-            } satisfies ToWorkerMsg);
-          }).catch(() => {
-            // Retry once after 2s if the template fetch fails
-            setTimeout(() => {
-              if (!miningRef.current) return;
-              getMiningTemplate(minerAddr).then((nt) => {
-                if (!miningRef.current) return;
-                templateRef.current = nt;
-                worker.postMessage({ type: "start", header: nt.header, target: nt.target, shareTarget: nt.shareTarget, batchSize: level.batchSize } satisfies ToWorkerMsg);
-              }).catch(() => stopWorker());
-            }, 2000);
-          });
-        }
+        workerPoolRef.current = newPool;
+      }
 
-        if (msg.type === "stopped") {
-          worker.terminate();
-          if (workerRef.current === worker) workerRef.current = null;
-        }
-
-        if ((msg as unknown as WorkerErrorMsg).type === "error") {
-          addLog(`Worker error: ${(msg as unknown as WorkerErrorMsg).message}`, "warn");
-          stopWorker();
-        }
-      };
-
-      worker.onerror = (e) => {
-        // e.message is often undefined for module workers (browser hides cross-origin detail).
-        // The worker itself posts a { type:"error" } message with the real message via try/catch.
-        const detail = [e.message, e.filename ? `${e.filename}:${e.lineno}` : ""].filter(Boolean).join(" ");
-        addLog(`Worker load error: ${detail || "(no detail — check browser console)"}`, "warn");
-        stopWorker();
-      };
-
-      worker.postMessage({
-        type: "start",
-        header: template.header,
-        target: template.target,
-        shareTarget: template.shareTarget,
-        batchSize: level.batchSize,
-      } satisfies ToWorkerMsg);
+      spawnPool(template);
     },
     [addLog, stopWorker, submitBlock, submitShareMutation],
   );
@@ -231,7 +253,6 @@ export default function Mining() {
 
   const handleStart = useCallback(async () => {
     if (!activeWallet || miningRef.current) return;
-    // Notify other tabs on this device to stop
     channelRef.current?.postMessage({ type: "mining_started" });
     setTabBlocked(false);
     miningRef.current = true;
@@ -241,7 +262,7 @@ export default function Mining() {
     setConfirmedShares(0);
     setHashRate(0);
     const level = INTENSITY_LEVELS.find((l) => l.value === selectedIntensity) ?? INTENSITY_LEVELS[1]!;
-    addLog(`IGNITE @ intensity ${selectedIntensity} (${level.label}) — mining for ${truncate(activeWallet.address)}`);
+    addLog(`IGNITE @ ${CORE_COUNT} cores × intensity ${selectedIntensity} (${level.label}) — mining for ${truncate(activeWallet.address)}`);
     try {
       const template = await getMiningTemplate(activeWallet.address);
       if (!miningRef.current) return;
@@ -261,19 +282,21 @@ export default function Mining() {
 
   const handleIntensityChange = useCallback((level: number) => {
     setSelectedIntensity(level);
-    if (miningRef.current && activeWallet && templateRef.current) {
+    if (miningRef.current && templateRef.current) {
       const lvl = INTENSITY_LEVELS.find((l) => l.value === level) ?? INTENSITY_LEVELS[1]!;
       addLog(`Intensity → ${level} (${lvl.label})`);
-      // Hot-swap: re-send start with new batchSize on the existing worker
-      workerRef.current?.postMessage({
-        type: "start",
-        header: templateRef.current.header,
-        target: templateRef.current.target,
-        shareTarget: templateRef.current.shareTarget,
-        batchSize: lvl.batchSize,
-      } satisfies ToWorkerMsg);
+      // Hot-swap: broadcast new batchSize to all active workers
+      for (const w of workerPoolRef.current) {
+        w.postMessage({
+          type: "start",
+          header: templateRef.current.header,
+          target: templateRef.current.target,
+          shareTarget: templateRef.current.shareTarget,
+          batchSize: lvl.batchSize,
+        } satisfies ToWorkerMsg);
+      }
     }
-  }, [activeWallet, addLog]);
+  }, [addLog]);
 
   // ── BroadcastChannel: single-tab enforcement ────────────────────────────────
   useEffect(() => {
@@ -282,7 +305,6 @@ export default function Mining() {
     channelRef.current = ch;
     ch.onmessage = (e) => {
       if (e.data?.type === "mining_started") {
-        // Another tab on this device just started mining — stop ours
         if (miningRef.current) {
           addLog("! Another tab started mining on this device — pausing this tab.", "warn");
           stopWorker();
@@ -300,7 +322,7 @@ export default function Mining() {
   useEffect(() => {
     return () => {
       miningRef.current = false;
-      workerRef.current?.terminate();
+      for (const w of workerPoolRef.current) w.terminate();
       channelRef.current?.postMessage({ type: "mining_stopped" });
     };
   }, []);
@@ -319,7 +341,7 @@ export default function Mining() {
             Mining Forge
           </h1>
           <p className="text-muted-foreground font-sans text-sm uppercase tracking-widest font-bold">
-            Your CPU · keccak256 proof-of-work · runs in your browser
+            {CORE_COUNT} CPU cores · keccak256 proof-of-work · runs in your browser
           </p>
         </div>
 
@@ -358,11 +380,9 @@ export default function Mining() {
       <div className="mb-6 flex items-start gap-3 bg-secondary/40 border border-border rounded-sm p-4 text-sm">
         <Cpu className="w-4 h-4 text-primary mt-0.5 shrink-0" />
         <p className="text-muted-foreground font-sans leading-relaxed">
-          <span className="text-foreground font-bold">Mining runs in your browser.</span>{" "}
-          Click Ignite Forge and your device's CPU starts grinding keccak256 hashes in a Web Worker — a real
-          background thread that doesn't freeze the page. When your CPU finds a valid nonce, it's submitted
-          to the node, which validates the proof-of-work and adds the block to the chain. Your EMBR reward
-          is credited instantly.
+          <span className="text-foreground font-bold">Mining uses all {CORE_COUNT} CPU cores on this device.</span>{" "}
+          Each core runs a dedicated Web Worker grinding keccak256 hashes in parallel — no page freezes, no GPU required.
+          Valid shares are submitted for proportional EMBR payout even if your tab doesn't find the winning block.
         </p>
       </div>
 
@@ -394,6 +414,11 @@ export default function Mining() {
                   {isMining ? hashRate.toLocaleString() : "0"}
                   <span className="text-sm text-muted-foreground ml-1">H/s</span>
                 </div>
+                {isMining && (
+                  <p className="text-[10px] text-muted-foreground font-sans mt-0.5">
+                    {CORE_COUNT} workers combined
+                  </p>
+                )}
               </div>
 
               <div>
@@ -449,8 +474,8 @@ export default function Mining() {
                   <Cpu className="w-3 h-3" /> Compute Source
                 </div>
                 <div className="text-xs font-sans text-muted-foreground">
-                  Your device's CPU (browser WebWorker)<br />
-                  <span className="opacity-60">keccak256 · single thread · no GPU</span>
+                  {CORE_COUNT} browser WebWorkers (multi-core)<br />
+                  <span className="opacity-60">keccak256 · {CORE_COUNT} threads · no GPU</span>
                 </div>
               </div>
             </div>
