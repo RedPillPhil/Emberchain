@@ -93,9 +93,29 @@ function randomNonce(): bigint {
 
 // ── message handler ───────────────────────────────────────────────────────────
 
+export type WorkerErrorMsg = { type: "error"; message: string };
+
 let running = false;
 
+// Catch unhandled promise rejections inside the worker and forward them to the
+// main thread so they show up as readable log lines instead of "undefined".
+self.addEventListener("unhandledrejection", (ev) => {
+  const msg = (ev as PromiseRejectionEvent).reason?.message
+    ?? String((ev as PromiseRejectionEvent).reason)
+    ?? "unhandled rejection";
+  (self as unknown as Worker).postMessage({ type: "error", message: msg } as WorkerErrorMsg);
+});
+
 self.onmessage = async (e: MessageEvent<ToWorkerMsg>) => {
+  try {
+    await handleMessage(e);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    (self as unknown as Worker).postMessage({ type: "error", message: msg } as WorkerErrorMsg);
+  }
+};
+
+async function handleMessage(e: MessageEvent<ToWorkerMsg>) {
   const msg = e.data;
 
   if (msg.type === "stop") {
@@ -175,4 +195,4 @@ self.onmessage = async (e: MessageEvent<ToWorkerMsg>) => {
       await new Promise<void>((r) => setTimeout(r, 0));
     }
   }
-};
+}

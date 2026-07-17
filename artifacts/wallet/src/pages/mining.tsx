@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Flame, Zap, Hash, Database, Terminal, Cpu, Share2 } from "lucide-react";
 import { cn, formatEmbr } from "@/lib/utils";
-import type { FromWorkerMsg, ToWorkerMsg } from "@/workers/mining.worker";
+import type { FromWorkerMsg, ToWorkerMsg, WorkerErrorMsg } from "@/workers/mining.worker";
 
 // ── intensity levels ──────────────────────────────────────────────────────────
 
@@ -201,10 +201,18 @@ export default function Mining() {
           worker.terminate();
           if (workerRef.current === worker) workerRef.current = null;
         }
+
+        if ((msg as unknown as WorkerErrorMsg).type === "error") {
+          addLog(`Worker error: ${(msg as unknown as WorkerErrorMsg).message}`, "warn");
+          stopWorker();
+        }
       };
 
       worker.onerror = (e) => {
-        addLog(`Worker error: ${e.message}`, "warn");
+        // e.message is often undefined for module workers (browser hides cross-origin detail).
+        // The worker itself posts a { type:"error" } message with the real message via try/catch.
+        const detail = [e.message, e.filename ? `${e.filename}:${e.lineno}` : ""].filter(Boolean).join(" ");
+        addLog(`Worker load error: ${detail || "(no detail — check browser console)"}`, "warn");
         stopWorker();
       };
 
