@@ -12,3 +12,9 @@ id = "9tlLgaEUR2wVeA9jK9en-"
 uri = "file://artifacts/wallet/public/og-image.jpg"
 type = "image"
 title = "Emberchain OG / Social Preview Image"
+
+[[outputs]]
+id = "esZVv801JVonkHJWJaPRU"
+uri = "file://attached_assets/emberchain_update2_final.txt"
+type = "text"
+title = "Emberchain Update #2 — Final Post"
