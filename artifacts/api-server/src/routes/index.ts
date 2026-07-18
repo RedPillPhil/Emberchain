@@ -11,7 +11,6 @@ import rpcRouter from "./rpc";
 import onrampRouter from "./onramp";
 import communityRouter from "./community";
 import bridgeRouter from "./bridge";
-import adminDeployRouter from "./admin-deploy";
 const router: IRouter = Router();
 
 router.use(healthRouter);
@@ -26,6 +25,5 @@ router.use(rpcRouter);
 router.use(onrampRouter);
 router.use(communityRouter);
 router.use(bridgeRouter);
-router.use(adminDeployRouter);
 
 export default router;
