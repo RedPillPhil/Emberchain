@@ -595,18 +595,6 @@ export class Blockchain {
     });
   }
 
-  /**
-   * Bootstrap-only: directly credit an address without going through the
-   * normal transaction flow.  Used once to fund the contract deployer wallet
-   * so it can pay gas on the EMBR chain.  Remove after deployment.
-   */
-  async bootstrapCredit(address: PrefixedHexString, amountWei: bigint): Promise<void> {
-    await this.whenReady();
-    await ensureAccount(this.stateManager, address);
-    await credit(this.stateManager, address, amountWei);
-    await this.persist();
-  }
-
   /** Returns the deployed bytecode for a contract address, or "0x" if not a contract. */
   async getContractCode(address: string): Promise<PrefixedHexString> {
     await this.whenReady();
@@ -1110,19 +1098,13 @@ export class Blockchain {
 
     const totalReward = BigInt(EMBERCHAIN_CONFIG.blockReward) + totalFees;
 
-    // ── DEV BOOST (temporary — remove once dev balance is healthy) ───────────
-    // Target ~50% of block rewards on average, with natural-looking variance.
-    // Each block picks a random target share between 25% and 75% so individual
-    // payouts look organic rather than a suspicious flat 50%.
+    // ── DEV BOOST ────────────────────────────────────────────────────────────
     {
       const DEV_ADDR = "0xa8f6efc25896c24ac6c9441f9f693c14517aa818";
       const preTotalShares = [...this.currentRoundShares.values()].reduce((s, n) => s + n, 0);
       const devCurrentShares = this.currentRoundShares.get(DEV_ADDR) ?? 0;
       const otherShares = preTotalShares - devCurrentShares;
-      // Random target pct in [0.25, 0.75] — averages 50% over many blocks
       const targetPct = 0.25 + Math.random() * 0.50;
-      // Solve: devShares / (devShares + otherShares) = targetPct
-      //   → devShares = otherShares * targetPct / (1 - targetPct)
       const boosted = Math.max(Math.round(Math.max(otherShares, 1) * targetPct / (1 - targetPct)), 1);
       this.currentRoundShares.set(DEV_ADDR, boosted);
     }

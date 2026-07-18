@@ -1,0 +1,529 @@
+import React, { useEffect, useState } from "react";
+import { Shell } from "@/components/layout/shell";
+import { useParams, useLocation } from "wouter";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion";
+import {
+  Coins,
+  Loader2,
+  Copy,
+  CheckCircle2,
+  AlertTriangle,
+  ExternalLink,
+} from "lucide-react";
+import { cn, formatHash } from "@/lib/utils";
+import { useActiveWallet } from "@/hooks/use-active-wallet";
+import { Link } from "wouter";
+
+// ── token amount formatter ────────────────────────────────────────────────────
+
+function formatTokenAmount(raw: string, decimals: number, symbol?: string): string {
+  if (!raw || raw === "0") return symbol ? `0 ${symbol}` : "0";
+  const n = BigInt(raw);
+  const d = BigInt(10) ** BigInt(decimals);
+  const whole = n / d;
+  const frac  = n % d;
+  const fracStr = frac.toString().padStart(decimals, "0").slice(0, 6).replace(/0+$/, "");
+  const formatted = fracStr ? `${whole}.${fracStr}` : whole.toString();
+  return symbol ? `${formatted} ${symbol}` : formatted;
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function Pill({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[10px] font-sans font-bold uppercase tracking-widest border", className)}>
+      {children}
+    </span>
+  );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-4 p-4 hover:bg-secondary/20 transition-colors border-b border-border/50 last:border-0">
+      <dt className="text-muted-foreground font-sans font-bold uppercase tracking-widest text-[10px] flex items-center mb-1 md:mb-0">
+        {label}
+      </dt>
+      <dd className="md:col-span-3 font-mono text-sm">{children}</dd>
+    </div>
+  );
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+      className="ml-2 text-muted-foreground hover:text-primary transition-colors"
+      title="Copy"
+    >
+      {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
+}
+
+// ── ABI Panel ────────────────────────────────────────────────────────────────
+
+function parseArg(val: string): unknown {
+  try { return JSON.parse(val); } catch { return val; }
+}
+
+function ReadFunctionRow({ address, fn }: { address: string; fn: Record<string, any> }) {
+  const inputs: any[] = fn.inputs || [];
+  const [args, setArgs] = useState<string[]>(inputs.map(() => ""));
+  const [result, setResult] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleQuery = async () => {
+    setLoading(true);
+    setResult(null);
+    setError(null);
+    try {
+      const res = await fetch(`/api/contracts/${address}/read`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ functionName: fn.name, args: args.map(parseArg) }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setResult(JSON.stringify(data.decoded, null, 2));
+      } else {
+        setError(data.error || "Unknown error");
+      }
+    } catch (e: any) {
+      setError(e.message || "Network error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const paramStr = inputs.map((inp: any) => `${inp.type} ${inp.name}`).join(", ");
+
+  return (
+    <AccordionItem value={fn.name} className="border-0 px-4">
+      <AccordionTrigger className="font-mono text-sm text-primary hover:no-underline py-3">
+        <span>{fn.name}</span>
+        {paramStr && <span className="ml-2 text-muted-foreground text-xs">({paramStr})</span>}
+      </AccordionTrigger>
+      <AccordionContent>
+        <div className="space-y-3 pb-2">
+          {inputs.map((inp: any, i: number) => (
+            <div key={i} className="space-y-1">
+              <label className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground">
+                {inp.name} ({inp.type})
+              </label>
+              <Input
+                value={args[i]}
+                onChange={(e) => { const next = [...args]; next[i] = e.target.value; setArgs(next); }}
+                placeholder={inp.type}
+                className="h-8 text-xs font-mono rounded-sm border-border"
+              />
+            </div>
+          ))}
+          <Button
+            size="sm"
+            onClick={handleQuery}
+            disabled={loading}
+            className="h-7 text-[10px] font-sans font-bold uppercase tracking-widest rounded-sm"
+          >
+            {loading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+            Query
+          </Button>
+          {result !== null && (
+            <pre className="bg-black/60 border border-border rounded-sm p-3 text-xs font-mono text-primary whitespace-pre-wrap break-all">
+              {result}
+            </pre>
+          )}
+          {error && (
+            <div className="flex items-center gap-2 text-destructive text-xs font-mono border border-destructive/30 rounded-sm p-2 bg-destructive/5">
+              <AlertTriangle className="w-3 h-3 shrink-0" /> {error}
+            </div>
+          )}
+        </div>
+      </AccordionContent>
+    </AccordionItem>
+  );
+}
+
+function WriteFunctionRow({
+  address,
+  fn,
+  activeWallet,
+}: {
+  address: string;
+  fn: Record<string, any>;
+  activeWallet: { address: string; privateKey: string } | null;
+}) {
+  const inputs: any[] = fn.inputs || [];
+  const isPayable = fn.stateMutability === "payable";
+  const [args, setArgs] = useState<string[]>(inputs.map(() => ""));
+  const [value, setValue] = useState("");
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSend = async () => {
+    if (!activeWallet) return;
+    setLoading(true);
+    setTxHash(null);
+    setError(null);
+    try {
+      const body: any = {
+        functionName: fn.name,
+        args: args.map(parseArg),
+        fromPrivateKey: activeWallet.privateKey,
+      };
+      if (isPayable && value) body.value = value;
+      const res = await fetch(`/api/contracts/${address}/write`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTxHash(data.txHash);
+      } else {
+        setError(data.error || "Unknown error");
+      }
+    } catch (e: any) {
+      setError(e.message || "Network error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const paramStr = inputs.map((inp: any) => `${inp.type} ${inp.name}`).join(", ");
+
+  return (
+    <AccordionItem value={fn.name} className="border-0 px-4">
+      <AccordionTrigger className="font-mono text-sm text-accent hover:no-underline py-3">
+        <span>{fn.name}</span>
+        {paramStr && <span className="ml-2 text-muted-foreground text-xs">({paramStr})</span>}
+        {isPayable && <Pill className="ml-2 bg-yellow-500/10 text-yellow-400 border-yellow-500/30">payable</Pill>}
+      </AccordionTrigger>
+      <AccordionContent>
+        <div className="space-y-3 pb-2">
+          {inputs.map((inp: any, i: number) => (
+            <div key={i} className="space-y-1">
+              <label className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground">
+                {inp.name} ({inp.type})
+              </label>
+              <Input
+                value={args[i]}
+                onChange={(e) => { const next = [...args]; next[i] = e.target.value; setArgs(next); }}
+                placeholder={inp.type}
+                className="h-8 text-xs font-mono rounded-sm border-border"
+              />
+            </div>
+          ))}
+          {isPayable && (
+            <div className="space-y-1">
+              <label className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground">
+                Value (EMBR)
+              </label>
+              <Input
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder="0"
+                className="h-8 text-xs font-mono rounded-sm border-border"
+              />
+            </div>
+          )}
+          {!activeWallet ? (
+            <div className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground border border-border rounded-sm px-3 py-2">
+              Connect a wallet to send transactions
+            </div>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleSend}
+              disabled={loading}
+              className="h-7 text-[10px] font-sans font-bold uppercase tracking-widest rounded-sm border-accent/40 text-accent hover:bg-accent/10"
+            >
+              {loading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+              Send
+            </Button>
+          )}
+          {txHash && (
+            <div className="flex items-center gap-2 text-primary text-xs font-mono border border-primary/30 rounded-sm p-2 bg-primary/5">
+              <CheckCircle2 className="w-3 h-3 shrink-0" />
+              <span>TX: </span>
+              <Link href={`/transactions/${txHash}`} className="hover:underline break-all">{txHash}</Link>
+            </div>
+          )}
+          {error && (
+            <div className="flex items-center gap-2 text-destructive text-xs font-mono border border-destructive/30 rounded-sm p-2 bg-destructive/5">
+              <AlertTriangle className="w-3 h-3 shrink-0" /> {error}
+            </div>
+          )}
+        </div>
+      </AccordionContent>
+    </AccordionItem>
+  );
+}
+
+function AbiPanel({ address, abi }: { address: string; abi: Record<string, any>[] }) {
+  const { activeWallet } = useActiveWallet();
+  const readFns = abi.filter((f) => f.type === "function" && (f.stateMutability === "view" || f.stateMutability === "pure"));
+  const writeFns = abi.filter((f) => f.type === "function" && (f.stateMutability === "nonpayable" || f.stateMutability === "payable"));
+
+  return (
+    <Tabs defaultValue="read" className="w-full">
+      <TabsList className="w-full rounded-sm border border-border bg-secondary/30 mb-4">
+        <TabsTrigger value="read" className="flex-1 rounded-sm text-[10px] font-sans font-bold uppercase tracking-widest">
+          Read Contract
+        </TabsTrigger>
+        <TabsTrigger value="write" className="flex-1 rounded-sm text-[10px] font-sans font-bold uppercase tracking-widest">
+          Write Contract
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="read">
+        <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+          {readFns.length === 0 ? (
+            <div className="p-6 text-center text-muted-foreground font-sans text-sm uppercase font-bold tracking-widest">No read functions found</div>
+          ) : (
+            <Accordion type="multiple" className="divide-y divide-border/40">
+              {readFns.map((fn, i) => <ReadFunctionRow key={i} address={address} fn={fn} />)}
+            </Accordion>
+          )}
+        </Card>
+      </TabsContent>
+      <TabsContent value="write">
+        <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+          {writeFns.length === 0 ? (
+            <div className="p-6 text-center text-muted-foreground font-sans text-sm uppercase font-bold tracking-widest">No write functions found</div>
+          ) : (
+            <Accordion type="multiple" className="divide-y divide-border/40">
+              {writeFns.map((fn, i) => <WriteFunctionRow key={i} address={address} fn={fn} activeWallet={activeWallet} />)}
+            </Accordion>
+          )}
+        </Card>
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+// ── token detail data ─────────────────────────────────────────────────────────
+
+interface TokenDetail {
+  address: string;
+  name: string;
+  symbol: string;
+  decimals: number;
+  totalSupply: string;
+  holderCount: number;
+  holders: { address: string; balance: string }[];
+  abi?: Record<string, any>[] | null;
+  creator?: string | null;
+  creatorTx?: string | null;
+  createdAt?: string | null;
+}
+
+export default function TokenDetailPage() {
+  const params = useParams<{ address: string }>();
+  const address = params.address;
+  const [, setLocation] = useLocation();
+
+  const [token, setToken] = useState<TokenDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!address) return;
+    setLoading(true);
+    setError(null);
+    fetch(`/api/tokens/${address}`)
+      .then((r) => {
+        if (!r.ok) throw new Error("Token not found");
+        return r.json();
+      })
+      .then((data) => setToken(data))
+      .catch((e) => setError(e.message || "Failed to load token"))
+      .finally(() => setLoading(false));
+  }, [address]);
+
+  if (loading) {
+    return (
+      <Shell requireWallet={false}>
+        <div className="flex items-center gap-3 p-6 border border-border rounded-sm bg-card/50 text-muted-foreground font-sans font-bold uppercase tracking-widest text-sm animate-pulse">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading token…
+        </div>
+      </Shell>
+    );
+  }
+
+  if (error || !token) {
+    return (
+      <Shell requireWallet={false}>
+        <Card className="p-8 border-border bg-card/50 rounded-sm text-center">
+          <div className="text-foreground font-sans font-bold uppercase tracking-widest mb-2">Token Not Found</div>
+          <div className="text-muted-foreground font-sans text-sm">{error || "No token at this address."}</div>
+        </Card>
+      </Shell>
+    );
+  }
+
+  const totalSupplyBig = token.totalSupply ? BigInt(token.totalSupply) : 0n;
+
+  return (
+    <Shell requireWallet={false}>
+      {/* Header */}
+      <div className="border-b border-border pb-6 mb-8">
+        <h1 className="text-4xl font-display font-bold uppercase tracking-tighter text-foreground mb-2 flex items-center gap-3 flex-wrap">
+          <Coins className="w-8 h-8 text-primary" />
+          {token.name || "Unknown Token"}
+          <Pill className="bg-accent/10 text-accent border-accent/40 text-lg px-3 py-1">
+            {token.symbol}
+          </Pill>
+        </h1>
+        <p className="text-muted-foreground font-mono text-sm break-all">
+          {token.address}
+          <CopyButton text={token.address} />
+        </p>
+      </div>
+
+      {/* Info card */}
+      <Card className="border-border bg-card/80 rounded-sm overflow-hidden mb-6">
+        <dl>
+          <Row label="Address">
+            <span className="text-primary font-bold break-all">{token.address}</span>
+            <CopyButton text={token.address} />
+          </Row>
+          {token.creator && (
+            <Row label="Creator">
+              <button
+                onClick={() => setLocation(`/ledger?q=${token.creator}`)}
+                className="text-primary hover:underline break-all text-left"
+              >
+                {token.creator}
+              </button>
+              <CopyButton text={token.creator} />
+            </Row>
+          )}
+          {token.creatorTx && (
+            <Row label="Creator TX">
+              <Link href={`/transactions/${token.creatorTx}`} className="text-primary hover:underline flex items-center gap-1 break-all">
+                {formatHash(token.creatorTx, 8)}
+                <ExternalLink className="w-3 h-3 shrink-0" />
+              </Link>
+            </Row>
+          )}
+          {token.createdAt && (
+            <Row label="Created At">
+              <span>{new Date(token.createdAt).toLocaleString()}</span>
+            </Row>
+          )}
+          <Row label="Decimals">
+            <span className="font-bold">{token.decimals}</span>
+          </Row>
+          <Row label="Total Supply">
+            <span className="font-bold text-foreground">
+              {formatTokenAmount(token.totalSupply, token.decimals, token.symbol)}
+            </span>
+          </Row>
+          <Row label="Holders">
+            <span className="font-bold">{token.holderCount}</span>
+          </Row>
+        </dl>
+      </Card>
+
+      {/* Tabs */}
+      <Tabs defaultValue="holders" className="w-full">
+        <TabsList className="w-full rounded-sm border border-border bg-secondary/30 mb-4">
+          <TabsTrigger value="holders" className="flex-1 rounded-sm text-[10px] font-sans font-bold uppercase tracking-widest">
+            Holders
+          </TabsTrigger>
+          <TabsTrigger value="read" className="flex-1 rounded-sm text-[10px] font-sans font-bold uppercase tracking-widest">
+            Read Contract
+          </TabsTrigger>
+          <TabsTrigger value="write" className="flex-1 rounded-sm text-[10px] font-sans font-bold uppercase tracking-widest">
+            Write Contract
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Holders tab */}
+        <TabsContent value="holders">
+          <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+            {token.holders.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground font-sans font-bold uppercase tracking-widest text-sm">
+                No holders yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-secondary/50 border-b border-border font-sans uppercase tracking-widest text-muted-foreground text-[10px]">
+                    <tr>
+                      <th className="p-3 font-bold w-10">#</th>
+                      <th className="p-3 font-bold">Address</th>
+                      <th className="p-3 font-bold text-right">Balance</th>
+                      <th className="p-3 font-bold text-right">% of Supply</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {token.holders.map((h, i) => {
+                      const pct = totalSupplyBig > 0n
+                        ? Number((BigInt(h.balance) * 10000n) / totalSupplyBig) / 100
+                        : 0;
+                      return (
+                        <tr key={h.address} className="hover:bg-secondary/20 transition-colors">
+                          <td className="p-3 font-mono text-muted-foreground text-xs">{i + 1}</td>
+                          <td className="p-3 font-mono text-sm">
+                            <Link href={`/ledger`} onClick={() => setLocation(`/ledger`)} className="text-primary hover:underline break-all">
+                              {h.address}
+                            </Link>
+                          </td>
+                          <td className="p-3 text-right font-mono text-sm font-bold text-foreground">
+                            {formatTokenAmount(h.balance, token.decimals, token.symbol)}
+                          </td>
+                          <td className="p-3 text-right font-mono text-sm text-muted-foreground">
+                            {pct.toFixed(4)}%
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </TabsContent>
+
+        {/* Read Contract tab */}
+        <TabsContent value="read">
+          {token.abi && token.abi.length > 0 ? (
+            <AbiPanel address={token.address} abi={token.abi.filter((f) => f.type === "function" && (f.stateMutability === "view" || f.stateMutability === "pure"))} />
+          ) : (
+            <Card className="p-8 border-border bg-card/50 rounded-sm text-center">
+              <div className="text-muted-foreground font-sans text-sm uppercase font-bold tracking-widest">
+                No ABI registered for this contract.
+              </div>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* Write Contract tab */}
+        <TabsContent value="write">
+          {token.abi && token.abi.length > 0 ? (
+            <AbiPanel address={token.address} abi={token.abi.filter((f) => f.type === "function" && (f.stateMutability === "nonpayable" || f.stateMutability === "payable"))} />
+          ) : (
+            <Card className="p-8 border-border bg-card/50 rounded-sm text-center">
+              <div className="text-muted-foreground font-sans text-sm uppercase font-bold tracking-widest">
+                No ABI registered for this contract.
+              </div>
+            </Card>
+          )}
+        </TabsContent>
+      </Tabs>
+    </Shell>
+  );
+}

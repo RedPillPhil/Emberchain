@@ -20,6 +20,8 @@ import Contacts from '@/pages/contacts';
 import OnRamp from '@/pages/onramp';
 import Community from '@/pages/community';
 import EmberSwap from '@/pages/emberswap';
+import Tokens from '@/pages/tokens';
+import TokenDetail from '@/pages/token-detail';
 
 const queryClient = new QueryClient();
 
@@ -42,6 +44,8 @@ function Router() {
       <Route path="/onramp" component={OnRamp} />
       <Route path="/community" component={Community} />
       <Route path="/emberswap" component={EmberSwap} />
+      <Route path="/tokens" component={Tokens} />
+      <Route path="/tokens/:address" component={TokenDetail} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -12,6 +12,14 @@ import { useActiveWallet } from "@/hooks/use-active-wallet";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion";
 import {
   Search,
   X,
@@ -29,11 +37,27 @@ import {
   AlertTriangle,
   Trophy,
   Medal,
+  Coins,
+  Code2,
+  ChevronRight,
 } from "lucide-react";
 import { cn, formatEmbr, formatHash } from "@/lib/utils";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const HASH_RE    = /^0x[0-9a-fA-F]{64}$/;
+
+// ── token amount formatter ────────────────────────────────────────────────────
+
+function formatTokenAmount(raw: string, decimals: number, symbol?: string): string {
+  if (!raw || raw === "0") return symbol ? `0 ${symbol}` : "0";
+  const n = BigInt(raw);
+  const d = BigInt(10) ** BigInt(decimals);
+  const whole = n / d;
+  const frac  = n % d;
+  const fracStr = frac.toString().padStart(decimals, "0").slice(0, 6).replace(/0+$/, "");
+  const formatted = fracStr ? `${whole}.${fracStr}` : whole.toString();
+  return symbol ? `${formatted} ${symbol}` : formatted;
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -66,6 +90,284 @@ function CopyButton({ text }: { text: string }) {
     >
       {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
+  );
+}
+
+// ── ABI Panel ────────────────────────────────────────────────────────────────
+
+interface AbiPanelProps {
+  address: string;
+  abi: Record<string, any>[];
+}
+
+function AbiPanel({ address, abi }: AbiPanelProps) {
+  const { activeWallet } = useActiveWallet();
+
+  const readFns = abi.filter(
+    (f) => f.type === "function" && (f.stateMutability === "view" || f.stateMutability === "pure")
+  );
+  const writeFns = abi.filter(
+    (f) => f.type === "function" && (f.stateMutability === "nonpayable" || f.stateMutability === "payable")
+  );
+
+  return (
+    <Tabs defaultValue="read" className="w-full">
+      <TabsList className="w-full rounded-sm border border-border bg-secondary/30 mb-4">
+        <TabsTrigger value="read" className="flex-1 rounded-sm text-[10px] font-sans font-bold uppercase tracking-widest">
+          Read Contract
+        </TabsTrigger>
+        <TabsTrigger value="write" className="flex-1 rounded-sm text-[10px] font-sans font-bold uppercase tracking-widest">
+          Write Contract
+        </TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="read">
+        <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+          {readFns.length === 0 ? (
+            <div className="p-6 text-center text-muted-foreground font-sans text-sm uppercase font-bold tracking-widest">
+              No read functions found
+            </div>
+          ) : (
+            <Accordion type="multiple" className="divide-y divide-border/40">
+              {readFns.map((fn, i) => (
+                <ReadFunctionRow key={i} address={address} fn={fn} />
+              ))}
+            </Accordion>
+          )}
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="write">
+        <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+          {writeFns.length === 0 ? (
+            <div className="p-6 text-center text-muted-foreground font-sans text-sm uppercase font-bold tracking-widest">
+              No write functions found
+            </div>
+          ) : (
+            <Accordion type="multiple" className="divide-y divide-border/40">
+              {writeFns.map((fn, i) => (
+                <WriteFunctionRow key={i} address={address} fn={fn} activeWallet={activeWallet} />
+              ))}
+            </Accordion>
+          )}
+        </Card>
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function parseArg(val: string): unknown {
+  try { return JSON.parse(val); } catch { return val; }
+}
+
+function ReadFunctionRow({ address, fn }: { address: string; fn: Record<string, any> }) {
+  const inputs: any[] = fn.inputs || [];
+  const [args, setArgs] = useState<string[]>(inputs.map(() => ""));
+  const [result, setResult] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleQuery = async () => {
+    setLoading(true);
+    setResult(null);
+    setError(null);
+    try {
+      const res = await fetch(`/api/contracts/${address}/read`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          functionName: fn.name,
+          args: args.map(parseArg),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setResult(JSON.stringify(data.decoded, null, 2));
+      } else {
+        setError(data.error || "Unknown error");
+      }
+    } catch (e: any) {
+      setError(e.message || "Network error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const paramStr = inputs.map((inp: any) => `${inp.type} ${inp.name}`).join(", ");
+
+  return (
+    <AccordionItem value={fn.name} className="border-0 px-4">
+      <AccordionTrigger className="font-mono text-sm text-primary hover:no-underline py-3">
+        <span>{fn.name}</span>
+        {paramStr && <span className="ml-2 text-muted-foreground text-xs">({paramStr})</span>}
+      </AccordionTrigger>
+      <AccordionContent>
+        <div className="space-y-3 pb-2">
+          {inputs.map((inp: any, i: number) => (
+            <div key={i} className="space-y-1">
+              <label className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground">
+                {inp.name} ({inp.type})
+              </label>
+              <Input
+                value={args[i]}
+                onChange={(e) => {
+                  const next = [...args];
+                  next[i] = e.target.value;
+                  setArgs(next);
+                }}
+                placeholder={inp.type}
+                className="h-8 text-xs font-mono rounded-sm border-border"
+              />
+            </div>
+          ))}
+          <Button
+            size="sm"
+            onClick={handleQuery}
+            disabled={loading}
+            className="h-7 text-[10px] font-sans font-bold uppercase tracking-widest rounded-sm"
+          >
+            {loading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+            Query
+          </Button>
+          {result !== null && (
+            <pre className="bg-black/60 border border-border rounded-sm p-3 text-xs font-mono text-primary whitespace-pre-wrap break-all">
+              {result}
+            </pre>
+          )}
+          {error && (
+            <div className="flex items-center gap-2 text-destructive text-xs font-mono border border-destructive/30 rounded-sm p-2 bg-destructive/5">
+              <AlertTriangle className="w-3 h-3 shrink-0" /> {error}
+            </div>
+          )}
+        </div>
+      </AccordionContent>
+    </AccordionItem>
+  );
+}
+
+function WriteFunctionRow({
+  address,
+  fn,
+  activeWallet,
+}: {
+  address: string;
+  fn: Record<string, any>;
+  activeWallet: { address: string; privateKey: string } | null;
+}) {
+  const inputs: any[] = fn.inputs || [];
+  const isPayable = fn.stateMutability === "payable";
+  const [args, setArgs] = useState<string[]>(inputs.map(() => ""));
+  const [value, setValue] = useState("");
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSend = async () => {
+    if (!activeWallet) return;
+    setLoading(true);
+    setTxHash(null);
+    setError(null);
+    try {
+      const body: any = {
+        functionName: fn.name,
+        args: args.map(parseArg),
+        fromPrivateKey: activeWallet.privateKey,
+      };
+      if (isPayable && value) body.value = value;
+      const res = await fetch(`/api/contracts/${address}/write`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTxHash(data.txHash);
+      } else {
+        setError(data.error || "Unknown error");
+      }
+    } catch (e: any) {
+      setError(e.message || "Network error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const paramStr = inputs.map((inp: any) => `${inp.type} ${inp.name}`).join(", ");
+
+  return (
+    <AccordionItem value={fn.name} className="border-0 px-4">
+      <AccordionTrigger className="font-mono text-sm text-accent hover:no-underline py-3">
+        <span>{fn.name}</span>
+        {paramStr && <span className="ml-2 text-muted-foreground text-xs">({paramStr})</span>}
+        {isPayable && (
+          <Pill className="ml-2 bg-yellow-500/10 text-yellow-400 border-yellow-500/30">payable</Pill>
+        )}
+      </AccordionTrigger>
+      <AccordionContent>
+        <div className="space-y-3 pb-2">
+          {inputs.map((inp: any, i: number) => (
+            <div key={i} className="space-y-1">
+              <label className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground">
+                {inp.name} ({inp.type})
+              </label>
+              <Input
+                value={args[i]}
+                onChange={(e) => {
+                  const next = [...args];
+                  next[i] = e.target.value;
+                  setArgs(next);
+                }}
+                placeholder={inp.type}
+                className="h-8 text-xs font-mono rounded-sm border-border"
+              />
+            </div>
+          ))}
+          {isPayable && (
+            <div className="space-y-1">
+              <label className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground">
+                Value (EMBR)
+              </label>
+              <Input
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder="0"
+                className="h-8 text-xs font-mono rounded-sm border-border"
+              />
+            </div>
+          )}
+          {!activeWallet ? (
+            <div className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground border border-border rounded-sm px-3 py-2">
+              Connect a wallet to send transactions
+            </div>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleSend}
+              disabled={loading}
+              className="h-7 text-[10px] font-sans font-bold uppercase tracking-widest rounded-sm border-accent/40 text-accent hover:bg-accent/10"
+            >
+              {loading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+              Send
+            </Button>
+          )}
+          {txHash && (
+            <div className="flex items-center gap-2 text-primary text-xs font-mono border border-primary/30 rounded-sm p-2 bg-primary/5">
+              <CheckCircle2 className="w-3 h-3 shrink-0" />
+              <span>TX: </span>
+              <Link href={`/transactions/${txHash}`} className="hover:underline break-all">
+                {txHash}
+              </Link>
+            </div>
+          )}
+          {error && (
+            <div className="flex items-center gap-2 text-destructive text-xs font-mono border border-destructive/30 rounded-sm p-2 bg-destructive/5">
+              <AlertTriangle className="w-3 h-3 shrink-0" /> {error}
+            </div>
+          )}
+        </div>
+      </AccordionContent>
+    </AccordionItem>
   );
 }
 
@@ -172,6 +474,29 @@ function TransactionResult({ hash, onAddressClick }: { hash: string; onAddressCl
 
 // ── address result ────────────────────────────────────────────────────────────
 
+interface ContractInfo {
+  address: string;
+  isContract: boolean;
+  bytecodeSize?: number;
+  abi?: Record<string, any>[] | null;
+  name?: string | null;
+  symbol?: string | null;
+  decimals?: number | null;
+  totalSupply?: string | null;
+  isToken: boolean;
+  creator?: string | null;
+  creatorTx?: string | null;
+  createdAt?: string | null;
+}
+
+interface TokenHolding {
+  contractAddress: string;
+  name: string;
+  symbol: string;
+  decimals: number;
+  balance: string;
+}
+
 function AddressResult({ address, onAddressClick }: { address: string; onAddressClick: (a: string) => void }) {
   const { activeWallet } = useActiveWallet();
   const isMe = activeWallet?.address.toLowerCase() === address.toLowerCase();
@@ -185,6 +510,69 @@ function AddressResult({ address, onAddressClick }: { address: string; onAddress
     { query: { refetchInterval: 8000 } },
   );
 
+  // Contract info
+  const [contractInfo, setContractInfo] = useState<ContractInfo | null>(null);
+  const [contractLoading, setContractLoading] = useState(false);
+
+  // Token holdings
+  const [tokenHoldings, setTokenHoldings] = useState<TokenHolding[]>([]);
+  const [holdingsLoading, setHoldingsLoading] = useState(false);
+
+  // Register ABI
+  const [abiInput, setAbiInput] = useState("");
+  const [abiRegisterLoading, setAbiRegisterLoading] = useState(false);
+  const [abiRegisterError, setAbiRegisterError] = useState<string | null>(null);
+  const [abiRegisterSuccess, setAbiRegisterSuccess] = useState(false);
+
+  useEffect(() => {
+    if (!address) return;
+    setContractInfo(null);
+    setContractLoading(true);
+    fetch(`/api/contracts/${address}`)
+      .then((r) => r.json())
+      .then((data) => setContractInfo(data))
+      .catch(() => {})
+      .finally(() => setContractLoading(false));
+  }, [address]);
+
+  useEffect(() => {
+    if (!address) return;
+    setTokenHoldings([]);
+    setHoldingsLoading(true);
+    fetch(`/api/wallets/${address}/tokens`)
+      .then((r) => r.json())
+      .then((data) => setTokenHoldings(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => setHoldingsLoading(false));
+  }, [address]);
+
+  const handleRegisterAbi = async () => {
+    setAbiRegisterLoading(true);
+    setAbiRegisterError(null);
+    setAbiRegisterSuccess(false);
+    try {
+      const parsed = JSON.parse(abiInput);
+      const res = await fetch(`/api/contracts/${address}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ abi: parsed }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAbiRegisterSuccess(true);
+        // Refresh contract info
+        const updated = await fetch(`/api/contracts/${address}`).then((r) => r.json());
+        setContractInfo(updated);
+      } else {
+        setAbiRegisterError(data.error || "Failed to register ABI");
+      }
+    } catch (e: any) {
+      setAbiRegisterError(e.message || "Invalid JSON");
+    } finally {
+      setAbiRegisterLoading(false);
+    }
+  };
+
   if (walletLoading) return <LoadingCard label="Loading account…" />;
   if (walletError || !wallet) return <NotFoundCard label="Address not found" sub="No account exists at this address yet." />;
 
@@ -195,6 +583,11 @@ function AddressResult({ address, onAddressClick }: { address: string; onAddress
         <div className="flex items-center gap-2 text-sm text-muted-foreground font-sans font-bold uppercase tracking-widest">
           <WalletIcon className="w-4 h-4 text-primary" /> Account
           {isMe && <Pill className="bg-primary/10 text-primary border-primary/40">Your wallet</Pill>}
+          {contractInfo?.isContract && (
+            <Pill className="bg-accent/10 text-accent border-accent/40">
+              <FileCode2 className="w-3 h-3" /> Smart Contract
+            </Pill>
+          )}
         </div>
         <CopyButton text={address} />
       </div>
@@ -215,8 +608,161 @@ function AddressResult({ address, onAddressClick }: { address: string; onAddress
           <Row label="Total Transactions">
             <span className="font-bold">{txs?.length ?? "—"}</span>
           </Row>
+          {contractInfo?.isContract && contractInfo.bytecodeSize != null && (
+            <Row label="Bytecode Size">
+              <span className="font-bold">{contractInfo.bytecodeSize.toLocaleString()}</span>
+              <span className="ml-2 text-muted-foreground font-sans text-[10px] uppercase tracking-widest">bytes</span>
+            </Row>
+          )}
         </dl>
       </Card>
+
+      {/* Token info card */}
+      {contractInfo?.isContract && contractInfo.isToken && (
+        <div>
+          <div className="flex items-center gap-2 mb-3 text-xs font-sans font-bold uppercase tracking-widest text-muted-foreground">
+            <Coins className="w-3.5 h-3.5 text-accent" /> Token Info
+          </div>
+          <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+            <dl>
+              {contractInfo.name && (
+                <Row label="Token Name">
+                  <span className="font-bold text-foreground">{contractInfo.name}</span>
+                </Row>
+              )}
+              {contractInfo.symbol && (
+                <Row label="Symbol">
+                  <Pill className="bg-accent/10 text-accent border-accent/40">{contractInfo.symbol}</Pill>
+                </Row>
+              )}
+              {contractInfo.decimals != null && (
+                <Row label="Decimals">
+                  <span className="font-bold">{contractInfo.decimals}</span>
+                </Row>
+              )}
+              {contractInfo.totalSupply != null && contractInfo.decimals != null && (
+                <Row label="Total Supply">
+                  <span className="font-bold text-foreground">
+                    {formatTokenAmount(contractInfo.totalSupply, contractInfo.decimals, contractInfo.symbol ?? undefined)}
+                  </span>
+                </Row>
+              )}
+              {contractInfo.creator && (
+                <Row label="Creator">
+                  <button
+                    onClick={() => onAddressClick(contractInfo.creator!)}
+                    className="text-primary hover:underline break-all text-left"
+                  >
+                    {contractInfo.creator}
+                  </button>
+                </Row>
+              )}
+              {contractInfo.createdAt && (
+                <Row label="Created At">
+                  <span>{new Date(contractInfo.createdAt).toLocaleString()}</span>
+                </Row>
+              )}
+            </dl>
+          </Card>
+        </div>
+      )}
+
+      {/* Token Holdings */}
+      {(holdingsLoading || tokenHoldings.length > 0) && (
+        <div>
+          <div className="flex items-center gap-2 mb-3 text-xs font-sans font-bold uppercase tracking-widest text-muted-foreground">
+            <Coins className="w-3.5 h-3.5" /> Token Holdings
+            {holdingsLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+          </div>
+          {tokenHoldings.length > 0 && (
+            <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left font-mono text-xs">
+                  <thead className="bg-secondary/50 border-b border-border font-sans uppercase tracking-widest text-muted-foreground">
+                    <tr>
+                      <th className="p-3 font-bold">Token Name</th>
+                      <th className="p-3 font-bold">Symbol</th>
+                      <th className="p-3 font-bold text-right">Balance</th>
+                      <th className="p-3 font-bold">Contract Address</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {tokenHoldings.map((t) => (
+                      <tr key={t.contractAddress} className="hover:bg-secondary/20 transition-colors">
+                        <td className="p-3 font-bold text-foreground">{t.name}</td>
+                        <td className="p-3">
+                          <Pill className="bg-accent/10 text-accent border-accent/40">{t.symbol}</Pill>
+                        </td>
+                        <td className="p-3 text-right font-bold text-foreground">
+                          {formatTokenAmount(t.balance, t.decimals, t.symbol)}
+                        </td>
+                        <td className="p-3">
+                          <button
+                            onClick={() => onAddressClick(t.contractAddress)}
+                            className="text-primary hover:underline break-all text-left"
+                          >
+                            {formatHash(t.contractAddress, 6)}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* ABI Panel */}
+      {contractInfo?.isContract && (
+        <div>
+          <div className="flex items-center gap-2 mb-3 text-xs font-sans font-bold uppercase tracking-widest text-muted-foreground">
+            <Code2 className="w-3.5 h-3.5" /> Contract Interaction
+          </div>
+          {contractInfo.abi && contractInfo.abi.length > 0 ? (
+            <AbiPanel address={address} abi={contractInfo.abi} />
+          ) : (
+            <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-border bg-secondary/30 text-xs font-sans font-bold uppercase tracking-widest text-muted-foreground">
+                Register ABI
+              </div>
+              <div className="p-4 space-y-3">
+                <p className="text-xs text-muted-foreground font-sans">
+                  No ABI registered for this contract. Paste the JSON ABI below to enable contract interaction.
+                </p>
+                <Textarea
+                  value={abiInput}
+                  onChange={(e) => setAbiInput(e.target.value)}
+                  placeholder='[{"type":"function","name":"balanceOf",...}]'
+                  className="font-mono text-xs min-h-[100px] rounded-sm border-border bg-black/30"
+                />
+                <div className="flex items-center gap-3">
+                  <Button
+                    size="sm"
+                    onClick={handleRegisterAbi}
+                    disabled={abiRegisterLoading || !abiInput.trim()}
+                    className="h-7 text-[10px] font-sans font-bold uppercase tracking-widest rounded-sm"
+                  >
+                    {abiRegisterLoading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                    Register ABI
+                  </Button>
+                  {abiRegisterSuccess && (
+                    <span className="text-primary text-xs font-sans font-bold uppercase tracking-widest flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Registered!
+                    </span>
+                  )}
+                  {abiRegisterError && (
+                    <span className="text-destructive text-xs font-mono flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" /> {abiRegisterError}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
 
       {/* TX history */}
       <div>
@@ -583,8 +1129,12 @@ export default function Ledger() {
         </div>
       </div>
 
-      {/* Empty state */}
-      {!trimmed && (
+      {/* Results */}
+      {hasResult ? (
+        isAddress
+          ? <AddressResult address={committed} onAddressClick={handleAddressClick} />
+          : <TransactionResult hash={committed} onAddressClick={handleAddressClick} />
+      ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="border border-border rounded-sm p-6 bg-card/30">
@@ -612,17 +1162,13 @@ export default function Ledger() {
                 Paste a 42-character hex address to see live balance, account age, and full transaction history — with IN / OUT flow labelling.
               </p>
               <div className="mt-3 font-mono text-xs text-muted-foreground/60 break-all">
-                0x1A2b…9F0e
+                0x1a2b…c3d4
               </div>
             </div>
           </div>
           <TopHolders onAddressClick={handleAddressClick} />
         </>
       )}
-
-      {/* Result area */}
-      {committed && isHash && <TransactionResult hash={committed} onAddressClick={handleAddressClick} />}
-      {committed && isAddress && <AddressResult address={committed} onAddressClick={handleAddressClick} />}
     </Shell>
   );
 }

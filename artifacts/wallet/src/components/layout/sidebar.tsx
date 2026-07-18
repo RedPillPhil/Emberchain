@@ -18,6 +18,7 @@ import {
   CreditCard,
   MessageSquare,
   Zap,
+  Coins,
 } from "lucide-react";
 
 const navItems = [
@@ -31,6 +32,7 @@ const navItems = [
   { href: "/privacy", label: "PRIVACY", icon: Shield },
   { href: "/mining", label: "FORGE (MINE)", icon: Flame },
   { href: "/ledger", label: "EXPLORER", icon: Search },
+  { href: "/tokens", label: "TOKENS", icon: Coins },
   { href: "/blocks", label: "BLOCKS", icon: Blocks },
   { href: "/transactions", label: "TRANSACTIONS", icon: ArrowLeftRight },
   { href: "/contracts", label: "CONTRACTS", icon: Terminal },
