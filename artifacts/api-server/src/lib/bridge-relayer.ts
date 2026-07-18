@@ -27,11 +27,13 @@
 
 import { ethers } from "ethers";
 import { logger } from "./logger";
+import { chain } from "./chain";
 import {
   getPendingBridgeEvents,
   createBridgeEvent,
   markBridgeRelayed,
   recordBridgeAttempt,
+  type BridgeEvent,
 } from "./bridge-db";
 
 // ---------------------------------------------------------------------------
@@ -146,6 +148,59 @@ async function runEmbrToBaseLoop(
 // Loop B: Base → EMBR
 // ---------------------------------------------------------------------------
 
+/**
+ * Submit a releaseEMBR call directly to the internal EMBR chain mempool and
+ * wait for it to be mined.  Uses chain.submitTransaction() so we never go
+ * through the external HTTP RPC endpoint, which hangs under mining load.
+ */
+async function relayBaseToEmbr(
+  event: BridgeEvent,
+  emberBridgeAddress: string,
+  emberBridgeIface: ethers.Interface,
+  relayerKey: string,
+): Promise<void> {
+  const { nonce, recipient, amount } = event;
+  logger.info({ nonce, recipient, amount }, "[relayer] Base→EMBR: releasing EMBR");
+
+  try {
+    const txHash = await withRetry(`releaseEMBR(nonce=${nonce})`, async () => {
+      const calldata = emberBridgeIface.encodeFunctionData("releaseEMBR", [
+        recipient,
+        BigInt(amount),
+        BigInt(nonce),
+      ]);
+      const stored = await chain.submitTransaction({
+        fromPrivateKey: relayerKey,
+        to: emberBridgeAddress,
+        value: "0",
+        data: calldata,
+        gasLimit: "300000",
+      });
+
+      // Poll chain.getTransaction until mined (status != "pending")
+      const deadline = Date.now() + 90_000;
+      while (Date.now() < deadline) {
+        const tx = await chain.getTransaction(stored.hash);
+        if (tx && tx.status !== "pending") {
+          if (tx.status === "failed") {
+            throw new Error(`releaseEMBR reverted on EMBR chain: ${tx.error ?? "unknown"}`);
+          }
+          return tx.hash;
+        }
+        await sleep(2_000);
+      }
+      throw new Error(`releaseEMBR tx ${stored.hash} not mined within 90 s`);
+    }, 5);
+
+    await markBridgeRelayed(nonce, txHash);
+    logger.info({ nonce, txHash }, "[relayer] Base→EMBR: released ✓");
+  } catch (err) {
+    const msg = (err as Error).message;
+    logger.error({ nonce, err: msg }, "[relayer] Base→EMBR: releaseEMBR failed");
+    await recordBridgeAttempt(nonce, msg, 5);
+  }
+}
+
 async function runBaseToEmbrLoop(
   baseProvider: ethers.JsonRpcProvider,
   embrWallet: ethers.Wallet,
@@ -153,8 +208,8 @@ async function runBaseToEmbrLoop(
   emberBridgeAddress: string,
   stopSignal: { stopped: boolean },
 ): Promise<void> {
-  const baseContract = new ethers.Contract(emberchainBridgeAddress, EMBERCHAIN_BRIDGE_ABI, baseProvider);
-  const embrContract = new ethers.Contract(emberBridgeAddress, EMBER_BRIDGE_ABI, embrWallet);
+  const emberBridgeIface = new ethers.Interface(EMBER_BRIDGE_ABI);
+  const relayerKey = embrWallet.privateKey;
 
   // Start from ~1 day ago on first boot, then track latest block
   let fromBlock = (await baseProvider.getBlockNumber()) - 7200; // ~1 day at 12 s/block
@@ -171,13 +226,11 @@ async function runBaseToEmbrLoop(
     try {
       const toBlock = await baseProvider.getBlockNumber();
 
+      // ── Phase 1: scan Base logs, insert any new BridgeOut events into DB ──
       if (toBlock > fromBlock) {
         const iface = new ethers.Interface(EMBERCHAIN_BRIDGE_ABI);
-        // Build an explicit filter (address + topic) so the RPC only returns
-        // BridgeOut events from our contract — not all logs on Base.
         const bridgeOutTopic = iface.getEvent("BridgeOut")?.topicHash ?? null;
 
-        // Fetch logs in chunks so we never exceed the public RPC block-range limit.
         const rawLogs: ethers.Log[] = [];
         if (bridgeOutTopic) {
           for (let chunk = fromBlock; chunk <= toBlock; chunk += LOG_CHUNK_SIZE) {
@@ -191,20 +244,18 @@ async function runBaseToEmbrLoop(
             rawLogs.push(...chunkLogs);
           }
         }
+
         for (const log of rawLogs) {
           const parsed = iface.parseLog(log);
           if (!parsed) continue;
 
-          const nonce      = (parsed.args["nonce"] as bigint).toString();
-          const sender     = parsed.args["sender"] as string;
-          const recipient  = parsed.args["embrRecipient"] as string; // EMBR chain address string
-          const amount     = (parsed.args["amount"] as bigint).toString();
+          const nonce     = (parsed.args["nonce"] as bigint).toString();
+          const sender    = parsed.args["sender"] as string;
+          const recipient = parsed.args["embrRecipient"] as string;
+          const amount    = (parsed.args["amount"] as bigint).toString();
 
-          // Record the Base BridgeOut event.  Throws on DB error so the poll
-          // loop retries rather than silently skipping a real event.
-          let createResult: Awaited<ReturnType<typeof createBridgeEvent>>;
           try {
-            createResult = await createBridgeEvent({
+            await createBridgeEvent({
               nonce,
               direction: "base_to_embr",
               sender: sender.toLowerCase(),
@@ -215,45 +266,21 @@ async function runBaseToEmbrLoop(
           } catch (dbErr) {
             logger.error(
               { nonce, err: (dbErr as Error).message },
-              "[relayer] Base→EMBR: DB write failed for BridgeOut event — will retry on next poll",
+              "[relayer] Base→EMBR: DB write failed — will retry on next poll",
             );
-            // Re-throw so the outer catch sets a short sleep and retries
-            throw dbErr;
-          }
-
-          if (createResult.kind === "conflict") {
-            // Nonce already recorded (genuine duplicate seen on a prior poll)
-            continue;
-          }
-
-          logger.info({ nonce, sender, recipient, amount }, "[relayer] Base→EMBR: releasing EMBR");
-
-          try {
-            const txHash = await withRetry(`releaseEMBR(nonce=${nonce})`, async () => {
-              const tx = await (embrContract["releaseEMBR"] as (
-                recipient: string,
-                amount: bigint,
-                nonce: bigint,
-              ) => Promise<ethers.TransactionResponse>)(
-                recipient,
-                BigInt(amount),
-                BigInt(nonce),
-              );
-              const receipt = await tx.wait(1);
-              if (!receipt || receipt.status === 0) throw new Error("Transaction reverted");
-              return receipt.hash;
-            }, 5);
-
-            await markBridgeRelayed(nonce, txHash);
-            logger.info({ nonce, txHash }, "[relayer] Base→EMBR: released ✓");
-          } catch (err) {
-            const msg = (err as Error).message;
-            logger.error({ nonce, err: msg }, "[relayer] Base→EMBR: releaseEMBR failed");
-            await recordBridgeAttempt(nonce, msg, 5);
+            throw dbErr; // bubble up to outer catch → short sleep → retry
           }
         }
 
         fromBlock = toBlock + 1;
+      }
+
+      // ── Phase 2: relay every pending base_to_embr event from DB ──────────
+      // This handles both freshly-inserted events AND events that were recorded
+      // by a previous server run but never successfully relayed.
+      const pending = await getPendingBridgeEvents("base_to_embr");
+      for (const event of pending) {
+        await relayBaseToEmbr(event, emberBridgeAddress, emberBridgeIface, relayerKey);
       }
     } catch (err) {
       logger.warn({ err: (err as Error).message }, "[relayer] Base→EMBR: poll error — will retry");
