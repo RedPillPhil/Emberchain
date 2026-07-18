@@ -64,7 +64,9 @@ async function baseEthCall(to: string, data: string): Promise<string> {
 const EMBER_BRIDGE_ADDRESS = import.meta.env.VITE_EMBER_BRIDGE_ADDRESS ?? ""; // on EMBR chain
 const EMBERCHAIN_BRIDGE_ADDRESS = import.meta.env.VITE_EMBERCHAIN_BRIDGE_ADDRESS ?? ""; // on Base
 const EMBERSWAP_ADDRESS = import.meta.env.VITE_EMBERSWAP_ADDRESS ?? ""; // on Base
-const WEMBR_ADDRESS = import.meta.env.VITE_WEMBR_ADDRESS ?? ""; // on Base
+const WEMBR_ADDRESS =
+  import.meta.env.VITE_WEMBR_ADDRESS ??
+  "0x9362587019Ea0e4ef90fbd981c615d4441D9D2c4"; // on Base
 
 const UNISWAP_V2_ROUTER = "0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24";
 const WETH_ADDRESS = "0x4200000000000000000000000000000000000006";
