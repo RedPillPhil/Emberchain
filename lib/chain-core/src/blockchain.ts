@@ -1051,6 +1051,14 @@ export class Blockchain {
     for (const tx of included) {
       const stored = this.transactions.get(tx.hash);
       if (!stored) continue;
+      // Clear the EIP-2200 original-storage cache before each transaction so
+      // EVM gas accounting sees pre-THIS-transaction storage values as "original",
+      // not pre-block values carried over from earlier transactions in the same
+      // block.  Without this, a tx that sets a slot to 0 (earning a clear-refund)
+      // followed by another tx that writes that same slot to non-zero would
+      // incorrectly call subRefund() with gasRefund=0 → REFUND_EXHAUSTED.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (this.stateManager as any).originalStorageCache?.clear?.();
       try {
         const result = await this.evm.runCall({
           caller: new Address(hexToBytes(tx.from)),
