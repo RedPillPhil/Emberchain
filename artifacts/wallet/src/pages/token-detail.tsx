@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/accordion";
 import {
   Coins,
+  Code2,
   Loader2,
   Copy,
   CheckCircle2,
@@ -315,14 +316,17 @@ function AbiPanel({ address, abi }: { address: string; abi: Record<string, any>[
 
 // ── token detail data ─────────────────────────────────────────────────────────
 
-interface TokenDetail {
+interface ContractDetail {
   address: string;
-  name: string;
-  symbol: string;
-  decimals: number;
-  totalSupply: string;
-  holderCount: number;
-  holders: { address: string; balance: string }[];
+  isToken: boolean;
+  isContract?: boolean;
+  bytecodeSize?: number;
+  name?: string | null;
+  symbol?: string | null;
+  decimals?: number | null;
+  totalSupply?: string | null;
+  holderCount?: number;
+  holders?: { address: string; balance: string }[];
   abi?: Record<string, any>[] | null;
   creator?: string | null;
   creatorTx?: string | null;
@@ -334,7 +338,7 @@ export default function TokenDetailPage() {
   const address = params.address;
   const [, setLocation] = useLocation();
 
-  const [token, setToken] = useState<TokenDetail | null>(null);
+  const [token, setToken] = useState<ContractDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -342,21 +346,30 @@ export default function TokenDetailPage() {
     if (!address) return;
     setLoading(true);
     setError(null);
+    // Try ERC-20 token endpoint first; fall back to generic contract endpoint
     fetch(`/api/tokens/${address}`)
-      .then((r) => {
-        if (!r.ok) throw new Error("Token not found");
-        return r.json();
-      })
-      .then((data) => setToken(data))
-      .catch((e) => setError(e.message || "Failed to load token"))
-      .finally(() => setLoading(false));
+      .then((r) => r.ok ? r.json() : Promise.reject("not-token"))
+      .then((data) => { setToken({ ...data, isToken: true }); setLoading(false); })
+      .catch(() => {
+        fetch(`/api/contracts/${address}`)
+          .then((r) => {
+            if (!r.ok) throw new Error("Contract not found");
+            return r.json();
+          })
+          .then((data) => {
+            if (!data.isContract) throw new Error("No contract at this address");
+            setToken(data);
+          })
+          .catch((e) => setError(e.message || "Failed to load contract"))
+          .finally(() => setLoading(false));
+      });
   }, [address]);
 
   if (loading) {
     return (
       <Shell requireWallet={false}>
         <div className="flex items-center gap-3 p-6 border border-border rounded-sm bg-card/50 text-muted-foreground font-sans font-bold uppercase tracking-widest text-sm animate-pulse">
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading token…
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading…
         </div>
       </Shell>
     );
@@ -366,25 +379,36 @@ export default function TokenDetailPage() {
     return (
       <Shell requireWallet={false}>
         <Card className="p-8 border-border bg-card/50 rounded-sm text-center">
-          <div className="text-foreground font-sans font-bold uppercase tracking-widest mb-2">Token Not Found</div>
-          <div className="text-muted-foreground font-sans text-sm">{error || "No token at this address."}</div>
+          <div className="text-foreground font-sans font-bold uppercase tracking-widest mb-2">Not Found</div>
+          <div className="text-muted-foreground font-sans text-sm">{error || "No contract at this address."}</div>
         </Card>
       </Shell>
     );
   }
 
+  const isToken = token.isToken;
   const totalSupplyBig = token.totalSupply ? BigInt(token.totalSupply) : 0n;
+  const holders = token.holders ?? [];
 
   return (
     <Shell requireWallet={false}>
       {/* Header */}
       <div className="border-b border-border pb-6 mb-8">
         <h1 className="text-4xl font-display font-bold uppercase tracking-tighter text-foreground mb-2 flex items-center gap-3 flex-wrap">
-          <Coins className="w-8 h-8 text-primary" />
-          {token.name || "Unknown Token"}
-          <Pill className="bg-accent/10 text-accent border-accent/40 text-lg px-3 py-1">
-            {token.symbol}
-          </Pill>
+          {isToken
+            ? <Coins className="w-8 h-8 text-primary" />
+            : <Code2 className="w-8 h-8 text-primary" />}
+          {token.name || (isToken ? "Unknown Token" : "Contract")}
+          {isToken && token.symbol && (
+            <Pill className="bg-accent/10 text-accent border-accent/40 text-lg px-3 py-1">
+              {token.symbol}
+            </Pill>
+          )}
+          {!isToken && (
+            <Pill className="bg-secondary text-muted-foreground border-border text-lg px-3 py-1">
+              Contract
+            </Pill>
+          )}
         </h1>
         <p className="text-muted-foreground font-mono text-sm break-all">
           {token.address}
@@ -399,6 +423,11 @@ export default function TokenDetailPage() {
             <span className="text-primary font-bold break-all">{token.address}</span>
             <CopyButton text={token.address} />
           </Row>
+          {token.bytecodeSize != null && (
+            <Row label="Bytecode Size">
+              <span className="font-bold">{token.bytecodeSize} bytes</span>
+            </Row>
+          )}
           {token.creator && (
             <Row label="Creator">
               <button
@@ -407,7 +436,7 @@ export default function TokenDetailPage() {
               >
                 {token.creator}
               </button>
-              <CopyButton text={token.creator} />
+              <CopyButton text={token.creator!} />
             </Row>
           )}
           {token.creatorTx && (
@@ -423,26 +452,34 @@ export default function TokenDetailPage() {
               <span>{new Date(token.createdAt).toLocaleString()}</span>
             </Row>
           )}
-          <Row label="Decimals">
-            <span className="font-bold">{token.decimals}</span>
-          </Row>
-          <Row label="Total Supply">
-            <span className="font-bold text-foreground">
-              {formatTokenAmount(token.totalSupply, token.decimals, token.symbol)}
-            </span>
-          </Row>
-          <Row label="Holders">
-            <span className="font-bold">{token.holderCount}</span>
-          </Row>
+          {isToken && token.decimals != null && (
+            <Row label="Decimals">
+              <span className="font-bold">{token.decimals}</span>
+            </Row>
+          )}
+          {isToken && token.totalSupply != null && token.decimals != null && (
+            <Row label="Total Supply">
+              <span className="font-bold text-foreground">
+                {formatTokenAmount(token.totalSupply, token.decimals, token.symbol ?? undefined)}
+              </span>
+            </Row>
+          )}
+          {isToken && token.holderCount != null && (
+            <Row label="Holders">
+              <span className="font-bold">{token.holderCount}</span>
+            </Row>
+          )}
         </dl>
       </Card>
 
       {/* Tabs */}
-      <Tabs defaultValue="holders" className="w-full">
+      <Tabs defaultValue={isToken ? "holders" : "read"} className="w-full">
         <TabsList className="w-full rounded-sm border border-border bg-secondary/30 mb-4">
-          <TabsTrigger value="holders" className="flex-1 rounded-sm text-[10px] font-sans font-bold uppercase tracking-widest">
-            Holders
-          </TabsTrigger>
+          {isToken && (
+            <TabsTrigger value="holders" className="flex-1 rounded-sm text-[10px] font-sans font-bold uppercase tracking-widest">
+              Holders
+            </TabsTrigger>
+          )}
           <TabsTrigger value="read" className="flex-1 rounded-sm text-[10px] font-sans font-bold uppercase tracking-widest">
             Read Contract
           </TabsTrigger>
@@ -451,52 +488,54 @@ export default function TokenDetailPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Holders tab */}
-        <TabsContent value="holders">
-          <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
-            {token.holders.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground font-sans font-bold uppercase tracking-widest text-sm">
-                No holders yet.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-secondary/50 border-b border-border font-sans uppercase tracking-widest text-muted-foreground text-[10px]">
-                    <tr>
-                      <th className="p-3 font-bold w-10">#</th>
-                      <th className="p-3 font-bold">Address</th>
-                      <th className="p-3 font-bold text-right">Balance</th>
-                      <th className="p-3 font-bold text-right">% of Supply</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/40">
-                    {token.holders.map((h, i) => {
-                      const pct = totalSupplyBig > 0n
-                        ? Number((BigInt(h.balance) * 10000n) / totalSupplyBig) / 100
-                        : 0;
-                      return (
-                        <tr key={h.address} className="hover:bg-secondary/20 transition-colors">
-                          <td className="p-3 font-mono text-muted-foreground text-xs">{i + 1}</td>
-                          <td className="p-3 font-mono text-sm">
-                            <Link href={`/ledger`} onClick={() => setLocation(`/ledger`)} className="text-primary hover:underline break-all">
-                              {h.address}
-                            </Link>
-                          </td>
-                          <td className="p-3 text-right font-mono text-sm font-bold text-foreground">
-                            {formatTokenAmount(h.balance, token.decimals, token.symbol)}
-                          </td>
-                          <td className="p-3 text-right font-mono text-sm text-muted-foreground">
-                            {pct.toFixed(4)}%
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-        </TabsContent>
+        {/* Holders tab — ERC-20 only */}
+        {isToken && (
+          <TabsContent value="holders">
+            <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+              {holders.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground font-sans font-bold uppercase tracking-widest text-sm">
+                  No holders yet.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-secondary/50 border-b border-border font-sans uppercase tracking-widest text-muted-foreground text-[10px]">
+                      <tr>
+                        <th className="p-3 font-bold w-10">#</th>
+                        <th className="p-3 font-bold">Address</th>
+                        <th className="p-3 font-bold text-right">Balance</th>
+                        <th className="p-3 font-bold text-right">% of Supply</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/40">
+                      {holders.map((h, i) => {
+                        const pct = totalSupplyBig > 0n
+                          ? Number((BigInt(h.balance) * 10000n) / totalSupplyBig) / 100
+                          : 0;
+                        return (
+                          <tr key={h.address} className="hover:bg-secondary/20 transition-colors">
+                            <td className="p-3 font-mono text-muted-foreground text-xs">{i + 1}</td>
+                            <td className="p-3 font-mono text-sm">
+                              <button onClick={() => setLocation(`/ledger`)} className="text-primary hover:underline break-all text-left">
+                                {h.address}
+                              </button>
+                            </td>
+                            <td className="p-3 text-right font-mono text-sm font-bold text-foreground">
+                              {formatTokenAmount(h.balance, token.decimals!, token.symbol ?? undefined)}
+                            </td>
+                            <td className="p-3 text-right font-mono text-sm text-muted-foreground">
+                              {pct.toFixed(4)}%
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          </TabsContent>
+        )}
 
         {/* Read Contract tab */}
         <TabsContent value="read">
