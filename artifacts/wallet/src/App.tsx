@@ -19,6 +19,7 @@ import Exchange from '@/pages/exchange';
 import Contacts from '@/pages/contacts';
 import OnRamp from '@/pages/onramp';
 import Community from '@/pages/community';
+import EmberSwap from '@/pages/emberswap';
 
 const queryClient = new QueryClient();
 
@@ -40,6 +41,7 @@ function Router() {
       <Route path="/contacts" component={Contacts} />
       <Route path="/onramp" component={OnRamp} />
       <Route path="/community" component={Community} />
+      <Route path="/emberswap" component={EmberSwap} />
       <Route component={NotFound} />
     </Switch>
   );

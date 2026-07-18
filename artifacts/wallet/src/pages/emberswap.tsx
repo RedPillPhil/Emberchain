@@ -1,0 +1,1251 @@
+/**
+ * EmberSwap — Bridge & DEX interface
+ *
+ * Bridge tab:  EMBR ↔ wEMBR across EMBR chain ↔ Base
+ * Swap tab:    ETH ↔ wEMBR via EmberSwap router on Base
+ */
+
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Shell } from "@/components/layout/shell";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
+import { useActiveWallet } from "@/hooks/use-active-wallet";
+import { useBaseWallet } from "@/hooks/use-base-wallet";
+import { useCreateTransaction } from "@workspace/api-client-react";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Zap,
+  ArrowDownUp,
+  ArrowRight,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  ExternalLink,
+  AlertTriangle,
+  RefreshCcw,
+  Flame,
+  Info,
+  TrendingUp,
+  ChevronDown,
+  Wallet,
+  ChevronRight,
+} from "lucide-react";
+import { keccak256 } from "ethereum-cryptography/keccak.js";
+
+// ── Contract addresses (set via VITE_ env vars after deployment) ─────────────
+
+const EMBER_BRIDGE_ADDRESS = import.meta.env.VITE_EMBER_BRIDGE_ADDRESS ?? ""; // on EMBR chain
+const EMBERCHAIN_BRIDGE_ADDRESS = import.meta.env.VITE_EMBERCHAIN_BRIDGE_ADDRESS ?? ""; // on Base
+const EMBERSWAP_ADDRESS = import.meta.env.VITE_EMBERSWAP_ADDRESS ?? ""; // on Base
+const WEMBR_ADDRESS = import.meta.env.VITE_WEMBR_ADDRESS ?? ""; // on Base
+
+const CONTRACTS_DEPLOYED = !!(
+  EMBER_BRIDGE_ADDRESS &&
+  EMBERCHAIN_BRIDGE_ADDRESS &&
+  EMBERSWAP_ADDRESS &&
+  WEMBR_ADDRESS
+);
+
+// ── ABI encoding helpers ─────────────────────────────────────────────────────
+
+function fnSelector(sig: string): string {
+  const hash = keccak256(new TextEncoder().encode(sig));
+  return Array.from(hash.slice(0, 4))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+const SEL = {
+  lockEMBR: fnSelector("lockEMBR(address,uint256)"),
+  bridgeOut: fnSelector("bridgeOut(uint256,string,uint256)"),
+  getAmountsOut: fnSelector("getAmountsOut(uint256,address[])"),
+  getSwapStats: fnSelector("getSwapStats(address)"),
+  swapExactETHForTokens: fnSelector(
+    "swapExactETHForTokens(uint256,address[],address,uint256)",
+  ),
+  swapExactTokensForETH: fnSelector(
+    "swapExactTokensForETH(uint256,uint256,address[],address,uint256)",
+  ),
+  approve: fnSelector("approve(address,uint256)"),
+  allowance: fnSelector("allowance(address,address)"),
+};
+
+function padAddr(addr: string): string {
+  return "000000000000000000000000" + addr.replace("0x", "").toLowerCase();
+}
+function padUint(n: bigint | number | string): string {
+  return BigInt(n).toString(16).padStart(64, "0");
+}
+
+/** Encode lockEMBR(address baseRecipient, uint256 nonce) */
+function encLockEMBR(recipient: string, nonce: bigint): string {
+  return "0x" + SEL.lockEMBR + padAddr(recipient) + padUint(nonce);
+}
+
+/** Encode getSwapStats(address user) */
+function encGetSwapStats(user: string): string {
+  return "0x" + SEL.getSwapStats + padAddr(user);
+}
+
+/** Encode approve(address spender, uint256 amount) */
+function encApprove(spender: string, amount: bigint): string {
+  return "0x" + SEL.approve + padAddr(spender) + padUint(amount);
+}
+
+/** Encode allowance(address owner, address spender) */
+function encAllowance(owner: string, spender: string): string {
+  return "0x" + SEL.allowance + padAddr(owner) + padAddr(spender);
+}
+
+/**
+ * Encode getAmountsOut(uint256 amountIn, address[] path)
+ * path = [tokenIn, tokenOut]
+ */
+function encGetAmountsOut(amountIn: bigint, path: [string, string]): string {
+  // Layout: amountIn (32), offset_path (32), path.length (32), path[0] (32), path[1] (32)
+  const offset = padUint(64); // 2 * 32
+  return (
+    "0x" +
+    SEL.getAmountsOut +
+    padUint(amountIn) +
+    offset +
+    padUint(2) +
+    padAddr(path[0]) +
+    padAddr(path[1])
+  );
+}
+
+/**
+ * Encode swapExactETHForTokens(uint256 amountOutMin, address[] path, address to, uint256 deadline)
+ * payable — sends ETH via value
+ */
+function encSwapETHForTokens(
+  amountOutMin: bigint,
+  path: [string, string],
+  to: string,
+  deadline: bigint,
+): string {
+  // Layout: amountOutMin, offset_path (32*3=96 from start of data), to, deadline, path.length, path[0], path[1]
+  const pathOffset = padUint(128); // 4 * 32 (amountOutMin + offset + to + deadline)
+  return (
+    "0x" +
+    SEL.swapExactETHForTokens +
+    padUint(amountOutMin) +
+    pathOffset +
+    padAddr(to) +
+    padUint(deadline) +
+    padUint(2) +
+    padAddr(path[0]) +
+    padAddr(path[1])
+  );
+}
+
+/**
+ * Encode swapExactTokensForETH(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline)
+ * Returns native ETH to `to`. Path should end with WETH address.
+ */
+function encSwapTokensForETH(
+  amountIn: bigint,
+  amountOutMin: bigint,
+  path: [string, string],
+  to: string,
+  deadline: bigint,
+): string {
+  // Layout: amountIn, amountOutMin, offset_path (5*32=160), to, deadline, path.length, path[0], path[1]
+  const pathOffset = padUint(160);
+  return (
+    "0x" +
+    SEL.swapExactTokensForETH +
+    padUint(amountIn) +
+    padUint(amountOutMin) +
+    pathOffset +
+    padAddr(to) +
+    padUint(deadline) +
+    padUint(2) +
+    padAddr(path[0]) +
+    padAddr(path[1])
+  );
+}
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+type BridgeStatus = "pending" | "relayed" | "confirmed" | "failed";
+
+interface BridgeEvent {
+  nonce: string;
+  direction: "embr_to_base" | "base_to_embr";
+  status: BridgeStatus;
+  sender: string;
+  recipient: string;
+  amount: string;
+  txHashSrc?: string;
+  txHashDst?: string;
+  createdAt: string;
+}
+
+type SwapDirection = "eth_to_wembr" | "wembr_to_eth";
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+async function apiFetch(path: string, opts?: RequestInit) {
+  const r = await fetch(API + path, opts);
+  const json = await r.json();
+  if (!r.ok) throw new Error(json.error ?? `HTTP ${r.status}`);
+  return json;
+}
+
+function formatWei(wei: string | bigint, decimals = 4): string {
+  try {
+    const n = BigInt(typeof wei === "string" ? wei : wei.toString());
+    const eth = Number(n) / 1e18;
+    return eth.toLocaleString("en-US", { maximumFractionDigits: decimals });
+  } catch {
+    return "0";
+  }
+}
+
+function shortAddr(addr: string): string {
+  return addr.slice(0, 8) + "…" + addr.slice(-5);
+}
+
+function parseEther(val: string): bigint {
+  const f = parseFloat(val);
+  if (isNaN(f) || f <= 0) return 0n;
+  return BigInt(Math.round(f * 1e18));
+}
+
+// Decode uint256[2] from eth_call result
+function decodeUint256Pair(hex: string): [bigint, bigint] {
+  const clean = hex.replace("0x", "");
+  const a = BigInt("0x" + (clean.slice(0, 64) || "0"));
+  const b = BigInt("0x" + (clean.slice(64, 128) || "0"));
+  return [a, b];
+}
+
+// Decode uint256[] from eth_call result (amountsOut)
+function decodeUint256Array(hex: string): bigint[] {
+  const clean = hex.replace("0x", "");
+  // offset (32), length (32), then values
+  if (clean.length < 128) return [];
+  const len = parseInt(clean.slice(64, 128), 16);
+  const result: bigint[] = [];
+  for (let i = 0; i < len; i++) {
+    const chunk = clean.slice(128 + i * 64, 128 + (i + 1) * 64);
+    result.push(BigInt("0x" + (chunk || "0")));
+  }
+  return result;
+}
+
+function decodeUint256(hex: string): bigint {
+  const clean = hex.replace("0x", "");
+  if (!clean) return 0n;
+  return BigInt("0x" + clean);
+}
+
+// ── Status badge ─────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: BridgeStatus }) {
+  if (status === "confirmed")
+    return (
+      <Badge className="bg-green-500/20 text-green-400 border-green-500/40 uppercase text-xs gap-1">
+        <CheckCircle2 className="w-3 h-3" /> Confirmed
+      </Badge>
+    );
+  if (status === "relayed")
+    return (
+      <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/40 uppercase text-xs gap-1">
+        <ArrowRight className="w-3 h-3" /> Relayed
+      </Badge>
+    );
+  if (status === "failed")
+    return (
+      <Badge className="bg-red-500/20 text-red-400 border-red-500/40 uppercase text-xs gap-1">
+        <XCircle className="w-3 h-3" /> Failed
+      </Badge>
+    );
+  return (
+    <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/40 uppercase text-xs gap-1">
+      <Clock className="w-3 h-3" /> Pending
+    </Badge>
+  );
+}
+
+// ── Not-deployed notice ───────────────────────────────────────────────────────
+
+function DeployNotice() {
+  return (
+    <div className="flex flex-col items-center justify-center gap-4 py-12 text-center">
+      <div className="w-16 h-16 rounded-sm bg-primary/10 border border-primary/30 flex items-center justify-center">
+        <Flame className="w-8 h-8 text-primary animate-pulse" />
+      </div>
+      <div>
+        <div className="font-display text-xl uppercase tracking-tight text-foreground mb-1">
+          Contracts Not Yet Deployed
+        </div>
+        <div className="text-sm text-muted-foreground max-w-sm">
+          EmberSwap contracts are being audited. Set{" "}
+          <code className="text-primary">VITE_EMBER_BRIDGE_ADDRESS</code>,{" "}
+          <code className="text-primary">VITE_EMBERSWAP_ADDRESS</code>, and{" "}
+          <code className="text-primary">VITE_WEMBR_ADDRESS</code> to activate.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Network guard ─────────────────────────────────────────────────────────────
+
+function NetworkGuard({
+  isOnBase,
+  switchToBase,
+  wallet,
+  connect,
+  isConnecting,
+  hasMetaMask,
+}: {
+  isOnBase: boolean;
+  switchToBase: () => void;
+  wallet: { address: string } | null;
+  connect: () => void;
+  isConnecting: boolean;
+  hasMetaMask: boolean;
+}) {
+  if (!hasMetaMask)
+    return (
+      <div className="flex items-center gap-3 bg-secondary/60 border border-border p-4 rounded-sm">
+        <AlertTriangle className="w-5 h-5 text-yellow-400 shrink-0" />
+        <div className="text-sm">
+          <span className="font-bold text-foreground">MetaMask required</span>{" "}
+          <span className="text-muted-foreground">
+            Install MetaMask (or another EVM browser wallet) to use EmberSwap on Base.
+          </span>
+        </div>
+      </div>
+    );
+
+  if (!wallet)
+    return (
+      <div className="flex items-center justify-between gap-3 bg-secondary/60 border border-border p-4 rounded-sm">
+        <div className="flex items-center gap-3">
+          <Wallet className="w-5 h-5 text-primary shrink-0" />
+          <span className="text-sm text-muted-foreground">
+            Connect your Base wallet to use the swap and Base→EMBR bridge.
+          </span>
+        </div>
+        <Button
+          size="sm"
+          onClick={connect}
+          disabled={isConnecting}
+          className="shrink-0"
+        >
+          {isConnecting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            "Connect"
+          )}
+        </Button>
+      </div>
+    );
+
+  if (!isOnBase)
+    return (
+      <div className="flex items-center justify-between gap-3 bg-yellow-500/10 border border-yellow-500/30 p-4 rounded-sm">
+        <div className="flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-yellow-400 shrink-0" />
+          <span className="text-sm text-yellow-300">
+            Switch to Base to use this feature.
+          </span>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={switchToBase}
+          className="border-yellow-500/40 text-yellow-300 hover:bg-yellow-500/10 shrink-0"
+        >
+          Switch Network
+        </Button>
+      </div>
+    );
+
+  return null;
+}
+
+// ── Bridge history table ──────────────────────────────────────────────────────
+
+function BridgeHistory({ address }: { address: string }) {
+  const [events, setEvents] = useState<BridgeEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!address) return;
+    setLoading(true);
+    try {
+      const data = await apiFetch(`/api/bridge/history/${address}`);
+      setEvents(data as BridgeEvent[]);
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  }, [address]);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 10_000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  if (events.length === 0 && !loading) return null;
+
+  return (
+    <div className="mt-8">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+          Bridge History
+        </div>
+        <button
+          onClick={load}
+          className="text-muted-foreground hover:text-foreground"
+          title="Refresh"
+        >
+          <RefreshCcw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
+        </button>
+      </div>
+      <div className="space-y-2">
+        {events.slice(0, 8).map((e) => (
+          <div
+            key={e.nonce}
+            className="flex items-center justify-between bg-secondary/40 border border-border rounded-sm px-4 py-2.5 text-sm gap-4"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-muted-foreground text-xs font-mono">
+                #{e.nonce}
+              </span>
+              <span className="text-foreground font-bold text-xs uppercase">
+                {e.direction === "embr_to_base" ? "EMBR → Base" : "Base → EMBR"}
+              </span>
+              <span className="text-primary font-mono text-xs">
+                {formatWei(e.amount)} EMBR
+              </span>
+            </div>
+            <StatusBadge status={e.status} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Airdrop eligibility panel ─────────────────────────────────────────────────
+
+function AirdropPanel({
+  address,
+  ethCall,
+}: {
+  address: string;
+  ethCall: (to: string, data: string) => Promise<string>;
+}) {
+  const [stats, setStats] = useState<{ volume: bigint; count: bigint } | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!EMBERSWAP_ADDRESS || !address) return;
+    ethCall(EMBERSWAP_ADDRESS, encGetSwapStats(address))
+      .then((hex) => {
+        const [volume, count] = decodeUint256Pair(hex);
+        setStats({ volume, count });
+      })
+      .catch(() => {});
+  }, [address, ethCall]);
+
+  return (
+    <div className="mt-6 bg-primary/5 border border-primary/20 rounded-sm p-4">
+      <div className="flex items-start gap-3">
+        <div className="w-8 h-8 rounded-sm bg-primary/20 border border-primary/40 flex items-center justify-center shrink-0">
+          <Zap className="w-4 h-4 text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="font-bold uppercase text-sm tracking-wider text-primary">
+              EMBR Airdrop Eligibility
+            </span>
+            <Badge className="bg-primary/20 text-primary border-primary/30 text-[9px] font-bold">
+              FUTURE
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed mb-3">
+            Your activity on EmberSwap is tracked on-chain. High swap volume and
+            count may qualify you for a future EMBR airdrop.
+          </p>
+          {stats && (
+            <div className="flex gap-6">
+              <div>
+                <div className="text-xs text-muted-foreground uppercase tracking-widest font-bold mb-0.5">
+                  Volume
+                </div>
+                <div className="font-mono text-foreground text-sm">
+                  {formatWei(stats.volume)} wEMBR
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground uppercase tracking-widest font-bold mb-0.5">
+                  Swaps
+                </div>
+                <div className="font-mono text-foreground text-sm">
+                  {stats.count.toString()}
+                </div>
+              </div>
+            </div>
+          )}
+          {!stats && EMBERSWAP_ADDRESS && (
+            <div className="text-xs text-muted-foreground italic">
+              Connect wallet and make swaps to appear here.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Bridge Tab ────────────────────────────────────────────────────────────────
+
+function BridgeTab() {
+  const { activeWallet } = useActiveWallet();
+  const baseWallet = useBaseWallet();
+  const createTx = useCreateTransaction();
+  const { toast } = useToast();
+
+  type Direction = "embr_to_base" | "base_to_embr";
+  const [direction, setDirection] = useState<Direction>("embr_to_base");
+  const [amount, setAmount] = useState("");
+  const [baseRecipient, setBaseRecipient] = useState("");
+  const [embrRecipient, setEmbrRecipient] = useState("");
+  const [bridgeStatus, setBridgeStatus] = useState<{
+    nonce: string;
+    status: BridgeStatus;
+    txHash?: string;
+  } | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Auto-fill MetaMask address as baseRecipient
+  useEffect(() => {
+    if (baseWallet.wallet?.address && !baseRecipient) {
+      setBaseRecipient(baseWallet.wallet.address);
+    }
+  }, [baseWallet.wallet?.address, baseRecipient]);
+
+  // Auto-fill EMBR address as embrRecipient for Base→EMBR direction
+  useEffect(() => {
+    if (activeWallet?.address && direction === "base_to_embr" && !embrRecipient) {
+      setEmbrRecipient(activeWallet.address);
+    }
+  }, [activeWallet?.address, direction, embrRecipient]);
+
+  // Poll bridge status after submission
+  const pollStatus = useCallback((nonce: string) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const data = await apiFetch(`/api/bridge/status/${nonce}`);
+        const status = data.status as BridgeStatus;
+        setBridgeStatus((prev) => prev ? { ...prev, status } : null);
+        if (status === "confirmed" || status === "failed") {
+          clearInterval(pollRef.current!);
+        }
+      } catch {
+        // ignore transient errors
+      }
+    }, 5000);
+  }, []);
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  // EMBR → Base: create tx on EMBR chain, then register with bridge
+  const submitEmbrToBase = async () => {
+    if (!activeWallet) return;
+    const amountWei = parseEther(amount);
+    if (amountWei === 0n) {
+      toast({ title: "Enter a valid amount", variant: "destructive" });
+      return;
+    }
+    if (!/^0x[0-9a-fA-F]{40}$/.test(baseRecipient)) {
+      toast({ title: "Enter a valid Base recipient address", variant: "destructive" });
+      return;
+    }
+    if (!EMBER_BRIDGE_ADDRESS) {
+      toast({ title: "Bridge contract not yet deployed", variant: "destructive" });
+      return;
+    }
+
+    const nonce = BigInt(Date.now()); // unique bridge nonce
+    const calldata = encLockEMBR(baseRecipient, nonce);
+
+    setIsSubmitting(true);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        createTx.mutate(
+          {
+            data: {
+              fromPrivateKey: activeWallet.privateKey,
+              to: EMBER_BRIDGE_ADDRESS,
+              value: amountWei.toString(),
+              data: calldata,
+              gasLimit: "300000",
+            },
+          },
+          {
+            onSuccess: async (tx) => {
+              try {
+                // Retry registration until the tx is confirmed on-chain (server returns
+                // 202 while tx is still pending) or we give up after 30 s.
+                const body = JSON.stringify({
+                  txHash: tx.hash,
+                  baseRecipient,
+                  amount: amountWei.toString(),
+                  nonce: nonce.toString(),
+                });
+                let registered = false;
+                const deadline = Date.now() + 30_000;
+                while (!registered && Date.now() < deadline) {
+                  const r = await fetch(API + "/api/bridge/register", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body,
+                  });
+                  if (r.status === 202) {
+                    // tx still pending on-chain — wait 3 s then retry
+                    await new Promise((w) => setTimeout(w, 3000));
+                    continue;
+                  }
+                  if (r.status === 201 || r.status === 200) {
+                    registered = true;
+                    break;
+                  }
+                  // Any other non-2xx status is a hard error
+                  const json = await r.json().catch(() => ({}));
+                  throw new Error((json as { error?: string }).error ?? `HTTP ${r.status}`);
+                }
+                if (!registered) {
+                  throw new Error("Timed out waiting for EMBR chain confirmation — registration will retry automatically.");
+                }
+                setBridgeStatus({ nonce: nonce.toString(), status: "pending", txHash: tx.hash });
+                pollStatus(nonce.toString());
+                setAmount("");
+                toast({ title: "Bridge request submitted", description: "wEMBR will arrive on Base in ~2 min" });
+                resolve();
+              } catch (err) {
+                // Tx sent but registration failed — surface the error clearly
+                setBridgeStatus({ nonce: nonce.toString(), status: "pending", txHash: tx.hash });
+                toast({
+                  title: "Registration failed",
+                  description: (err as Error).message,
+                  variant: "destructive",
+                });
+                resolve();
+              }
+            },
+            onError: (err: unknown) => {
+              reject(err);
+            },
+          },
+        );
+      });
+    } catch (err) {
+      toast({
+        title: "Bridge failed",
+        description: (err as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Base → EMBR: MetaMask calls bridgeOut on EmberchainBridge
+  const submitBaseToEmbr = async () => {
+    if (!baseWallet.wallet) {
+      await baseWallet.connect();
+      return;
+    }
+    if (!baseWallet.isOnBase) {
+      await baseWallet.switchToBase();
+      return;
+    }
+    const amountWei = parseEther(amount);
+    if (amountWei === 0n) {
+      toast({ title: "Enter a valid amount", variant: "destructive" });
+      return;
+    }
+    if (!embrRecipient || embrRecipient.length < 10) {
+      toast({ title: "Enter a valid EMBR recipient address", variant: "destructive" });
+      return;
+    }
+    if (!EMBERCHAIN_BRIDGE_ADDRESS || !WEMBR_ADDRESS) {
+      toast({ title: "Bridge contract not yet deployed", variant: "destructive" });
+      return;
+    }
+
+    setIsSubmitting(true);
+    const nonce = BigInt(Date.now());
+
+    try {
+      // 1. Check & approve wEMBR spending
+      const allowanceHex = await baseWallet.ethCall(
+        WEMBR_ADDRESS,
+        encAllowance(baseWallet.wallet.address, EMBERCHAIN_BRIDGE_ADDRESS),
+      );
+      const currentAllowance = decodeUint256(allowanceHex);
+      if (currentAllowance < amountWei) {
+        toast({ title: "Approving wEMBR…", description: "Confirm in MetaMask" });
+        const approveTxHash = await baseWallet.sendTx({
+          to: WEMBR_ADDRESS,
+          data: encApprove(EMBERCHAIN_BRIDGE_ADDRESS, amountWei * 2n),
+        });
+        toast({ title: "Approval tx submitted", description: approveTxHash.slice(0, 20) + "…" });
+        await new Promise((r) => setTimeout(r, 8000));
+      }
+
+      // 2. Call bridgeOut — ABI encode bridgeOut(uint256, string, uint256)
+      // Layout: amount (32) | offset=96 (32) | nonce (32) | str_len (32) | str_data (padded)
+      const strBytes = new TextEncoder().encode(embrRecipient);
+      const strLen = strBytes.length;
+      const strPadded = Math.ceil(strLen / 32) * 32 || 32;
+      let strHex = "";
+      for (const b of strBytes) strHex += b.toString(16).padStart(2, "0");
+      strHex = strHex.padEnd(strPadded * 2, "0");
+
+      const data =
+        "0x" +
+        SEL.bridgeOut +
+        padUint(amountWei) +   // amount — static head
+        padUint(96) +          // offset to string tail (3 × 32 bytes from head start)
+        padUint(nonce) +       // nonce — static head
+        padUint(strLen) +      // string length (tail)
+        strHex;                // string bytes padded to 32-byte boundary (tail)
+
+      const txHash = await baseWallet.sendTx({
+        to: EMBERCHAIN_BRIDGE_ADDRESS,
+        data,
+      });
+
+      setBridgeStatus({ nonce: nonce.toString(), status: "pending", txHash });
+      setAmount("");
+      toast({
+        title: "Bridge submitted",
+        description: "EMBR will be released on-chain in ~2 min",
+      });
+    } catch (err) {
+      toast({
+        title: "Bridge failed",
+        description: (err as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const historyAddress =
+    direction === "embr_to_base"
+      ? activeWallet?.address ?? ""
+      : baseWallet.wallet?.address ?? "";
+
+  return (
+    <div className="max-w-lg mx-auto w-full space-y-6">
+      {/* Direction selector */}
+      <div className="grid grid-cols-2 gap-2">
+        {(["embr_to_base", "base_to_embr"] as Direction[]).map((d) => (
+          <button
+            key={d}
+            onClick={() => setDirection(d)}
+            className={cn(
+              "p-3 border rounded-sm text-sm font-bold uppercase tracking-wider transition-all text-left",
+              direction === d
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <Flame className={cn("w-4 h-4", direction === d && "text-primary fill-primary/50")} />
+              {d === "embr_to_base" ? "EMBR → Base" : "Base → EMBR"}
+            </div>
+            <div className="text-[10px] font-normal text-muted-foreground mt-1 normal-case">
+              {d === "embr_to_base"
+                ? "Lock EMBR, receive wEMBR on Base"
+                : "Burn wEMBR, release EMBR on-chain"}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Base wallet connection guard for Base→EMBR */}
+      {direction === "base_to_embr" && (
+        <NetworkGuard
+          isOnBase={baseWallet.isOnBase}
+          switchToBase={baseWallet.switchToBase}
+          wallet={baseWallet.wallet}
+          connect={baseWallet.connect}
+          isConnecting={baseWallet.isConnecting}
+          hasMetaMask={baseWallet.hasMetaMask}
+        />
+      )}
+
+      {/* Bridge form */}
+      <Card className="border-border bg-card/80 rounded-sm">
+        <CardContent className="p-6 space-y-4">
+          <div className="space-y-2">
+            <Label className="uppercase text-xs font-bold tracking-widest text-muted-foreground">
+              Amount (EMBR)
+            </Label>
+            <Input
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="font-mono text-lg bg-secondary/50 border-border"
+            />
+          </div>
+
+          {direction === "embr_to_base" ? (
+            <div className="space-y-2">
+              <Label className="uppercase text-xs font-bold tracking-widest text-muted-foreground">
+                Base recipient address
+              </Label>
+              <Input
+                placeholder="0x…"
+                value={baseRecipient}
+                onChange={(e) => setBaseRecipient(e.target.value)}
+                className="font-mono bg-secondary/50 border-border"
+              />
+              {baseWallet.wallet && (
+                <button
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setBaseRecipient(baseWallet.wallet!.address)}
+                >
+                  Use connected MetaMask address ({shortAddr(baseWallet.wallet.address)})
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label className="uppercase text-xs font-bold tracking-widest text-muted-foreground">
+                EMBR chain recipient address
+              </Label>
+              <Input
+                placeholder="0x…"
+                value={embrRecipient}
+                onChange={(e) => setEmbrRecipient(e.target.value)}
+                className="font-mono bg-secondary/50 border-border"
+              />
+              {activeWallet && (
+                <button
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setEmbrRecipient(activeWallet.address)}
+                >
+                  Use EMBR wallet ({shortAddr(activeWallet.address)})
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Info row */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-secondary/40 border border-border rounded-sm px-3 py-2">
+            <Info className="w-3.5 h-3.5 shrink-0" />
+            <span>
+              2-step confirmation — relayer picks up in{" "}
+              <strong className="text-foreground">~2 minutes</strong>. Track
+              status below.
+            </span>
+          </div>
+
+          <Button
+            className="w-full"
+            disabled={
+              isSubmitting ||
+              !amount ||
+              (direction === "embr_to_base" && !activeWallet) ||
+              (direction === "base_to_embr" && (!baseWallet.wallet || !baseWallet.isOnBase))
+            }
+            onClick={direction === "embr_to_base" ? submitEmbrToBase : submitBaseToEmbr}
+          >
+            {isSubmitting ? (
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            ) : (
+              <Zap className="w-4 h-4 mr-2" />
+            )}
+            {isSubmitting ? "Processing…" : direction === "embr_to_base" ? "Bridge to Base" : "Bridge to EMBR"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* In-flight status */}
+      {bridgeStatus && (
+        <div
+          className={cn(
+            "border rounded-sm p-4 flex items-center justify-between gap-4",
+            bridgeStatus.status === "confirmed"
+              ? "border-green-500/40 bg-green-500/5"
+              : bridgeStatus.status === "failed"
+              ? "border-red-500/40 bg-red-500/5"
+              : "border-primary/30 bg-primary/5",
+          )}
+        >
+          <div className="min-w-0">
+            <div className="text-xs text-muted-foreground uppercase font-bold tracking-widest mb-1">
+              Bridge Request #{bridgeStatus.nonce}
+            </div>
+            {bridgeStatus.txHash && (
+              <div className="text-xs font-mono text-muted-foreground truncate">
+                {bridgeStatus.txHash.slice(0, 20)}…
+              </div>
+            )}
+          </div>
+          <StatusBadge status={bridgeStatus.status} />
+        </div>
+      )}
+
+      {/* Bridge history */}
+      {historyAddress && <BridgeHistory address={historyAddress} />}
+    </div>
+  );
+}
+
+// ── Swap Tab ──────────────────────────────────────────────────────────────────
+
+const WETH_PLACEHOLDER = "0x4200000000000000000000000000000000000006"; // WETH on Base
+
+function SwapTab() {
+  const baseWallet = useBaseWallet();
+  const { toast } = useToast();
+
+  const [direction, setDirection] = useState<SwapDirection>("eth_to_wembr");
+  const [amountIn, setAmountIn] = useState("");
+  const [quote, setQuote] = useState<bigint | null>(null);
+  const [isQuoting, setIsQuoting] = useState(false);
+  const [isSwapping, setIsSwapping] = useState(false);
+  const quoteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const WETH = WETH_PLACEHOLDER;
+
+  // Fetch quote
+  const fetchQuote = useCallback(
+    async (rawAmount: string, dir: SwapDirection) => {
+      if (!CONTRACTS_DEPLOYED || !rawAmount || !baseWallet.wallet) {
+        setQuote(null);
+        return;
+      }
+      const amountWei = parseEther(rawAmount);
+      if (amountWei === 0n) { setQuote(null); return; }
+
+      const path: [string, string] =
+        dir === "eth_to_wembr" ? [WETH, WEMBR_ADDRESS] : [WEMBR_ADDRESS, WETH];
+
+      setIsQuoting(true);
+      try {
+        const hex = await baseWallet.ethCall(
+          EMBERSWAP_ADDRESS,
+          encGetAmountsOut(amountWei, path),
+        );
+        const amounts = decodeUint256Array(hex);
+        setQuote(amounts[1] ?? null);
+      } catch {
+        setQuote(null);
+      } finally {
+        setIsQuoting(false);
+      }
+    },
+    [baseWallet],
+  );
+
+  // Debounced quote fetch
+  useEffect(() => {
+    if (quoteTimeoutRef.current) clearTimeout(quoteTimeoutRef.current);
+    quoteTimeoutRef.current = setTimeout(() => {
+      fetchQuote(amountIn, direction);
+    }, 600);
+    return () => { if (quoteTimeoutRef.current) clearTimeout(quoteTimeoutRef.current); };
+  }, [amountIn, direction, fetchQuote]);
+
+  const handleSwap = async () => {
+    if (!baseWallet.wallet || !baseWallet.isOnBase) return;
+    const amountWei = parseEther(amountIn);
+    if (amountWei === 0n || !quote) {
+      toast({ title: "Enter a valid amount", variant: "destructive" });
+      return;
+    }
+    if (!CONTRACTS_DEPLOYED) {
+      toast({ title: "Contracts not yet deployed", variant: "destructive" });
+      return;
+    }
+
+    setIsSwapping(true);
+    const slippage = 50n; // 0.5%
+    const amountOutMin = (quote * (10000n - slippage)) / 10000n;
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
+    const to = baseWallet.wallet.address;
+
+    try {
+      if (direction === "eth_to_wembr") {
+        // No approval needed — sending ETH
+        const path: [string, string] = [WETH, WEMBR_ADDRESS];
+        const data = encSwapETHForTokens(amountOutMin, path, to, deadline);
+        const txHash = await baseWallet.sendTx({
+          to: EMBERSWAP_ADDRESS,
+          data,
+          value: "0x" + amountWei.toString(16),
+        });
+        toast({ title: "Swap submitted", description: txHash.slice(0, 20) + "…" });
+        setAmountIn("");
+        setQuote(null);
+      } else {
+        // wEMBR → ETH: check allowance first
+        const allowanceHex = await baseWallet.ethCall(
+          WEMBR_ADDRESS,
+          encAllowance(baseWallet.wallet.address, EMBERSWAP_ADDRESS),
+        );
+        const currentAllowance = decodeUint256(allowanceHex);
+        if (currentAllowance < amountWei) {
+          toast({ title: "Approving wEMBR…", description: "Confirm in MetaMask" });
+          await baseWallet.sendTx({
+            to: WEMBR_ADDRESS,
+            data: encApprove(EMBERSWAP_ADDRESS, amountWei * 2n),
+          });
+          await new Promise((r) => setTimeout(r, 8000));
+        }
+        // wEMBR → ETH: use swapExactTokensForETH which unwraps WETH to native ETH
+        const path: [string, string] = [WEMBR_ADDRESS, WETH];
+        const data = encSwapTokensForETH(amountWei, amountOutMin, path, to, deadline);
+        const txHash = await baseWallet.sendTx({
+          to: EMBERSWAP_ADDRESS,
+          data,
+        });
+        toast({ title: "Swap submitted", description: txHash.slice(0, 20) + "…" });
+        setAmountIn("");
+        setQuote(null);
+      }
+    } catch (err) {
+      toast({
+        title: "Swap failed",
+        description: (err as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSwapping(false);
+    }
+  };
+
+  const feeAmount =
+    quote !== null ? (quote * 25n) / 10000n : null; // 0.25% on output for display
+
+  return (
+    <div className="max-w-lg mx-auto w-full space-y-6">
+      {/* Network guard */}
+      <NetworkGuard
+        isOnBase={baseWallet.isOnBase}
+        switchToBase={baseWallet.switchToBase}
+        wallet={baseWallet.wallet}
+        connect={baseWallet.connect}
+        isConnecting={baseWallet.isConnecting}
+        hasMetaMask={baseWallet.hasMetaMask}
+      />
+
+      {!CONTRACTS_DEPLOYED && <DeployNotice />}
+
+      {CONTRACTS_DEPLOYED && (
+        <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+          {/* Ember glow accent */}
+          <div className="h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent" />
+          <CardContent className="p-6 space-y-4">
+            {/* Direction toggle */}
+            <div className="flex items-center justify-between">
+              <Label className="uppercase text-xs font-bold tracking-widest text-muted-foreground">
+                Swap
+              </Label>
+              <button
+                onClick={() =>
+                  setDirection((d) =>
+                    d === "eth_to_wembr" ? "wembr_to_eth" : "eth_to_wembr",
+                  )
+                }
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors border border-border hover:border-primary/40 rounded-sm px-2 py-1"
+              >
+                <ArrowDownUp className="w-3 h-3" />
+                {direction === "eth_to_wembr" ? "ETH → wEMBR" : "wEMBR → ETH"}
+              </button>
+            </div>
+
+            {/* Amount in */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground">
+                  {direction === "eth_to_wembr" ? "ETH" : "wEMBR"} amount
+                </Label>
+                {baseWallet.wallet && (
+                  <span className="text-xs text-muted-foreground">
+                    {direction === "eth_to_wembr" ? "ETH" : "wEMBR"} balance
+                  </span>
+                )}
+              </div>
+              <Input
+                placeholder="0.00"
+                value={amountIn}
+                onChange={(e) => setAmountIn(e.target.value)}
+                className="font-mono text-lg bg-secondary/50 border-border"
+              />
+            </div>
+
+            {/* Quote + fee */}
+            <div className="bg-secondary/40 border border-border rounded-sm px-4 py-3 space-y-2 min-h-[72px] flex flex-col justify-center">
+              {isQuoting ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Fetching quote…
+                </div>
+              ) : quote !== null ? (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">You receive</span>
+                    <span className="font-mono font-bold text-foreground">
+                      ≈ {formatWei(quote, 6)}{" "}
+                      {direction === "eth_to_wembr" ? "wEMBR" : "ETH"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">
+                      0.25% fee → EMBR liquidity
+                    </span>
+                    <span className="font-mono text-muted-foreground">
+                      {feeAmount !== null
+                        ? `${formatWei(feeAmount, 6)} ${direction === "eth_to_wembr" ? "wEMBR" : "ETH"}`
+                        : ""}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Slippage tolerance</span>
+                    <span className="font-mono text-muted-foreground">0.5%</span>
+                  </div>
+                </>
+              ) : (
+                <span className="text-sm text-muted-foreground italic">
+                  {!baseWallet.wallet
+                    ? "Connect wallet to see quotes"
+                    : "Enter an amount to see a quote"}
+                </span>
+              )}
+            </div>
+
+            <Button
+              className="w-full"
+              disabled={
+                isSwapping ||
+                !baseWallet.wallet ||
+                !baseWallet.isOnBase ||
+                !amountIn ||
+                quote === null
+              }
+              onClick={handleSwap}
+            >
+              {isSwapping ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <Zap className="w-4 h-4 mr-2" />
+              )}
+              {isSwapping
+                ? "Swapping…"
+                : direction === "eth_to_wembr"
+                ? "Swap ETH for wEMBR"
+                : "Swap wEMBR for ETH"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Airdrop panel — shown when connected regardless of deployment */}
+      {baseWallet.wallet && (
+        <AirdropPanel
+          address={baseWallet.wallet.address}
+          ethCall={baseWallet.ethCall}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+export default function EmberSwap() {
+  return (
+    <Shell>
+      <div className="mb-8">
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-3">
+          <div className="relative w-12 h-12">
+            <div className="absolute inset-0 bg-primary/20 rounded-sm border border-primary/50 box-glow" />
+            <div className="relative flex items-center justify-center w-full h-full">
+              <Zap className="w-6 h-6 text-primary fill-primary/60" />
+            </div>
+          </div>
+          <div>
+            <h1 className="text-4xl font-display font-bold uppercase tracking-tighter text-foreground text-glow leading-none">
+              EmberSwap
+            </h1>
+            <p className="text-muted-foreground font-sans text-xs uppercase tracking-widest font-bold mt-1">
+              Bridge &amp; Swap · Powered by Emberchain
+            </p>
+          </div>
+        </div>
+
+        {/* Stat chips */}
+        <div className="flex flex-wrap gap-2 mt-4">
+          <div className="flex items-center gap-1.5 bg-secondary/60 border border-border rounded-sm px-3 py-1.5 text-xs">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+            <span className="text-muted-foreground font-bold uppercase tracking-widest">0.25% fee → EMBR liquidity</span>
+          </div>
+          <div className="flex items-center gap-1.5 bg-secondary/60 border border-border rounded-sm px-3 py-1.5 text-xs">
+            <TrendingUp className="w-3 h-3 text-primary" />
+            <span className="text-muted-foreground font-bold uppercase tracking-widest">Swap activity tracked for airdrop</span>
+          </div>
+          <div className="flex items-center gap-1.5 bg-secondary/60 border border-border rounded-sm px-3 py-1.5 text-xs">
+            <Flame className="w-3 h-3 text-primary fill-primary/40" />
+            <span className="text-muted-foreground font-bold uppercase tracking-widest">Base Sepolia</span>
+          </div>
+        </div>
+      </div>
+
+      <Tabs defaultValue="bridge" className="w-full">
+        <TabsList className="grid grid-cols-2 max-w-sm bg-secondary rounded-sm p-1 mb-8">
+          <TabsTrigger
+            value="bridge"
+            className="rounded-sm uppercase font-bold text-xs tracking-widest data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+          >
+            <Flame className="w-3.5 h-3.5 mr-1.5" /> Bridge
+          </TabsTrigger>
+          <TabsTrigger
+            value="swap"
+            className="rounded-sm uppercase font-bold text-xs tracking-widest data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+          >
+            <Zap className="w-3.5 h-3.5 mr-1.5" /> Swap
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="bridge">
+          <BridgeTab />
+        </TabsContent>
+        <TabsContent value="swap">
+          <SwapTab />
+        </TabsContent>
+      </Tabs>
+    </Shell>
+  );
+}

@@ -285,6 +285,154 @@ router.post("/bridge/lock", async (req: Request, res: Response): Promise<void> =
 });
 
 // ---------------------------------------------------------------------------
+// POST /bridge/register — register bridge intent from a wallet-submitted tx
+//
+// Alternative to /bridge/lock for wallets that sign via the server's
+// createTransaction API (which uses the EMBR chain's internal signing).
+// The tx must already be confirmed on-chain; the server re-verifies calldata
+// before recording the bridge event.
+// ---------------------------------------------------------------------------
+
+router.post("/bridge/register", async (req: Request, res: Response): Promise<void> => {
+  const body = req.body as {
+    txHash?: string;
+    baseRecipient?: string;
+    amount?: string;
+    nonce?: string | number;
+  };
+  const { txHash, baseRecipient, amount, nonce } = body ?? {};
+
+  if (!txHash || !baseRecipient || !amount || nonce === undefined) {
+    res.status(400).json({ error: "txHash, baseRecipient, amount, and nonce are required" });
+    return;
+  }
+
+  if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+    res.status(400).json({ error: "txHash must be a valid 32-byte hex string (0x…64)" });
+    return;
+  }
+
+  if (!/^0x[0-9a-fA-F]{40}$/.test(baseRecipient)) {
+    res.status(400).json({ error: "baseRecipient must be a valid 0x Ethereum address" });
+    return;
+  }
+
+  let amountBig: bigint;
+  try {
+    amountBig = BigInt(amount);
+    if (amountBig <= 0n) throw new Error("non-positive");
+  } catch {
+    res.status(400).json({ error: "amount must be a positive integer (wei)" });
+    return;
+  }
+
+  const nonceStr = String(nonce);
+
+  // ── 1. Retrieve the tx from the EMBR chain ─────────────────────────────────
+  const tx = await chain.getTransaction(txHash);
+  if (!tx) {
+    res.status(404).json({ error: "Transaction not found on EMBR chain" });
+    return;
+  }
+
+  if (tx.status === "pending") {
+    res.status(202).json({
+      message: "Transaction still pending — retry in a few seconds",
+      txHash,
+    });
+    return;
+  }
+
+  if (tx.status === "failed") {
+    res.status(400).json({
+      error: `Transaction failed on-chain: ${tx.error ?? "execution reverted"}`,
+      txHash,
+    });
+    return;
+  }
+
+  // ── 2. Verify destination is the EmberBridge contract ─────────────────────
+  const emberBridgeAddress = (process.env["EMBER_BRIDGE_ADDRESS"] ?? "").toLowerCase();
+  if (emberBridgeAddress) {
+    if (!tx.to || tx.to.toLowerCase() !== emberBridgeAddress) {
+      res.status(400).json({
+        error: `Transaction target is not the EmberBridge contract (${emberBridgeAddress})`,
+      });
+      return;
+    }
+  }
+
+  // ── 3. Decode calldata and verify params ───────────────────────────────────
+  let decodedRecipient: string;
+  let decodedNonce: bigint;
+  try {
+    const decoded = LOCK_EMBR_IFACE.parseTransaction({
+      data: tx.data,
+      value: BigInt(tx.value),
+    });
+    if (!decoded || decoded.name !== "lockEMBR") {
+      throw new Error("Not a lockEMBR call");
+    }
+    decodedRecipient = (decoded.args[0] as string).toLowerCase();
+    decodedNonce = decoded.args[1] as bigint;
+  } catch (err) {
+    res.status(400).json({
+      error: `Calldata could not be decoded as lockEMBR: ${(err as Error).message}`,
+    });
+    return;
+  }
+
+  if (decodedRecipient !== baseRecipient.toLowerCase()) {
+    res.status(400).json({ error: "baseRecipient in calldata does not match" });
+    return;
+  }
+  if (decodedNonce.toString() !== nonceStr) {
+    res.status(400).json({ error: "nonce in calldata does not match" });
+    return;
+  }
+  if (BigInt(tx.value) !== amountBig) {
+    res.status(400).json({ error: "Transaction value does not match claimed amount" });
+    return;
+  }
+
+  // ── 4. Record the attested bridge event ────────────────────────────────────
+  let createResult: Awaited<ReturnType<typeof createBridgeEvent>>;
+  try {
+    createResult = await createBridgeEvent({
+      nonce: nonceStr,
+      direction: "embr_to_base",
+      sender: (tx.from ?? "").toLowerCase(),
+      recipient: baseRecipient.toLowerCase(),
+      amount: amountBig.toString(),
+      txHashSrc: txHash,
+    });
+  } catch (err) {
+    logger.error({ err: (err as Error).message }, "[bridge] DB write failed in /register");
+    res.status(503).json({ error: "Could not persist bridge event — please retry" });
+    return;
+  }
+
+  if (createResult.kind === "conflict") {
+    const existing = await getBridgeEventByNonce(nonceStr);
+    res.status(200).json({
+      message: "Bridge request already registered",
+      nonce: nonceStr,
+      status: existing?.status ?? "unknown",
+    });
+    return;
+  }
+
+  logger.info({ nonce: nonceStr, txHash }, "[bridge] EMBR→Base registered via wallet tx");
+
+  res.status(201).json({
+    message: "Bridge request registered — wEMBR will appear on Base shortly",
+    nonce: nonceStr,
+    txHashSrc: txHash,
+    status: "pending",
+  });
+});
+
+// ---------------------------------------------------------------------------
 // GET /bridge/status/:nonce
 // ---------------------------------------------------------------------------
 
