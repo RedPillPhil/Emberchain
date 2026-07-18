@@ -160,6 +160,11 @@ async function runBaseToEmbrLoop(
   let fromBlock = (await baseProvider.getBlockNumber()) - 7200; // ~1 day at 12 s/block
   if (fromBlock < 0) fromBlock = 0;
 
+  // Public RPC endpoints (e.g. mainnet.base.org) reject eth_getLogs requests
+  // spanning large block ranges or returning large responses.  500 blocks is a
+  // conservative chunk size that stays well under both limits.
+  const LOG_CHUNK_SIZE = 500;
+
   logger.info({ fromBlock }, "[relayer] Base→EMBR watcher started");
 
   while (!stopSignal.stopped) {
@@ -167,12 +172,25 @@ async function runBaseToEmbrLoop(
       const toBlock = await baseProvider.getBlockNumber();
 
       if (toBlock > fromBlock) {
-        const filter = baseContract.filters["BridgeOut"]?.();
-        const rawLogs = filter
-          ? await baseProvider.getLogs({ ...filter, fromBlock, toBlock })
-          : [];
-
         const iface = new ethers.Interface(EMBERCHAIN_BRIDGE_ABI);
+        // Build an explicit filter (address + topic) so the RPC only returns
+        // BridgeOut events from our contract — not all logs on Base.
+        const bridgeOutTopic = iface.getEvent("BridgeOut")?.topicHash ?? null;
+
+        // Fetch logs in chunks so we never exceed the public RPC block-range limit.
+        const rawLogs: ethers.Log[] = [];
+        if (bridgeOutTopic) {
+          for (let chunk = fromBlock; chunk <= toBlock; chunk += LOG_CHUNK_SIZE) {
+            const chunkEnd = Math.min(chunk + LOG_CHUNK_SIZE - 1, toBlock);
+            const chunkLogs = await baseProvider.getLogs({
+              address: emberchainBridgeAddress,
+              topics: [bridgeOutTopic],
+              fromBlock: chunk,
+              toBlock: chunkEnd,
+            });
+            rawLogs.push(...chunkLogs);
+          }
+        }
         for (const log of rawLogs) {
           const parsed = iface.parseLog(log);
           if (!parsed) continue;

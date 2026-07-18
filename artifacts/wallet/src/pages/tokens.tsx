@@ -215,14 +215,14 @@ export default function Tokens() {
                       <tr
                         key={c.address}
                         className="hover:bg-secondary/20 transition-colors cursor-pointer"
-                        onClick={() => setLocation(c.isToken ? `/tokens/${c.address}` : `/ledger/${c.address}`)}
+                        onClick={() => setLocation(`/tokens/${c.address}`)}
                       >
                         <td className="p-3 font-mono text-muted-foreground text-xs">{i + 1}</td>
                         <td className="p-3 font-mono text-xs">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setLocation(c.isToken ? `/tokens/${c.address}` : `/ledger/${c.address}`);
+                              setLocation(`/tokens/${c.address}`);
                             }}
                             className="text-primary hover:underline flex items-center gap-1"
                           >
