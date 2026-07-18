@@ -5,6 +5,8 @@
 
 ---
 
+## POST 1 — Original ANN (kept for reference)
+
 ```bbcode
 [center][size=22pt][b][color=#FF6B35]🔥 EMBERCHAIN (EMBR)[/color][/b][/size]
 [size=12pt][i]Mine from your browser. Share rewards proportionally. Shield your transactions. Trade peer-to-peer.[/i][/size][/center]
@@ -291,4 +293,149 @@ Replay protection enforced at chain level — each external tx hash fulfills exa
 [center]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/center]
 
 [center][b]Mining reports, hash rate benchmarks, share pool questions, and script modifications welcome below.[/b][/center]
+```
+
+---
+
+## POST 2 — Development Update (July 2026)
+
+```bbcode
+[center][size=18pt][b][color=#FF6B35]🔥 EMBERCHAIN — MAJOR UPDATE[/color][/b][/size]
+[size=11pt][i]Bridge to Base mainnet. WrappedEMBR on Base. EmberSwap live. Full contract explorer.[/i][/size][/center]
+
+[center]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/center]
+
+[b][size=14pt][color=#FF6B35]▌ WHAT'S NEW[/color][/size][/b]
+
+A lot has shipped since the first post. Here's a full accounting of everything that's gone live.
+
+[center]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/center]
+
+[b][size=13pt][color=#FF6B35]🌉 EMBR ↔ BASE BRIDGE — LIVE ON BASE MAINNET[/color][/size][/b]
+
+EMBR is now bridgeable to Base (Coinbase's L2). Three contracts are deployed and verified on Base mainnet:
+
+[table]
+[tr][td][b]Contract[/b][/td][td][b]Address (Base mainnet)[/b][/td][td][b]Purpose[/b][/td][/tr]
+[tr][td][b]WrappedEMBR (wEMBR)[/b][/td][td][font=Courier]0x9362587019Ea0e4ef90fbd981c615d4441D9D2c4[/font][/td][td]ERC-20 representation of EMBR on Base[/td][/tr]
+[tr][td][b]EmberchainBridge[/b][/td][td][font=Courier]0x1573EdF8F933601e6f37AC9B104cF62C7f85a0F4[/font][/td][td]Locks wEMBR on Base, triggers release on EMBR chain[/td][/tr]
+[tr][td][b]EmberSwap[/b][/td][td][font=Courier]0x4e8821099cC706d9C4e6E7C05923C2950E361459[/font][/td][td]Swap router wrapping Uniswap V2[/td][/tr]
+[/table]
+
+[b]How the bridge works:[/b]
+[list=1]
+[li]Call [b]lockEMBR(amount, nonce)[/b] on the EmberBridge contract on the EMBR chain[/li]
+[li]A relayer watches for this event and calls [b]bridgeIn(recipient, amount, nonce)[/b] on the EmberchainBridge on Base[/li]
+[li]WrappedEMBR (wEMBR) is minted 1:1 to the recipient on Base[/li]
+[li]To bridge back: call [b]bridgeOut(amount, nonce)[/b] on the EmberchainBridge — wEMBR is burned, the relayer calls [b]releaseEMBR[/b] on the EMBR chain[/li]
+[/list]
+
+The bridge is trustless on the accounting side — all mint/burn events are tied to unique nonces. A given nonce can never be processed twice. The relayer is the only trust assumption, and it signs nothing — it only relays observed events.
+
+[b]Bridge contract source is fully open. ABI and addresses above.[/b]
+
+[center]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/center]
+
+[b][size=13pt][color=#FF6B35]🔁 EMBERSWAP — PROTOCOL-OWNED LIQUIDITY ACCUMULATOR[/color][/size][/b]
+
+EmberSwap is a thin wrapper over Uniswap V2 on Base that charges a [b]0.25% protocol fee on every swap[/b]. That fee is automatically converted to ETH and added as liquidity to the wEMBR/ETH Uniswap V2 pool — deepening the pool with every trade.
+
+[b]Key mechanics:[/b]
+[list]
+[li]All three swap directions supported: token→token, ETH→token, token→ETH[/li]
+[li]0.25% fee taken from every swap — zero manual intervention needed[/li]
+[li]Fee accumulates until it hits the auto-liquidity threshold (0.01 ETH), then half buys wEMBR and the pair is added to Uniswap V2[/li]
+[li]LP tokens go to the EmberSwap contract itself — permanently protocol-owned. They are never withdrawn.[/li]
+[li]Every swap logs your address and volume — eligible for a future EMBR airdrop[/li]
+[/list]
+
+[b]The pool gets deeper every time someone swaps. No token team involvement after deployment.[/b]
+
+[center]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/center]
+
+[b][size=13pt][color=#FF6B35]🔍 ETHERSCAN-STYLE CONTRACT EXPLORER[/color][/size][/b]
+
+The chain explorer now has full Etherscan-style contract pages. Navigate to any contract address in the wallet and you get:
+
+[b]Contract detail page:[/b]
+[list]
+[li]Bytecode size, creator address, creator transaction, deployment timestamp[/li]
+[li][b]Verified / Unverified badge[/b] — green if ABI is registered, amber if not[/li]
+[li][b]Read Contract tab[/b] — call any view/pure function directly from the browser, no wallet needed[/li]
+[li][b]Write Contract tab[/b] — send transactions to any non-payable or payable function using your connected wallet[/li]
+[li][b]ABI verification form[/b] — paste your ABI JSON array to unlock Read/Write instantly. No compilation step, no source upload. Just the ABI.[/li]
+[/list]
+
+[b]Token detail page (for ERC-20 contracts):[/b]
+[list]
+[li]Auto-detected from ERC-20 interface — name, symbol, decimals, total supply[/li]
+[li]Live holder list with balances and percentage of supply[/li]
+[li]Read/Write contract tabs same as above[/li]
+[/list]
+
+This works for any contract deployed on the EMBR chain, not just system contracts.
+
+[center]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/center]
+
+[b][size=13pt][color=#FF6B35]📜 TRANSACTION CALLDATA DECODER[/color][/size][/b]
+
+Transaction detail pages now decode calldata automatically. Instead of showing raw hex, known function calls are displayed as named parameters:
+
+[table]
+[tr][td][b]Function[/b][/td][td][b]Selector[/b][/td][td][b]Decoded[/b][/td][/tr]
+[tr][td]releaseEMBR[/td][td]0x4b86ca03[/td][td]recipient (address), amount (uint256), nonce (uint256)[/td][/tr]
+[tr][td]lockEMBR[/td][td]0x7ea803f0[/td][td]nonce (uint256), recipient (address)[/td][/tr]
+[tr][td]bridgeIn[/td][td]0x80e125a6[/td][td]recipient (address), amount (uint256), nonce (uint256)[/td][/tr]
+[tr][td]ERC-20 transfer[/td][td]0xa9059cbb[/td][td]to (address), value (uint256)[/td][/tr]
+[tr][td]ERC-20 approve[/td][td]0x095ea7b3[/td][td]spender (address), value (uint256)[/td][/tr]
+[/table]
+
+Addresses in decoded output are clickable links to the wallet explorer. Unknown selectors fall back to raw hex. The decoder is pure client-side TypeScript — no backend call needed.
+
+[center]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/center]
+
+[b][size=13pt][color=#FF6B35]🔧 EVM STABILITY — EIP-2200 REFUND BUG FIXED[/color][/size][/b]
+
+A subtle EVM-level bug was fixed that caused certain multi-transaction blocks to fail with "refund exhausted". The root cause: EthereumJS's storage cache wasn't being cleared between transactions in the same block. When one transaction drained a storage slot to zero and a subsequent transaction in the same block wrote to it again, the EIP-2200 gas accounting saw the wrong "original" value and tried to apply a gas refund on a zero counter — crashing the block.
+
+The fix: explicitly clear the original storage cache at each transaction boundary, exactly as mainnet Ethereum clients do.
+
+This was most visible in bridge operations where [b]releaseEMBR[/b] (draining [i]totalLocked[/i]) and [b]lockEMBR[/b] (incrementing [i]totalLocked[/i]) could land in the same block.
+
+[center]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/center]
+
+[b][size=13pt][color=#FF6B35]📊 UPDATED ROADMAP[/color][/size][/b]
+
+[list]
+[✓] Keccak256 PoW with per-block difficulty adjustment
+[✓] Browser-based WebWorker miner with live hash rate
+[✓] Proportional share-based mining pool — zero pool fee
+[✓] EVM smart contract deployment and execution
+[✓] Monero-style shielded pool (stealth, Pedersen commitments, LSAG rings, key images)
+[✓] P2P escrow exchange (ETH, BTC, SOL, USDT multi-chain)
+[✓] Listing reservation system (15-min buyer lock)
+[✓] MetaMask / EVM wallet JSON-RPC endpoint
+[✓] Encrypted wallet backup and keystore restore
+[✓] [b]EMBR ↔ Base bridge — live on Base mainnet[/b]
+[✓] [b]WrappedEMBR (wEMBR) ERC-20 on Base mainnet[/b]
+[✓] [b]EmberSwap — protocol-owned auto-liquidity on Uniswap V2[/b]
+[✓] [b]Etherscan-style contract explorer with ABI verification[/b]
+[✓] [b]Token pages with live holder list and Read/Write contract tabs[/b]
+[✓] [b]Transaction calldata decoder[/b]
+[✓] [b]EIP-2200 multi-tx block stability fix[/b]
+[ ] Bulletproofs / ZK range proofs for trustless amount privacy
+[ ] Mining pool leaderboard
+[ ] Multi-node peer discovery
+[/list]
+
+[center]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/center]
+
+[b][size=14pt][color=#FF6B35]▌ NO PREMINE. NO ICO. NO DEV TAX.[/color][/size][/b]
+
+[center][i]Every EMBR in existence was mined. If you want some, run a miner.[/i][/center]
+[center][i]The bridge, the swap, the explorer — all open source, all on-chain.[/i][/center]
+
+[center]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/center]
+
+[center][b]Questions about the bridge, swap addresses, or the new explorer below.[/b][/center]
 ```
