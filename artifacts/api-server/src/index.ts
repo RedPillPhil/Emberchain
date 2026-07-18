@@ -5,6 +5,7 @@ import { ensureProofsTable } from "./lib/db";
 import { ensureCommunityTables } from "./lib/community-db";
 import { ensureBridgeTables } from "./lib/bridge-db";
 import { startBridgeRelayer, stopBridgeRelayer } from "./lib/bridge-relayer";
+import { startChainScanner, stopChainScanner } from "./lib/chain-scanner";
 import { WebSocketServer } from "ws";
 import { setupCommunityWS } from "./routes/community";
 
@@ -48,11 +49,13 @@ server.listen(port, (err?: Error) => {
   // Start bridge relayer loops in the background after the server is up.
   // Loops are no-ops when contract addresses / RPC URLs are not yet configured.
   startBridgeRelayer();
+  startChainScanner();
 });
 
 // Clean shutdown — stop relayer loops before the process exits.
 process.on("SIGTERM", () => {
   logger.info("SIGTERM received — shutting down bridge relayer");
   stopBridgeRelayer();
+  stopChainScanner();
   server.close(() => process.exit(0));
 });

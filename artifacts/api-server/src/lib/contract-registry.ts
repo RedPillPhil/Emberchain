@@ -134,3 +134,10 @@ export async function listTokens(): Promise<ContractRecord[]> {
   );
   return res.rows.map(rowToRecord);
 }
+
+export async function listContracts(): Promise<ContractRecord[]> {
+  const res = await pool.query(
+    "SELECT * FROM contract_registry ORDER BY created_at DESC",
+  );
+  return res.rows.map(rowToRecord);
+}

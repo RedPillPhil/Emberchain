@@ -6,50 +6,14 @@ import {
   getContractRecord,
   upsertContractRecord,
   listTokens,
+  listContracts,
 } from "../lib/contract-registry";
+import { detectERC20, callViewRaw as callView } from "../lib/chain-scanner";
 
 ensureContractTable().catch(() => {});
 
 const router: IRouter = Router();
 const coder = ethers.AbiCoder.defaultAbiCoder();
-
-// ---------------------------------------------------------------------------
-// ERC-20 detection helpers
-// ---------------------------------------------------------------------------
-
-/** Call a no-arg view function by its 4-byte selector and decode the result */
-async function callView(
-  to: string,
-  selector: string,
-  types: string[],
-): Promise<unknown[] | null> {
-  try {
-    const result = await chain.callContract({ to, data: selector });
-    if (!result.success || !result.returnData || result.returnData === "0x") return null;
-    return coder.decode(types, result.returnData) as unknown[];
-  } catch {
-    return null;
-  }
-}
-
-/** Try to read ERC-20 metadata from a contract address. Returns null if it doesn't look like a token. */
-async function detectERC20(address: string): Promise<{
-  name: string; symbol: string; decimals: number; totalSupply: string;
-} | null> {
-  const [nameR, symbolR, decimalsR, supplyR] = await Promise.all([
-    callView(address, "0x06fdde03", ["string"]),   // name()
-    callView(address, "0x95d89b41", ["string"]),   // symbol()
-    callView(address, "0x313ce567", ["uint8"]),    // decimals()
-    callView(address, "0x18160ddd", ["uint256"]),  // totalSupply()
-  ]);
-  if (!nameR || !symbolR) return null; // not a token (name+symbol required)
-  return {
-    name:        String(nameR[0]),
-    symbol:      String(symbolR[0]),
-    decimals:    decimalsR ? Number(decimalsR[0]) : 18,
-    totalSupply: supplyR  ? String(supplyR[0])    : "0",
-  };
-}
 
 /** Call balanceOf(address) on an ERC-20 */
 async function balanceOf(tokenAddress: string, walletAddress: string): Promise<string> {
@@ -87,6 +51,17 @@ function formatValue(v: unknown): unknown {
   if (v && typeof v === "object" && Symbol.iterator in v) return [...(v as Iterable<unknown>)].map(formatValue);
   return v;
 }
+
+// ---------------------------------------------------------------------------
+// GET /contracts/list — all deployed contracts (tokens + non-tokens)
+// Must be registered BEFORE /contracts/:address to avoid Express swallowing
+// the literal "list" segment as an address parameter.
+// ---------------------------------------------------------------------------
+
+router.get("/contracts/list", async (_req: Request, res: Response): Promise<void> => {
+  const contracts = await listContracts();
+  res.json(contracts);
+});
 
 // ---------------------------------------------------------------------------
 // GET /contracts/:address — contract info + auto ERC-20 detect
