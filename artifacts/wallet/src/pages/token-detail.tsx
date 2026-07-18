@@ -19,7 +19,11 @@ import {
   CheckCircle2,
   AlertTriangle,
   ExternalLink,
+  ShieldCheck,
+  ShieldAlert,
+  ChevronDown,
 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 import { cn, formatHash } from "@/lib/utils";
 import { useActiveWallet } from "@/hooks/use-active-wallet";
 import { Link } from "wouter";
@@ -314,6 +318,127 @@ function AbiPanel({ address, abi }: { address: string; abi: Record<string, any>[
   );
 }
 
+// ── Contract verification panel ───────────────────────────────────────────────
+
+function VerifyPanel({ address, onVerified }: { address: string; onVerified: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [abiText, setAbiText] = useState("");
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    setError(null);
+    let parsed: object[];
+    try {
+      parsed = JSON.parse(abiText);
+      if (!Array.isArray(parsed)) throw new Error("ABI must be a JSON array");
+    } catch (e: any) {
+      setError(e.message || "Invalid JSON");
+      return;
+    }
+    setLoading(true);
+    try {
+      const body: Record<string, unknown> = { abi: parsed };
+      if (name.trim()) body.name = name.trim();
+      const res = await fetch(`/api/contracts/${address}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Registration failed");
+      onVerified();
+    } catch (e: any) {
+      setError(e.message || "Failed to register ABI");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+      {/* Not-verified banner */}
+      <div className="flex items-center gap-3 p-5 border-b border-border/50 bg-amber-500/5">
+        <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-[11px] font-sans font-bold uppercase tracking-widest text-amber-400">
+            Contract not verified
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Paste the contract ABI to enable read &amp; write interactions.
+          </p>
+        </div>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 transition-colors text-[10px] font-sans font-bold uppercase tracking-widest shrink-0"
+        >
+          Verify
+          <ChevronDown className={cn("w-3 h-3 transition-transform", open && "rotate-180")} />
+        </button>
+      </div>
+
+      {open && (
+        <div className="p-5 space-y-4">
+          {/* Optional name */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground">
+              Contract name <span className="font-normal opacity-60">(optional)</span>
+            </label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. EmberBridge"
+              className="h-8 text-sm font-mono rounded-sm border-border"
+            />
+          </div>
+
+          {/* ABI textarea */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground">
+              ABI JSON <span className="text-destructive">*</span>
+            </label>
+            <Textarea
+              value={abiText}
+              onChange={(e) => setAbiText(e.target.value)}
+              placeholder={'[\n  {\n    "type": "function",\n    "name": "example",\n    ...\n  }\n]'}
+              className="h-52 font-mono text-xs rounded-sm border-border resize-y leading-relaxed"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Paste the full ABI array from your Hardhat/Foundry build artifacts, or from the compilation output.
+            </p>
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 text-destructive text-xs font-mono border border-destructive/30 rounded-sm p-3 bg-destructive/5">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {error}
+            </div>
+          )}
+
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={handleSubmit}
+              disabled={loading || !abiText.trim()}
+              className="h-8 text-[10px] font-sans font-bold uppercase tracking-widest rounded-sm px-4"
+            >
+              {loading
+                ? <><Loader2 className="w-3 h-3 animate-spin mr-1.5" /> Registering…</>
+                : <><ShieldCheck className="w-3 h-3 mr-1.5" /> Register ABI</>
+              }
+            </Button>
+            <button
+              onClick={() => { setOpen(false); setError(null); setAbiText(""); setName(""); }}
+              className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ── token detail data ─────────────────────────────────────────────────────────
 
 interface ContractDetail {
@@ -342,7 +467,7 @@ export default function TokenDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadContract = React.useCallback(() => {
     if (!address) return;
     setLoading(true);
     setError(null);
@@ -364,6 +489,8 @@ export default function TokenDetailPage() {
           .finally(() => setLoading(false));
       });
   }, [address]);
+
+  useEffect(() => { loadContract(); }, [loadContract]);
 
   if (loading) {
     return (
@@ -407,6 +534,16 @@ export default function TokenDetailPage() {
           {!isToken && (
             <Pill className="bg-secondary text-muted-foreground border-border text-lg px-3 py-1">
               Contract
+            </Pill>
+          )}
+          {/* Verified / unverified badge */}
+          {token.abi && token.abi.length > 0 ? (
+            <Pill className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-xs px-2 py-0.5">
+              <ShieldCheck className="w-3 h-3" /> Verified
+            </Pill>
+          ) : (
+            <Pill className="bg-amber-500/10 text-amber-400 border-amber-500/30 text-xs px-2 py-0.5">
+              <ShieldAlert className="w-3 h-3" /> Unverified
             </Pill>
           )}
         </h1>
@@ -540,26 +677,24 @@ export default function TokenDetailPage() {
         {/* Read Contract tab */}
         <TabsContent value="read">
           {token.abi && token.abi.length > 0 ? (
-            <AbiPanel address={token.address} abi={token.abi.filter((f) => f.type === "function" && (f.stateMutability === "view" || f.stateMutability === "pure"))} />
+            <AbiPanel
+              address={token.address}
+              abi={token.abi.filter((f) => f.type === "function" && (f.stateMutability === "view" || f.stateMutability === "pure"))}
+            />
           ) : (
-            <Card className="p-8 border-border bg-card/50 rounded-sm text-center">
-              <div className="text-muted-foreground font-sans text-sm uppercase font-bold tracking-widest">
-                No ABI registered for this contract.
-              </div>
-            </Card>
+            <VerifyPanel address={token.address} onVerified={loadContract} />
           )}
         </TabsContent>
 
         {/* Write Contract tab */}
         <TabsContent value="write">
           {token.abi && token.abi.length > 0 ? (
-            <AbiPanel address={token.address} abi={token.abi.filter((f) => f.type === "function" && (f.stateMutability === "nonpayable" || f.stateMutability === "payable"))} />
+            <AbiPanel
+              address={token.address}
+              abi={token.abi.filter((f) => f.type === "function" && (f.stateMutability === "nonpayable" || f.stateMutability === "payable"))}
+            />
           ) : (
-            <Card className="p-8 border-border bg-card/50 rounded-sm text-center">
-              <div className="text-muted-foreground font-sans text-sm uppercase font-bold tracking-widest">
-                No ABI registered for this contract.
-              </div>
-            </Card>
+            <VerifyPanel address={token.address} onVerified={loadContract} />
           )}
         </TabsContent>
       </Tabs>
