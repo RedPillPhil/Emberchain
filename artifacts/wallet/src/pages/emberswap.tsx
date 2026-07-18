@@ -39,6 +39,8 @@ import {
   Droplets,
   Plus,
   Minus,
+  Search,
+  X,
 } from "lucide-react";
 import { keccak256 } from "ethereum-cryptography/keccak.js";
 
@@ -94,6 +96,9 @@ const SEL = {
   swapExactTokensForETH: fnSelector(
     "swapExactTokensForETH(uint256,uint256,address[],address,uint256)",
   ),
+  swapExactTokensForTokens: fnSelector(
+    "swapExactTokensForTokens(uint256,uint256,address[],address,uint256)",
+  ),
   approve: fnSelector("approve(address,uint256)"),
   allowance: fnSelector("allowance(address,address)"),
   addLiquidityETH: fnSelector(
@@ -108,6 +113,9 @@ const SEL = {
   token0: fnSelector("token0()"),
   totalSupply: fnSelector("totalSupply()"),
   balanceOf: fnSelector("balanceOf(address)"),
+  tokenSymbol: fnSelector("symbol()"),
+  tokenDecimals: fnSelector("decimals()"),
+  tokenName: fnSelector("name()"),
 };
 
 function padAddr(addr: string): string {
@@ -262,6 +270,84 @@ function encSwapTokensForETH(
   );
 }
 
+// ── Token catalog ────────────────────────────────────────────────────────────
+
+interface TokenInfo {
+  symbol: string;
+  name: string;
+  address: string; // "ETH" for native Ether
+  decimals: number;
+  color: string;   // tailwind bg color for the icon circle
+}
+
+const ETH_TOKEN: TokenInfo = {
+  symbol: "ETH",
+  name: "Ether",
+  address: "ETH",
+  decimals: 18,
+  color: "bg-blue-500",
+};
+
+const BASE_TOKENS: TokenInfo[] = [
+  ETH_TOKEN,
+  {
+    symbol: "wEMBR",
+    name: "Wrapped EMBR",
+    address: WEMBR_ADDRESS || "0x9362587019Ea0e4ef90fbd981c615d4441D9D2c4",
+    decimals: 18,
+    color: "bg-orange-500",
+  },
+  {
+    symbol: "USDC",
+    name: "USD Coin",
+    address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    decimals: 6,
+    color: "bg-blue-400",
+  },
+  {
+    symbol: "USDT",
+    name: "Tether USD",
+    address: "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+    decimals: 6,
+    color: "bg-teal-500",
+  },
+  {
+    symbol: "DAI",
+    name: "Dai Stablecoin",
+    address: "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb",
+    decimals: 18,
+    color: "bg-yellow-500",
+  },
+  {
+    symbol: "cbBTC",
+    name: "Coinbase Wrapped BTC",
+    address: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+    decimals: 8,
+    color: "bg-orange-400",
+  },
+  {
+    symbol: "AERO",
+    name: "Aerodrome Finance",
+    address: "0x940181a94A35A4569E4529A3CDfB74e38FD98631",
+    decimals: 18,
+    color: "bg-blue-600",
+  },
+  {
+    symbol: "WETH",
+    name: "Wrapped Ether",
+    address: WETH_ADDRESS,
+    decimals: 18,
+    color: "bg-indigo-500",
+  },
+  {
+    symbol: "cbETH",
+    name: "Coinbase Wrapped Staked ETH",
+    address: "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22",
+    decimals: 18,
+    color: "bg-sky-500",
+  },
+];
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type BridgeStatus = "pending" | "relayed" | "confirmed" | "failed";
@@ -279,6 +365,190 @@ interface BridgeEvent {
 }
 
 type SwapDirection = "eth_to_wembr" | "wembr_to_eth";
+
+// ── Decimal-aware helpers ────────────────────────────────────────────────────
+
+function parseUnits(val: string, decimals: number): bigint {
+  if (!val || isNaN(Number(val)) || Number(val) <= 0) return 0n;
+  const [intPart = "0", fracPart = ""] = val.split(".");
+  const frac = fracPart.slice(0, decimals).padEnd(decimals, "0");
+  return BigInt(intPart) * BigInt(10 ** decimals) + BigInt(frac || "0");
+}
+
+function formatUnits(wei: bigint, decimals: number, disp = 6): string {
+  if (wei === 0n) return "0";
+  const divisor = BigInt(10 ** decimals);
+  const whole = wei / divisor;
+  const frac = wei % divisor;
+  const fracStr = frac.toString().padStart(decimals, "0").slice(0, disp);
+  return `${whole}.${fracStr}`.replace(/\.?0+$/, "") || "0";
+}
+
+/** Decode ABI string or bytes32 from eth_call result */
+function decodeString(hex: string): string {
+  const clean = hex.replace("0x", "");
+  if (!clean) return "";
+  // Try bytes32 first (no offset header)
+  if (clean.length === 64) {
+    const bytes: number[] = [];
+    for (let i = 0; i < 64; i += 2) {
+      const b = parseInt(clean.slice(i, i + 2), 16);
+      if (b === 0) break;
+      bytes.push(b);
+    }
+    return String.fromCharCode(...bytes);
+  }
+  // String ABI: offset (32 bytes), length (32 bytes), data
+  if (clean.length < 128) return "";
+  const len = parseInt(clean.slice(64, 128), 16);
+  let result = "";
+  for (let i = 0; i < len; i++) {
+    result += String.fromCharCode(parseInt(clean.slice(128 + i * 2, 130 + i * 2), 16));
+  }
+  return result;
+}
+
+function decodeUint8(hex: string): number {
+  const clean = hex.replace("0x", "");
+  if (!clean) return 18;
+  return parseInt(clean.slice(-2), 16);
+}
+
+// ── Variable-length path encoders ─────────────────────────────────────────────
+
+function encGetAmountsOutPath(amountIn: bigint, path: string[]): string {
+  return (
+    "0x" +
+    SEL.getAmountsOut +
+    padUint(amountIn) +
+    padUint(64) +
+    padUint(path.length) +
+    path.map(padAddr).join("")
+  );
+}
+
+function encSwapExactTokensForTokens(
+  amountIn: bigint,
+  amountOutMin: bigint,
+  path: string[],
+  to: string,
+  deadline: bigint,
+): string {
+  return (
+    "0x" +
+    SEL.swapExactTokensForTokens +
+    padUint(amountIn) +
+    padUint(amountOutMin) +
+    padUint(160) +
+    padAddr(to) +
+    padUint(deadline) +
+    padUint(path.length) +
+    path.map(padAddr).join("")
+  );
+}
+
+function encSwapETHForTokensPath(
+  amountOutMin: bigint,
+  path: string[],
+  to: string,
+  deadline: bigint,
+): string {
+  return (
+    "0x" +
+    SEL.swapExactETHForTokens +
+    padUint(amountOutMin) +
+    padUint(128) +
+    padAddr(to) +
+    padUint(deadline) +
+    padUint(path.length) +
+    path.map(padAddr).join("")
+  );
+}
+
+function encSwapTokensForETHPath(
+  amountIn: bigint,
+  amountOutMin: bigint,
+  path: string[],
+  to: string,
+  deadline: bigint,
+): string {
+  return (
+    "0x" +
+    SEL.swapExactTokensForETH +
+    padUint(amountIn) +
+    padUint(amountOutMin) +
+    padUint(160) +
+    padAddr(to) +
+    padUint(deadline) +
+    padUint(path.length) +
+    path.map(padAddr).join("")
+  );
+}
+
+// ── Route finder ──────────────────────────────────────────────────────────────
+
+interface RouteResult {
+  path: string[];
+  amountOut: bigint;
+  routeLabel: string;
+  isToETH: boolean;
+}
+
+async function findBestRoute(
+  from: TokenInfo,
+  to: TokenInfo,
+  amountIn: bigint,
+  ethCall: (contract: string, data: string) => Promise<string>,
+): Promise<RouteResult | null> {
+  if (amountIn === 0n) return null;
+
+  const fromAddr = from.address === "ETH" ? WETH_ADDRESS : from.address;
+  const toAddr = to.address === "ETH" ? WETH_ADDRESS : to.address;
+  const wEmbrAddr = (WEMBR_ADDRESS || "0x9362587019Ea0e4ef90fbd981c615d4441D9D2c4").toLowerCase();
+  const wethAddr = WETH_ADDRESS.toLowerCase();
+
+  if (fromAddr.toLowerCase() === toAddr.toLowerCase()) return null;
+
+  const routes: { path: string[]; label: string }[] = [
+    { path: [fromAddr, toAddr], label: "Direct" },
+  ];
+  if (fromAddr.toLowerCase() !== wethAddr && toAddr.toLowerCase() !== wethAddr) {
+    routes.push({ path: [fromAddr, WETH_ADDRESS, toAddr], label: "via WETH" });
+  }
+  if (
+    WEMBR_ADDRESS &&
+    fromAddr.toLowerCase() !== wEmbrAddr &&
+    toAddr.toLowerCase() !== wEmbrAddr
+  ) {
+    routes.push({ path: [fromAddr, WEMBR_ADDRESS, toAddr], label: "via wEMBR" });
+  }
+
+  const settled = await Promise.allSettled(
+    routes.map(async (r) => {
+      const data = encGetAmountsOutPath(amountIn, r.path);
+      const hex = await ethCall(UNISWAP_V2_ROUTER, data);
+      const amounts = decodeUint256Array(hex);
+      const amountOut = amounts[amounts.length - 1] ?? 0n;
+      return { path: r.path, amountOut, routeLabel: r.label };
+    }),
+  );
+
+  let best: RouteResult | null = null;
+  for (const s of settled) {
+    if (s.status !== "fulfilled" || s.value.amountOut === 0n) continue;
+    const candidate = { ...s.value, isToETH: to.address === "ETH" };
+    if (!best) { best = candidate; continue; }
+    // Prefer wEMBR route when within 5% of best (captures LP fees)
+    if (candidate.amountOut > best.amountOut) {
+      best = candidate;
+    } else if (candidate.routeLabel.includes("wEMBR")) {
+      if (candidate.amountOut >= (best.amountOut * 95n) / 100n) {
+        best = candidate;
+      }
+    }
+  }
+  return best;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -337,6 +607,180 @@ function decodeUint256(hex: string): bigint {
   const clean = hex.replace("0x", "");
   if (!clean) return 0n;
   return BigInt("0x" + clean);
+}
+
+// ── Token icon ────────────────────────────────────────────────────────────────
+
+function TokenIcon({ token, size = "md" }: { token: TokenInfo; size?: "sm" | "md" | "lg" }) {
+  const sz = size === "sm" ? "w-5 h-5 text-[9px]" : size === "lg" ? "w-9 h-9 text-sm" : "w-7 h-7 text-xs";
+  return (
+    <div className={cn("rounded-full flex items-center justify-center font-bold text-white shrink-0", sz, token.color)}>
+      {token.symbol.slice(0, 3)}
+    </div>
+  );
+}
+
+// ── Token picker modal ────────────────────────────────────────────────────────
+
+function TokenPickerModal({
+  open,
+  onClose,
+  onSelect,
+  exclude,
+  ethCall,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSelect: (t: TokenInfo) => void;
+  exclude: string; // address to hide
+  ethCall: (to: string, data: string) => Promise<string>;
+}) {
+  const [query, setQuery] = useState("");
+  const [customAddr, setCustomAddr] = useState("");
+  const [customToken, setCustomToken] = useState<TokenInfo | null>(null);
+  const [fetchingCustom, setFetchingCustom] = useState(false);
+  const [customError, setCustomError] = useState("");
+
+  const filtered = BASE_TOKENS.filter(
+    (t) =>
+      t.address.toLowerCase() !== exclude.toLowerCase() &&
+      (t.symbol.toLowerCase().includes(query.toLowerCase()) ||
+        t.name.toLowerCase().includes(query.toLowerCase()) ||
+        t.address.toLowerCase().includes(query.toLowerCase())),
+  );
+
+  const fetchCustomToken = async (addr: string) => {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) return;
+    setFetchingCustom(true);
+    setCustomError("");
+    setCustomToken(null);
+    try {
+      const [symHex, decHex, nameHex] = await Promise.all([
+        ethCall(addr, "0x" + SEL.tokenSymbol),
+        ethCall(addr, "0x" + SEL.tokenDecimals),
+        ethCall(addr, "0x" + SEL.tokenName),
+      ]);
+      const symbol = decodeString(symHex) || "???";
+      const decimals = decodeUint8(decHex) || 18;
+      const name = decodeString(nameHex) || symbol;
+      setCustomToken({ symbol, name, address: addr, decimals, color: "bg-purple-500" });
+    } catch {
+      setCustomError("Could not fetch token — check the address");
+    } finally {
+      setFetchingCustom(false);
+    }
+  };
+
+  useEffect(() => {
+    if (/^0x[0-9a-fA-F]{40}$/.test(customAddr)) {
+      fetchCustomToken(customAddr);
+    } else {
+      setCustomToken(null);
+      setCustomError("");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customAddr]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-sm bg-card border border-border rounded-sm shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Select Token</span>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Search */}
+        <div className="px-4 py-3 border-b border-border">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <input
+              autoFocus
+              className="w-full bg-secondary/60 border border-border rounded-sm pl-8 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+              placeholder="Search name or paste address…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Popular chips */}
+        <div className="px-4 py-2 flex flex-wrap gap-1.5 border-b border-border">
+          {BASE_TOKENS.filter((t) => t.address.toLowerCase() !== exclude.toLowerCase()).slice(0, 6).map((t) => (
+            <button
+              key={t.address}
+              onClick={() => { onSelect(t); onClose(); }}
+              className="flex items-center gap-1.5 bg-secondary/60 hover:bg-secondary border border-border rounded-sm px-2 py-1 text-xs font-bold text-foreground transition-colors"
+            >
+              <TokenIcon token={t} size="sm" />
+              {t.symbol}
+            </button>
+          ))}
+        </div>
+
+        {/* Token list */}
+        <div className="max-h-64 overflow-y-auto">
+          {filtered.map((t) => (
+            <button
+              key={t.address}
+              onClick={() => { onSelect(t); onClose(); }}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-secondary/60 transition-colors text-left"
+            >
+              <TokenIcon token={t} />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-bold text-foreground">{t.symbol}</div>
+                <div className="text-xs text-muted-foreground truncate">{t.name}</div>
+              </div>
+              {t.address !== "ETH" && (
+                <div className="text-[10px] font-mono text-muted-foreground">
+                  {t.address.slice(0, 6)}…{t.address.slice(-4)}
+                </div>
+              )}
+            </button>
+          ))}
+          {filtered.length === 0 && !query.startsWith("0x") && (
+            <div className="px-4 py-6 text-center text-sm text-muted-foreground italic">No results</div>
+          )}
+        </div>
+
+        {/* Custom address entry */}
+        <div className="px-4 py-3 border-t border-border">
+          <div className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground mb-2">
+            Custom Token Address
+          </div>
+          <input
+            className="w-full bg-secondary/60 border border-border rounded-sm px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+            placeholder="0x…"
+            value={customAddr}
+            onChange={(e) => setCustomAddr(e.target.value)}
+          />
+          {fetchingCustom && (
+            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="w-3 h-3 animate-spin" /> Fetching token info…
+            </div>
+          )}
+          {customError && <div className="mt-1 text-xs text-red-400">{customError}</div>}
+          {customToken && (
+            <button
+              onClick={() => { onSelect(customToken); onClose(); }}
+              className="mt-2 w-full flex items-center gap-3 bg-secondary/60 hover:bg-secondary border border-border rounded-sm px-3 py-2 transition-colors"
+            >
+              <TokenIcon token={customToken} />
+              <div className="text-left">
+                <div className="text-sm font-bold text-foreground">{customToken.symbol}</div>
+                <div className="text-xs text-muted-foreground">{customToken.name}</div>
+              </div>
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── Status badge ─────────────────────────────────────────────────────────────
@@ -1019,131 +1463,186 @@ function BridgeTab() {
 
 // ── Swap Tab ──────────────────────────────────────────────────────────────────
 
+function TokenSelectorButton({
+  token,
+  onClick,
+}: {
+  token: TokenInfo;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-2 bg-secondary/80 hover:bg-secondary border border-border rounded-sm px-3 py-2 transition-colors shrink-0"
+    >
+      <TokenIcon token={token} size="sm" />
+      <span className="text-sm font-bold text-foreground">{token.symbol}</span>
+      <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+    </button>
+  );
+}
+
 function SwapTab() {
   const baseWallet = useBaseWallet();
   const { toast } = useToast();
 
-  const [direction, setDirection] = useState<SwapDirection>("eth_to_wembr");
+  const wEmbrToken = BASE_TOKENS.find((t) => t.symbol === "wEMBR") ?? BASE_TOKENS[1];
+
+  const [tokenIn, setTokenIn] = useState<TokenInfo>(ETH_TOKEN);
+  const [tokenOut, setTokenOut] = useState<TokenInfo>(wEmbrToken);
   const [amountIn, setAmountIn] = useState("");
-  const [quote, setQuote] = useState<bigint | null>(null);
+  const [route, setRoute] = useState<RouteResult | null>(null);
   const [isQuoting, setIsQuoting] = useState(false);
   const [isSwapping, setIsSwapping] = useState(false);
-  const quoteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pickerFor, setPickerFor] = useState<"in" | "out" | null>(null);
+  const [balIn, setBalIn] = useState<bigint | null>(null);
+  const [balOut, setBalOut] = useState<bigint | null>(null);
+  const quoteRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const WETH = WETH_ADDRESS;
-
-  // Fetch quote
-  const fetchQuote = useCallback(
-    async (rawAmount: string, dir: SwapDirection) => {
-      if (!CONTRACTS_DEPLOYED || !rawAmount || !baseWallet.wallet) {
-        setQuote(null);
-        return;
-      }
-      const amountWei = parseEther(rawAmount);
-      if (amountWei === 0n) { setQuote(null); return; }
-
-      const path: [string, string] =
-        dir === "eth_to_wembr" ? [WETH, WEMBR_ADDRESS] : [WEMBR_ADDRESS, WETH];
-
-      setIsQuoting(true);
-      try {
-        const hex = await baseWallet.ethCall(
-          EMBERSWAP_ADDRESS,
-          encGetAmountsOut(amountWei, path),
-        );
-        const amounts = decodeUint256Array(hex);
-        setQuote(amounts[1] ?? null);
-      } catch {
-        setQuote(null);
-      } finally {
-        setIsQuoting(false);
-      }
-    },
-    [baseWallet],
-  );
-
-  // Debounced quote fetch
+  // Fetch balances whenever tokens or wallet change
   useEffect(() => {
-    if (quoteTimeoutRef.current) clearTimeout(quoteTimeoutRef.current);
-    quoteTimeoutRef.current = setTimeout(() => {
-      fetchQuote(amountIn, direction);
-    }, 600);
-    return () => { if (quoteTimeoutRef.current) clearTimeout(quoteTimeoutRef.current); };
-  }, [amountIn, direction, fetchQuote]);
+    if (!baseWallet.wallet) { setBalIn(null); setBalOut(null); return; }
+    const addr = baseWallet.wallet.address;
+
+    const fetchBal = async (token: TokenInfo): Promise<bigint> => {
+      if (token.address === "ETH") {
+        const res = await fetch(BASE_RPC_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getBalance", params: [addr, "latest"] }),
+        });
+        const d = await res.json();
+        return BigInt(d.result ?? "0x0");
+      }
+      const hex = await baseEthCall(token.address, "0x" + SEL.balanceOf + padAddr(addr));
+      return decodeUint256(hex);
+    };
+
+    fetchBal(tokenIn).then(setBalIn).catch(() => setBalIn(null));
+    fetchBal(tokenOut).then(setBalOut).catch(() => setBalOut(null));
+  }, [baseWallet.wallet, tokenIn, tokenOut]);
+
+  // Debounced quote
+  const fetchRoute = useCallback(async (raw: string, from: TokenInfo, to: TokenInfo) => {
+    if (!raw || !baseWallet.wallet) { setRoute(null); return; }
+    const amtIn = parseUnits(raw, from.decimals);
+    if (amtIn === 0n) { setRoute(null); return; }
+    setIsQuoting(true);
+    try {
+      const r = await findBestRoute(from, to, amtIn, baseWallet.ethCall);
+      setRoute(r);
+    } catch {
+      setRoute(null);
+    } finally {
+      setIsQuoting(false);
+    }
+  }, [baseWallet]);
+
+  useEffect(() => {
+    if (quoteRef.current) clearTimeout(quoteRef.current);
+    quoteRef.current = setTimeout(() => fetchRoute(amountIn, tokenIn, tokenOut), 600);
+    return () => { if (quoteRef.current) clearTimeout(quoteRef.current); };
+  }, [amountIn, tokenIn, tokenOut, fetchRoute]);
+
+  const flip = () => {
+    setTokenIn(tokenOut);
+    setTokenOut(tokenIn);
+    setAmountIn("");
+    setRoute(null);
+  };
 
   const handleSwap = async () => {
-    if (!baseWallet.wallet || !baseWallet.isOnBase) return;
-    const amountWei = parseEther(amountIn);
-    if (amountWei === 0n || !quote) {
-      toast({ title: "Enter a valid amount", variant: "destructive" });
-      return;
-    }
-    if (!CONTRACTS_DEPLOYED) {
-      toast({ title: "Contracts not yet deployed", variant: "destructive" });
-      return;
-    }
+    if (!baseWallet.wallet || !baseWallet.isOnBase || !route) return;
+    const amtIn = parseUnits(amountIn, tokenIn.decimals);
+    if (amtIn === 0n) { toast({ title: "Enter a valid amount", variant: "destructive" }); return; }
 
     setIsSwapping(true);
     const slippage = 50n; // 0.5%
-    const amountOutMin = (quote * (10000n - slippage)) / 10000n;
+    const amountOutMin = (route.amountOut * (10000n - slippage)) / 10000n;
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
     const to = baseWallet.wallet.address;
 
     try {
-      if (direction === "eth_to_wembr") {
-        // No approval needed — sending ETH
-        const path: [string, string] = [WETH, WEMBR_ADDRESS];
-        const data = encSwapETHForTokens(amountOutMin, path, to, deadline);
-        const txHash = await baseWallet.sendTx({
-          to: EMBERSWAP_ADDRESS,
-          data,
-          value: "0x" + amountWei.toString(16),
-        });
-        toast({ title: "Swap submitted", description: txHash.slice(0, 20) + "…" });
-        setAmountIn("");
-        setQuote(null);
-      } else {
-        // wEMBR → ETH: check allowance first
-        const allowanceHex = await baseWallet.ethCall(
-          WEMBR_ADDRESS,
-          encAllowance(baseWallet.wallet.address, EMBERSWAP_ADDRESS),
+      // Ensure ERC-20 approval if tokenIn is not native ETH
+      if (tokenIn.address !== "ETH") {
+        const spender = UNISWAP_V2_ROUTER;
+        const allowHex = await baseWallet.ethCall(
+          tokenIn.address,
+          encAllowance(to, spender),
         );
-        const currentAllowance = decodeUint256(allowanceHex);
-        if (currentAllowance < amountWei) {
-          toast({ title: "Approving wEMBR…", description: "Confirm in MetaMask" });
-          await baseWallet.sendTx({
-            to: WEMBR_ADDRESS,
-            data: encApprove(EMBERSWAP_ADDRESS, amountWei * 2n),
-          });
+        if (decodeUint256(allowHex) < amtIn) {
+          toast({ title: `Approving ${tokenIn.symbol}…`, description: "Confirm in MetaMask" });
+          await baseWallet.sendTx({ to: tokenIn.address, data: encApprove(spender, amtIn * 2n) });
           await new Promise((r) => setTimeout(r, 8000));
         }
-        // wEMBR → ETH: use swapExactTokensForETH which unwraps WETH to native ETH
-        const path: [string, string] = [WEMBR_ADDRESS, WETH];
-        const data = encSwapTokensForETH(amountWei, amountOutMin, path, to, deadline);
-        const txHash = await baseWallet.sendTx({
-          to: EMBERSWAP_ADDRESS,
-          data,
-        });
-        toast({ title: "Swap submitted", description: txHash.slice(0, 20) + "…" });
-        setAmountIn("");
-        setQuote(null);
       }
+
+      let txHash: string;
+      const isFromETH = tokenIn.address === "ETH";
+      const isToETH = route.isToETH;
+
+      if (isFromETH) {
+        // ETH → tokens: swapExactETHForTokens
+        const data = encSwapETHForTokensPath(amountOutMin, route.path, to, deadline);
+        txHash = await baseWallet.sendTx({
+          to: UNISWAP_V2_ROUTER,
+          data,
+          value: "0x" + amtIn.toString(16),
+        });
+      } else if (isToETH) {
+        // tokens → ETH: swapExactTokensForETH
+        const data = encSwapTokensForETHPath(amtIn, amountOutMin, route.path, to, deadline);
+        txHash = await baseWallet.sendTx({ to: UNISWAP_V2_ROUTER, data });
+      } else {
+        // tokens → tokens: swapExactTokensForTokens
+        const data = encSwapExactTokensForTokens(amtIn, amountOutMin, route.path, to, deadline);
+        txHash = await baseWallet.sendTx({ to: UNISWAP_V2_ROUTER, data });
+      }
+
+      toast({ title: "Swap submitted ✓", description: txHash.slice(0, 20) + "…" });
+      setAmountIn("");
+      setRoute(null);
     } catch (err) {
-      toast({
-        title: "Swap failed",
-        description: (err as Error).message,
-        variant: "destructive",
-      });
+      toast({ title: "Swap failed", description: (err as Error).message, variant: "destructive" });
     } finally {
       setIsSwapping(false);
     }
   };
 
-  const feeAmount =
-    quote !== null ? (quote * 25n) / 10000n : null; // 0.25% on output for display
+  const feeDisplay = route
+    ? formatUnits((route.amountOut * 25n) / 10000n, tokenOut.decimals, 6)
+    : null;
+
+  const canSwap =
+    !isSwapping &&
+    !!baseWallet.wallet &&
+    baseWallet.isOnBase &&
+    !!amountIn &&
+    route !== null;
 
   return (
     <div className="max-w-lg mx-auto w-full space-y-6">
+      {/* Pickers */}
+      {pickerFor && (
+        <TokenPickerModal
+          open
+          onClose={() => setPickerFor(null)}
+          onSelect={(t) => {
+            if (pickerFor === "in") {
+              if (t.address === tokenOut.address) setTokenOut(tokenIn);
+              setTokenIn(t);
+            } else {
+              if (t.address === tokenIn.address) setTokenIn(tokenOut);
+              setTokenOut(t);
+            }
+            setAmountIn("");
+            setRoute(null);
+          }}
+          exclude={pickerFor === "in" ? tokenOut.address : tokenIn.address}
+          ethCall={baseWallet.ethCall}
+        />
+      )}
+
       {/* Network guard */}
       <NetworkGuard
         isOnBase={baseWallet.isOnBase}
@@ -1154,118 +1653,129 @@ function SwapTab() {
         hasMetaMask={baseWallet.hasMetaMask}
       />
 
-      {!CONTRACTS_DEPLOYED && <DeployNotice />}
+      <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+        <div className="h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent" />
+        <CardContent className="p-5 space-y-2">
 
-      {CONTRACTS_DEPLOYED && (
-        <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
-          {/* Ember glow accent */}
-          <div className="h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent" />
-          <CardContent className="p-6 space-y-4">
-            {/* Direction toggle */}
+          {/* You pay */}
+          <div className="bg-secondary/40 border border-border rounded-sm p-4 space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="uppercase text-xs font-bold tracking-widest text-muted-foreground">
-                Swap
-              </Label>
-              <button
-                onClick={() =>
-                  setDirection((d) =>
-                    d === "eth_to_wembr" ? "wembr_to_eth" : "eth_to_wembr",
-                  )
-                }
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors border border-border hover:border-primary/40 rounded-sm px-2 py-1"
-              >
-                <ArrowDownUp className="w-3 h-3" />
-                {direction === "eth_to_wembr" ? "ETH → wEMBR" : "wEMBR → ETH"}
-              </button>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">You pay</span>
+              {balIn !== null && (
+                <button
+                  className="text-[10px] font-bold uppercase tracking-widest text-primary hover:underline"
+                  onClick={() => setAmountIn(formatUnits(balIn, tokenIn.decimals, tokenIn.decimals))}
+                >
+                  Max {formatUnits(balIn, tokenIn.decimals, 4)} {tokenIn.symbol}
+                </button>
+              )}
             </div>
-
-            {/* Amount in */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground">
-                  {direction === "eth_to_wembr" ? "ETH" : "wEMBR"} amount
-                </Label>
-                {baseWallet.wallet && (
-                  <span className="text-xs text-muted-foreground">
-                    {direction === "eth_to_wembr" ? "ETH" : "wEMBR"} balance
-                  </span>
-                )}
-              </div>
-              <Input
-                placeholder="0.00"
+            <div className="flex items-center gap-3">
+              <input
+                className="flex-1 bg-transparent text-2xl font-mono font-bold text-foreground focus:outline-none placeholder:text-muted-foreground/40 min-w-0"
+                placeholder="0.0"
                 value={amountIn}
                 onChange={(e) => setAmountIn(e.target.value)}
-                className="font-mono text-lg bg-secondary/50 border-border"
+                inputMode="decimal"
               />
+              <TokenSelectorButton token={tokenIn} onClick={() => setPickerFor("in")} />
             </div>
+          </div>
 
-            {/* Quote + fee */}
-            <div className="bg-secondary/40 border border-border rounded-sm px-4 py-3 space-y-2 min-h-[72px] flex flex-col justify-center">
-              {isQuoting ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Fetching quote…
-                </div>
-              ) : quote !== null ? (
-                <>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">You receive</span>
-                    <span className="font-mono font-bold text-foreground">
-                      ≈ {formatWei(quote, 6)}{" "}
-                      {direction === "eth_to_wembr" ? "wEMBR" : "ETH"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">
-                      0.25% fee → EMBR liquidity
-                    </span>
-                    <span className="font-mono text-muted-foreground">
-                      {feeAmount !== null
-                        ? `${formatWei(feeAmount, 6)} ${direction === "eth_to_wembr" ? "wEMBR" : "ETH"}`
-                        : ""}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Slippage tolerance</span>
-                    <span className="font-mono text-muted-foreground">0.5%</span>
-                  </div>
-                </>
-              ) : (
-                <span className="text-sm text-muted-foreground italic">
-                  {!baseWallet.wallet
-                    ? "Connect wallet to see quotes"
-                    : "Enter an amount to see a quote"}
+          {/* Flip button */}
+          <div className="flex items-center justify-center -my-1 relative z-10">
+            <button
+              onClick={flip}
+              className="w-8 h-8 rounded-sm bg-card border border-border hover:border-primary/50 flex items-center justify-center text-muted-foreground hover:text-primary transition-all"
+            >
+              <ArrowDownUp className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* You receive */}
+          <div className="bg-secondary/40 border border-border rounded-sm p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">You receive</span>
+              {balOut !== null && (
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  Bal: {formatUnits(balOut, tokenOut.decimals, 4)} {tokenOut.symbol}
                 </span>
               )}
             </div>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 font-mono text-2xl font-bold text-foreground min-w-0 truncate">
+                {isQuoting ? (
+                  <span className="text-muted-foreground text-base flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Quoting…
+                  </span>
+                ) : route ? (
+                  <span>≈ {formatUnits(route.amountOut, tokenOut.decimals, 6)}</span>
+                ) : (
+                  <span className="text-muted-foreground/40">0.0</span>
+                )}
+              </div>
+              <TokenSelectorButton token={tokenOut} onClick={() => setPickerFor("out")} />
+            </div>
+          </div>
 
-            <Button
-              className="w-full"
-              disabled={
-                isSwapping ||
-                !baseWallet.wallet ||
-                !baseWallet.isOnBase ||
-                !amountIn ||
-                quote === null
-              }
-              onClick={handleSwap}
-            >
-              {isSwapping ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              ) : (
-                <Zap className="w-4 h-4 mr-2" />
-              )}
-              {isSwapping
-                ? "Swapping…"
-                : direction === "eth_to_wembr"
-                ? "Swap ETH for wEMBR"
-                : "Swap wEMBR for ETH"}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+          {/* Quote details */}
+          {route && (
+            <div className="bg-secondary/30 border border-border rounded-sm px-4 py-3 space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Route</span>
+                <span className="font-mono text-foreground">
+                  {route.routeLabel !== "Direct"
+                    ? `${tokenIn.symbol} → ${route.path.slice(1, -1).map((a) => BASE_TOKENS.find((t) => t.address.toLowerCase() === a.toLowerCase())?.symbol ?? a.slice(0, 6)).join(" → ")} → ${tokenOut.symbol}`
+                    : `${tokenIn.symbol} → ${tokenOut.symbol} (Direct)`}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">0.25% fee → EMBR liquidity</span>
+                <span className="font-mono text-muted-foreground">
+                  {feeDisplay} {tokenOut.symbol}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Slippage tolerance</span>
+                <span className="font-mono text-muted-foreground">0.5%</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Min received</span>
+                <span className="font-mono text-muted-foreground">
+                  {formatUnits((route.amountOut * 9950n) / 10000n, tokenOut.decimals, 6)} {tokenOut.symbol}
+                </span>
+              </div>
+            </div>
+          )}
 
-      {/* Airdrop panel — shown when connected regardless of deployment */}
+          <Button
+            className="w-full mt-2"
+            disabled={!canSwap}
+            onClick={handleSwap}
+          >
+            {isSwapping ? (
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            ) : (
+              <Zap className="w-4 h-4 mr-2" />
+            )}
+            {isSwapping
+              ? "Swapping…"
+              : !baseWallet.wallet
+              ? "Connect Wallet"
+              : !baseWallet.isOnBase
+              ? "Switch to Base"
+              : !amountIn
+              ? "Enter Amount"
+              : isQuoting
+              ? "Fetching Quote…"
+              : route === null
+              ? "No Route Found"
+              : `Swap ${tokenIn.symbol} for ${tokenOut.symbol}`}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Airdrop panel */}
       {baseWallet.wallet && (
         <AirdropPanel
           address={baseWallet.wallet.address}
