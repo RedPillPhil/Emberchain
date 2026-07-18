@@ -819,9 +819,17 @@ function BridgeTab() {
 
           {direction === "embr_to_base" ? (
             <div className="space-y-2">
-              <Label className="uppercase text-xs font-bold tracking-widest text-muted-foreground">
-                Base recipient address
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label className="uppercase text-xs font-bold tracking-widest text-muted-foreground">
+                  Base recipient address
+                </Label>
+                <button
+                  className="text-xs text-primary hover:underline font-bold uppercase tracking-widest"
+                  onClick={() => activeWallet && setBaseRecipient(activeWallet.address)}
+                >
+                  Myself
+                </button>
+              </div>
               <Input
                 placeholder="0x…"
                 value={baseRecipient}
@@ -1218,7 +1226,7 @@ export default function EmberSwap() {
           </div>
           <div className="flex items-center gap-1.5 bg-secondary/60 border border-border rounded-sm px-3 py-1.5 text-xs">
             <Flame className="w-3 h-3 text-primary fill-primary/40" />
-            <span className="text-muted-foreground font-bold uppercase tracking-widest">Base Sepolia</span>
+            <span className="text-muted-foreground font-bold uppercase tracking-widest">Base Mainnet</span>
           </div>
         </div>
       </div>
