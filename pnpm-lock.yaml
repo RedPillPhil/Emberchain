@@ -160,6 +160,9 @@ importers:
       '@replit/connectors-sdk':
         specifier: ^0.4.1
         version: 0.4.1
+      ethers:
+        specifier: ^6.17.0
+        version: 6.17.0
     devDependencies:
       prettier:
         specifier: ^3.9.5

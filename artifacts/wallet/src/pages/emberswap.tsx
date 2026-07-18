@@ -36,8 +36,26 @@ import {
   ChevronDown,
   Wallet,
   ChevronRight,
+  Droplets,
+  Plus,
+  Minus,
 } from "lucide-react";
 import { keccak256 } from "ethereum-cryptography/keccak.js";
+
+// ── Base RPC helper (read-only, no wallet required) ──────────────────────────
+
+const BASE_RPC_URL = "https://mainnet.base.org";
+
+async function baseEthCall(to: string, data: string): Promise<string> {
+  const res = await fetch(BASE_RPC_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
+  });
+  const d = await res.json();
+  if (d.error) throw new Error(d.error.message ?? JSON.stringify(d.error));
+  return d.result as string;
+}
 
 // ── Contract addresses (set via VITE_ env vars after deployment) ─────────────
 
@@ -45,6 +63,9 @@ const EMBER_BRIDGE_ADDRESS = import.meta.env.VITE_EMBER_BRIDGE_ADDRESS ?? ""; //
 const EMBERCHAIN_BRIDGE_ADDRESS = import.meta.env.VITE_EMBERCHAIN_BRIDGE_ADDRESS ?? ""; // on Base
 const EMBERSWAP_ADDRESS = import.meta.env.VITE_EMBERSWAP_ADDRESS ?? ""; // on Base
 const WEMBR_ADDRESS = import.meta.env.VITE_WEMBR_ADDRESS ?? ""; // on Base
+
+const UNISWAP_V2_ROUTER = "0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24";
+const WETH_ADDRESS = "0x4200000000000000000000000000000000000006";
 
 const CONTRACTS_DEPLOYED = !!(
   EMBER_BRIDGE_ADDRESS &&
@@ -75,6 +96,18 @@ const SEL = {
   ),
   approve: fnSelector("approve(address,uint256)"),
   allowance: fnSelector("allowance(address,address)"),
+  addLiquidityETH: fnSelector(
+    "addLiquidityETH(address,uint256,uint256,uint256,address,uint256)",
+  ),
+  removeLiquidityETH: fnSelector(
+    "removeLiquidityETH(address,uint256,uint256,uint256,address,uint256)",
+  ),
+  factory: fnSelector("factory()"),
+  getPair: fnSelector("getPair(address,address)"),
+  getReserves: fnSelector("getReserves()"),
+  token0: fnSelector("token0()"),
+  totalSupply: fnSelector("totalSupply()"),
+  balanceOf: fnSelector("balanceOf(address)"),
 };
 
 function padAddr(addr: string): string {
@@ -102,6 +135,61 @@ function encApprove(spender: string, amount: bigint): string {
 /** Encode allowance(address owner, address spender) */
 function encAllowance(owner: string, spender: string): string {
   return "0x" + SEL.allowance + padAddr(owner) + padAddr(spender);
+}
+
+/** Encode addLiquidityETH(address,uint256,uint256,uint256,address,uint256) */
+function encAddLiquidityETH(
+  token: string,
+  amountTokenDesired: bigint,
+  amountTokenMin: bigint,
+  amountETHMin: bigint,
+  to: string,
+  deadline: bigint,
+): string {
+  return (
+    "0x" +
+    SEL.addLiquidityETH +
+    padAddr(token) +
+    padUint(amountTokenDesired) +
+    padUint(amountTokenMin) +
+    padUint(amountETHMin) +
+    padAddr(to) +
+    padUint(deadline)
+  );
+}
+
+/** Encode removeLiquidityETH(address,uint256,uint256,uint256,address,uint256) */
+function encRemoveLiquidityETH(
+  token: string,
+  liquidity: bigint,
+  amountTokenMin: bigint,
+  amountETHMin: bigint,
+  to: string,
+  deadline: bigint,
+): string {
+  return (
+    "0x" +
+    SEL.removeLiquidityETH +
+    padAddr(token) +
+    padUint(liquidity) +
+    padUint(amountTokenMin) +
+    padUint(amountETHMin) +
+    padAddr(to) +
+    padUint(deadline)
+  );
+}
+
+/** Decode a single address from eth_call result */
+function decodeAddress(hex: string): string {
+  return "0x" + hex.replace("0x", "").slice(24, 64);
+}
+
+/** Decode a 3-word tuple: (uint112, uint112, uint32) = reserves */
+function decodeReserves(hex: string): [bigint, bigint] {
+  const clean = hex.replace("0x", "");
+  const r0 = BigInt("0x" + (clean.slice(0, 64) || "0"));
+  const r1 = BigInt("0x" + (clean.slice(64, 128) || "0"));
+  return [r0, r1];
 }
 
 /**
@@ -931,8 +1019,6 @@ function BridgeTab() {
 
 // ── Swap Tab ──────────────────────────────────────────────────────────────────
 
-const WETH_PLACEHOLDER = "0x4200000000000000000000000000000000000006"; // WETH on Base
-
 function SwapTab() {
   const baseWallet = useBaseWallet();
   const { toast } = useToast();
@@ -944,7 +1030,7 @@ function SwapTab() {
   const [isSwapping, setIsSwapping] = useState(false);
   const quoteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const WETH = WETH_PLACEHOLDER;
+  const WETH = WETH_ADDRESS;
 
   // Fetch quote
   const fetchQuote = useCallback(
@@ -1190,6 +1276,541 @@ function SwapTab() {
   );
 }
 
+// ── Pool state hook ───────────────────────────────────────────────────────────
+
+interface PoolState {
+  pairAddress: string | null;
+  wEmbrReserve: bigint;
+  ethReserve: bigint;
+  lpTotalSupply: bigint;
+  userLpBalance: bigint;
+  loading: boolean;
+  error: string | null;
+}
+
+function usePoolState(userAddress: string | null) {
+  const [state, setState] = useState<PoolState>({
+    pairAddress: null,
+    wEmbrReserve: 0n,
+    ethReserve: 0n,
+    lpTotalSupply: 0n,
+    userLpBalance: 0n,
+    loading: false,
+    error: null,
+  });
+
+  const load = useCallback(async () => {
+    if (!WEMBR_ADDRESS) return;
+    setState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      // Get factory from router
+      const factoryHex = await baseEthCall(
+        UNISWAP_V2_ROUTER,
+        "0x" + SEL.factory,
+      );
+      const factoryAddr = decodeAddress(factoryHex);
+
+      // Get pair address
+      const pairHex = await baseEthCall(
+        factoryAddr,
+        "0x" + SEL.getPair + padAddr(WEMBR_ADDRESS) + padAddr(WETH_ADDRESS),
+      );
+      const pairAddr = decodeAddress(pairHex);
+
+      if (pairAddr === "0x0000000000000000000000000000000000000000") {
+        setState({
+          pairAddress: null,
+          wEmbrReserve: 0n,
+          ethReserve: 0n,
+          lpTotalSupply: 0n,
+          userLpBalance: 0n,
+          loading: false,
+          error: null,
+        });
+        return;
+      }
+
+      // Get reserves + token0 + totalSupply in parallel
+      const [reservesHex, token0Hex, supplyHex] = await Promise.all([
+        baseEthCall(pairAddr, "0x" + SEL.getReserves),
+        baseEthCall(pairAddr, "0x" + SEL.token0),
+        baseEthCall(pairAddr, "0x" + SEL.totalSupply),
+      ]);
+
+      const [r0, r1] = decodeReserves(reservesHex);
+      const token0 = decodeAddress(token0Hex);
+      const isWEmbrToken0 =
+        token0.toLowerCase() === WEMBR_ADDRESS.toLowerCase();
+      const wEmbrReserve = isWEmbrToken0 ? r0 : r1;
+      const ethReserve = isWEmbrToken0 ? r1 : r0;
+      const lpTotalSupply = decodeUint256(supplyHex);
+
+      // User LP balance
+      let userLpBalance = 0n;
+      if (userAddress) {
+        const balHex = await baseEthCall(
+          pairAddr,
+          "0x" + SEL.balanceOf + padAddr(userAddress),
+        );
+        userLpBalance = decodeUint256(balHex);
+      }
+
+      setState({
+        pairAddress: pairAddr,
+        wEmbrReserve,
+        ethReserve,
+        lpTotalSupply,
+        userLpBalance,
+        loading: false,
+        error: null,
+      });
+    } catch (err) {
+      setState((s) => ({
+        ...s,
+        loading: false,
+        error: (err as Error).message,
+      }));
+    }
+  }, [userAddress]);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 15_000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  return { ...state, refresh: load };
+}
+
+// ── Liquidity Tab ─────────────────────────────────────────────────────────────
+
+function LiquidityTab() {
+  const baseWallet = useBaseWallet();
+  const { toast } = useToast();
+  const pool = usePoolState(baseWallet.wallet?.address ?? null);
+
+  const [mode, setMode] = useState<"add" | "remove">("add");
+
+  // Add liquidity state
+  const [ethIn, setEthIn] = useState("");
+  const [wEmbrIn, setWEmbrIn] = useState("");
+  const [isAdding, setIsAdding] = useState(false);
+
+  // Remove liquidity state
+  const [lpIn, setLpIn] = useState("");
+  const [isRemoving, setIsRemoving] = useState(false);
+
+  // Auto-compute wEMBR from ETH input based on pool ratio
+  const handleEthChange = (val: string) => {
+    setEthIn(val);
+    if (!pool.pairAddress || pool.ethReserve === 0n || !val) {
+      setWEmbrIn("");
+      return;
+    }
+    try {
+      const ethWei = parseEther(val);
+      if (ethWei === 0n) { setWEmbrIn(""); return; }
+      const wEmbrNeeded = (ethWei * pool.wEmbrReserve) / pool.ethReserve;
+      setWEmbrIn((Number(wEmbrNeeded) / 1e18).toFixed(6));
+    } catch {
+      setWEmbrIn("");
+    }
+  };
+
+  // Auto-compute ETH from wEMBR input
+  const handleWEmbrChange = (val: string) => {
+    setWEmbrIn(val);
+    if (!pool.pairAddress || pool.wEmbrReserve === 0n || !val) {
+      setEthIn("");
+      return;
+    }
+    try {
+      const wEmbrWei = parseEther(val);
+      if (wEmbrWei === 0n) { setEthIn(""); return; }
+      const ethNeeded = (wEmbrWei * pool.ethReserve) / pool.wEmbrReserve;
+      setEthIn((Number(ethNeeded) / 1e18).toFixed(8));
+    } catch {
+      setEthIn("");
+    }
+  };
+
+  // Expected output for remove liquidity
+  const lpWei = parseEther(lpIn);
+  const expectedEth =
+    pool.lpTotalSupply > 0n
+      ? (lpWei * pool.ethReserve) / pool.lpTotalSupply
+      : 0n;
+  const expectedWEmbr =
+    pool.lpTotalSupply > 0n
+      ? (lpWei * pool.wEmbrReserve) / pool.lpTotalSupply
+      : 0n;
+
+  const handleAddLiquidity = async () => {
+    if (!baseWallet.wallet || !baseWallet.isOnBase) return;
+    const ethWei = parseEther(ethIn);
+    const wEmbrWei = parseEther(wEmbrIn);
+    if (ethWei === 0n || wEmbrWei === 0n) {
+      toast({ title: "Enter amounts", variant: "destructive" });
+      return;
+    }
+    setIsAdding(true);
+    try {
+      // Check & approve wEMBR
+      const allowanceHex = await baseWallet.ethCall(
+        WEMBR_ADDRESS,
+        encAllowance(baseWallet.wallet.address, UNISWAP_V2_ROUTER),
+      );
+      if (decodeUint256(allowanceHex) < wEmbrWei) {
+        toast({ title: "Approving wEMBR…", description: "Confirm in MetaMask" });
+        await baseWallet.sendTx({
+          to: WEMBR_ADDRESS,
+          data: encApprove(UNISWAP_V2_ROUTER, wEmbrWei * 2n),
+        });
+        await new Promise((r) => setTimeout(r, 8000));
+      }
+
+      const slippage = 50n; // 0.5%
+      const wEmbrMin = (wEmbrWei * (10000n - slippage)) / 10000n;
+      const ethMin = (ethWei * (10000n - slippage)) / 10000n;
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
+
+      toast({ title: "Adding liquidity…", description: "Confirm in MetaMask" });
+      const txHash = await baseWallet.sendTx({
+        to: UNISWAP_V2_ROUTER,
+        data: encAddLiquidityETH(
+          WEMBR_ADDRESS,
+          wEmbrWei,
+          wEmbrMin,
+          ethMin,
+          baseWallet.wallet.address,
+          deadline,
+        ),
+        value: "0x" + ethWei.toString(16),
+      });
+      toast({ title: "Liquidity added ✓", description: txHash.slice(0, 20) + "…" });
+      setEthIn("");
+      setWEmbrIn("");
+      setTimeout(() => pool.refresh(), 5000);
+    } catch (err) {
+      toast({ title: "Failed", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  const handleRemoveLiquidity = async () => {
+    if (!baseWallet.wallet || !baseWallet.isOnBase || !pool.pairAddress) return;
+    if (lpWei === 0n) {
+      toast({ title: "Enter LP amount", variant: "destructive" });
+      return;
+    }
+    setIsRemoving(true);
+    try {
+      // Approve LP token for router
+      const allowanceHex = await baseWallet.ethCall(
+        pool.pairAddress,
+        encAllowance(baseWallet.wallet.address, UNISWAP_V2_ROUTER),
+      );
+      if (decodeUint256(allowanceHex) < lpWei) {
+        toast({ title: "Approving LP token…", description: "Confirm in MetaMask" });
+        await baseWallet.sendTx({
+          to: pool.pairAddress,
+          data: encApprove(UNISWAP_V2_ROUTER, lpWei * 2n),
+        });
+        await new Promise((r) => setTimeout(r, 8000));
+      }
+
+      const slippage = 50n;
+      const ethMin = (expectedEth * (10000n - slippage)) / 10000n;
+      const wEmbrMin = (expectedWEmbr * (10000n - slippage)) / 10000n;
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
+
+      toast({ title: "Removing liquidity…", description: "Confirm in MetaMask" });
+      const txHash = await baseWallet.sendTx({
+        to: UNISWAP_V2_ROUTER,
+        data: encRemoveLiquidityETH(
+          WEMBR_ADDRESS,
+          lpWei,
+          wEmbrMin,
+          ethMin,
+          baseWallet.wallet.address,
+          deadline,
+        ),
+      });
+      toast({ title: "Liquidity removed ✓", description: txHash.slice(0, 20) + "…" });
+      setLpIn("");
+      setTimeout(() => pool.refresh(), 5000);
+    } catch (err) {
+      toast({ title: "Failed", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setIsRemoving(false);
+    }
+  };
+
+  return (
+    <div className="max-w-lg mx-auto w-full space-y-6">
+      {/* Network guard */}
+      <NetworkGuard
+        isOnBase={baseWallet.isOnBase}
+        switchToBase={baseWallet.switchToBase}
+        wallet={baseWallet.wallet}
+        connect={baseWallet.connect}
+        isConnecting={baseWallet.isConnecting}
+        hasMetaMask={baseWallet.hasMetaMask}
+      />
+
+      {/* Pool stats */}
+      <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+        <div className="h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent" />
+        <CardContent className="p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Droplets className="w-4 h-4 text-primary" />
+              <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                wEMBR / ETH Pool
+              </span>
+            </div>
+            <button
+              onClick={pool.refresh}
+              className="text-muted-foreground hover:text-foreground"
+              title="Refresh"
+            >
+              <RefreshCcw className={cn("w-3.5 h-3.5", pool.loading && "animate-spin")} />
+            </button>
+          </div>
+
+          {pool.error && (
+            <div className="text-xs text-red-400 mb-3">{pool.error}</div>
+          )}
+
+          {!pool.pairAddress && !pool.loading ? (
+            <div className="text-center py-4 text-sm text-muted-foreground italic">
+              Pool not yet created — add liquidity to create it.
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest mb-0.5">
+                  wEMBR Reserve
+                </div>
+                <div className="font-mono text-sm text-foreground">
+                  {formatWei(pool.wEmbrReserve, 4)}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest mb-0.5">
+                  ETH Reserve
+                </div>
+                <div className="font-mono text-sm text-foreground">
+                  {formatWei(pool.ethReserve, 6)}
+                </div>
+              </div>
+              {pool.wEmbrReserve > 0n && pool.ethReserve > 0n && (
+                <div className="col-span-2">
+                  <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest mb-0.5">
+                    Price
+                  </div>
+                  <div className="font-mono text-sm text-foreground">
+                    1 wEMBR ={" "}
+                    {(
+                      Number(pool.ethReserve) / Number(pool.wEmbrReserve)
+                    ).toFixed(8)}{" "}
+                    ETH
+                  </div>
+                </div>
+              )}
+              {baseWallet.wallet && pool.lpTotalSupply > 0n && (
+                <div className="col-span-2 pt-2 border-t border-border">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Your LP tokens</span>
+                    <span className="font-mono text-foreground">
+                      {formatWei(pool.userLpBalance, 6)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs mt-1">
+                    <span className="text-muted-foreground">Your pool share</span>
+                    <span className="font-mono text-foreground">
+                      {pool.lpTotalSupply > 0n
+                        ? (
+                            (Number(pool.userLpBalance) /
+                              Number(pool.lpTotalSupply)) *
+                            100
+                          ).toFixed(4)
+                        : "0"}
+                      %
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Add / Remove toggle */}
+      <div className="grid grid-cols-2 gap-2">
+        {(["add", "remove"] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className={cn(
+              "p-3 border rounded-sm text-sm font-bold uppercase tracking-wider transition-all flex items-center gap-2",
+              mode === m
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
+            )}
+          >
+            {m === "add" ? (
+              <Plus className="w-4 h-4" />
+            ) : (
+              <Minus className="w-4 h-4" />
+            )}
+            {m === "add" ? "Add Liquidity" : "Remove Liquidity"}
+          </button>
+        ))}
+      </div>
+
+      {/* Add form */}
+      {mode === "add" && (
+        <Card className="border-border bg-card/80 rounded-sm">
+          <CardContent className="p-6 space-y-4">
+            <div className="space-y-2">
+              <Label className="uppercase text-xs font-bold tracking-widest text-muted-foreground">
+                ETH amount
+              </Label>
+              <Input
+                placeholder="0.00"
+                value={ethIn}
+                onChange={(e) => handleEthChange(e.target.value)}
+                className="font-mono text-lg bg-secondary/50 border-border"
+              />
+            </div>
+            <div className="flex items-center justify-center">
+              <Plus className="w-4 h-4 text-muted-foreground" />
+            </div>
+            <div className="space-y-2">
+              <Label className="uppercase text-xs font-bold tracking-widest text-muted-foreground">
+                wEMBR amount{pool.pairAddress ? " (auto)" : ""}
+              </Label>
+              <Input
+                placeholder="0.00"
+                value={wEmbrIn}
+                onChange={(e) => handleWEmbrChange(e.target.value)}
+                className="font-mono text-lg bg-secondary/50 border-border"
+              />
+            </div>
+            {!pool.pairAddress && (
+              <div className="flex items-center gap-2 text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/30 rounded-sm px-3 py-2">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                No pool yet — your deposit sets the initial price. Enter both amounts manually.
+              </div>
+            )}
+            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-secondary/40 border border-border rounded-sm px-3 py-2">
+              <Info className="w-3.5 h-3.5 shrink-0" />
+              LP tokens go to your wallet. Slippage tolerance: 0.5%.
+            </div>
+            <Button
+              className="w-full"
+              disabled={isAdding || !baseWallet.wallet || !baseWallet.isOnBase || !ethIn || !wEmbrIn}
+              onClick={handleAddLiquidity}
+            >
+              {isAdding ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <Plus className="w-4 h-4 mr-2" />
+              )}
+              {isAdding ? "Adding…" : "Add Liquidity"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Remove form */}
+      {mode === "remove" && (
+        <Card className="border-border bg-card/80 rounded-sm">
+          <CardContent className="p-6 space-y-4">
+            {!pool.pairAddress ? (
+              <div className="text-center py-4 text-sm text-muted-foreground italic">
+                No pool exists yet.
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="uppercase text-xs font-bold tracking-widest text-muted-foreground">
+                      LP tokens to burn
+                    </Label>
+                    {baseWallet.wallet && pool.userLpBalance > 0n && (
+                      <button
+                        className="text-xs text-primary hover:underline font-bold uppercase tracking-widest"
+                        onClick={() =>
+                          setLpIn((Number(pool.userLpBalance) / 1e18).toFixed(18).replace(/\.?0+$/, ""))
+                        }
+                      >
+                        Max
+                      </button>
+                    )}
+                  </div>
+                  <Input
+                    placeholder="0.00"
+                    value={lpIn}
+                    onChange={(e) => setLpIn(e.target.value)}
+                    className="font-mono text-lg bg-secondary/50 border-border"
+                  />
+                  {baseWallet.wallet && (
+                    <div className="text-xs text-muted-foreground">
+                      Balance: {formatWei(pool.userLpBalance, 6)} LP
+                    </div>
+                  )}
+                </div>
+
+                {lpWei > 0n && (
+                  <div className="bg-secondary/40 border border-border rounded-sm px-4 py-3 space-y-1.5">
+                    <div className="text-xs text-muted-foreground uppercase font-bold tracking-widest mb-2">
+                      You receive
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">ETH</span>
+                      <span className="font-mono text-foreground">
+                        ≈ {formatWei(expectedEth, 8)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">wEMBR</span>
+                      <span className="font-mono text-foreground">
+                        ≈ {formatWei(expectedWEmbr, 6)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 text-xs text-muted-foreground bg-secondary/40 border border-border rounded-sm px-3 py-2">
+                  <Info className="w-3.5 h-3.5 shrink-0" />
+                  Slippage tolerance: 0.5%.
+                </div>
+
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  disabled={isRemoving || !baseWallet.wallet || !baseWallet.isOnBase || lpWei === 0n}
+                  onClick={handleRemoveLiquidity}
+                >
+                  {isRemoving ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    <Minus className="w-4 h-4 mr-2" />
+                  )}
+                  {isRemoving ? "Removing…" : "Remove Liquidity"}
+                </Button>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function EmberSwap() {
@@ -1232,7 +1853,7 @@ export default function EmberSwap() {
       </div>
 
       <Tabs defaultValue="bridge" className="w-full">
-        <TabsList className="grid grid-cols-2 max-w-sm bg-secondary rounded-sm p-1 mb-8">
+        <TabsList className="grid grid-cols-3 max-w-md bg-secondary rounded-sm p-1 mb-8">
           <TabsTrigger
             value="bridge"
             className="rounded-sm uppercase font-bold text-xs tracking-widest data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
@@ -1245,6 +1866,12 @@ export default function EmberSwap() {
           >
             <Zap className="w-3.5 h-3.5 mr-1.5" /> Swap
           </TabsTrigger>
+          <TabsTrigger
+            value="pool"
+            className="rounded-sm uppercase font-bold text-xs tracking-widest data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+          >
+            <Droplets className="w-3.5 h-3.5 mr-1.5" /> Pool
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="bridge">
@@ -1252,6 +1879,9 @@ export default function EmberSwap() {
         </TabsContent>
         <TabsContent value="swap">
           <SwapTab />
+        </TabsContent>
+        <TabsContent value="pool">
+          <LiquidityTab />
         </TabsContent>
       </Tabs>
     </Shell>
