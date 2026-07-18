@@ -17,6 +17,10 @@ import {
   Loader2,
   Users,
   Hash,
+  Settings,
+  Eye,
+  EyeOff,
+  Check,
 } from "lucide-react";
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -24,6 +28,8 @@ import {
 interface ChatMessage {
   id: number;
   author: string;
+  displayName: string;
+  addressPublic: boolean;
   content: string;
   createdAt: string;
 }
@@ -47,9 +53,19 @@ interface Post {
   comments?: Comment[];
 }
 
+interface Profile {
+  address: string;
+  nickname: string | null;
+  addressPublic: boolean;
+}
+
+// displayName overrides fetched from profile_updated broadcasts, keyed by address
+type DisplayCache = Map<string, { displayName: string; addressPublic: boolean }>;
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function shortAddr(addr: string): string {
+  if (!addr) return "";
   return addr.slice(0, 6) + "…" + addr.slice(-4);
 }
 
@@ -68,6 +84,221 @@ function getWsUrl(): string {
 
 const BASE = "/api/community";
 
+// ── Author chip with hover tooltip ───────────────────────────────────────────
+
+function AuthorChip({
+  displayName,
+  author,
+  addressPublic,
+  isMe,
+}: {
+  displayName: string;
+  author: string;
+  addressPublic: boolean;
+  isMe: boolean;
+}) {
+  const [hover, setHover] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  return (
+    <span className="relative inline-block">
+      <span
+        ref={ref}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        className={cn(
+          "text-[10px] font-bold uppercase tracking-widest font-mono cursor-default select-none",
+          isMe ? "text-primary/80" : "text-primary/70",
+        )}
+      >
+        {displayName}
+      </span>
+
+      {hover && (
+        <span
+          className={cn(
+            "absolute bottom-full left-0 mb-1.5 z-50 whitespace-nowrap",
+            "rounded-sm border px-2.5 py-1.5 text-[10px] font-mono font-bold leading-none",
+            "pointer-events-none select-none shadow-lg",
+            addressPublic
+              ? "bg-card border-border text-foreground"
+              : "bg-card border-primary/20 text-primary/60",
+          )}
+        >
+          {addressPublic ? (
+            <>
+              <span className="text-muted-foreground mr-1.5">addr</span>
+              {author}
+            </>
+          ) : (
+            <span className="flex items-center gap-1.5 tracking-widest">
+              <EyeOff className="w-3 h-3 inline-block" />
+              ░ SHIELDED ░
+            </span>
+          )}
+          {/* arrow */}
+          <span
+            className={cn(
+              "absolute top-full left-3 w-0 h-0",
+              "border-l-[4px] border-l-transparent",
+              "border-r-[4px] border-r-transparent",
+              addressPublic
+                ? "border-t-[5px] border-t-border"
+                : "border-t-[5px] border-t-primary/20",
+            )}
+          />
+        </span>
+      )}
+    </span>
+  );
+}
+
+// ── Profile settings panel ────────────────────────────────────────────────────
+
+function ProfilePanel({
+  address,
+  onClose,
+  onSaved,
+}: {
+  address: string;
+  onClose: () => void;
+  onSaved: (profile: Profile) => void;
+}) {
+  const [nickname, setNickname] = useState("");
+  const [addressPublic, setAddressPublic] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // Load existing profile
+  useEffect(() => {
+    fetch(`${BASE}/profile/${address}`)
+      .then((r) => (r.ok ? r.json() as Promise<Profile> : null))
+      .then((p) => {
+        if (p) {
+          setNickname(p.nickname ?? "");
+          setAddressPublic(p.addressPublic);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [address]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`${BASE}/profile`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address,
+          nickname: nickname.trim() || null,
+          addressPublic,
+        }),
+      });
+      if (res.ok) {
+        const p = await res.json() as Profile;
+        setSaved(true);
+        onSaved(p);
+        setTimeout(() => setSaved(false), 2000);
+      }
+    } catch { /* ignore */ } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="absolute top-full right-0 mt-2 z-50 w-80">
+      <div className="bg-card border border-border rounded-sm shadow-xl p-4 space-y-4">
+        {/* header */}
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+            Identity Settings
+          </span>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center gap-2 text-muted-foreground text-sm py-2">
+            <Loader2 className="w-3 h-3 animate-spin" /> Loading…
+          </div>
+        ) : (
+          <>
+            {/* Nickname */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                Nickname
+              </label>
+              <Input
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value.slice(0, 32))}
+                placeholder={shortAddr(address)}
+                className="bg-secondary/40 border-border text-sm h-8"
+                maxLength={32}
+              />
+              <p className="text-[10px] text-muted-foreground/60">
+                Leave blank to show your address (truncated)
+              </p>
+            </div>
+
+            {/* Privacy toggle */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                Address visibility
+              </label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setAddressPublic(true)}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-sm border text-xs font-bold uppercase tracking-wide transition-all",
+                    addressPublic
+                      ? "bg-primary/10 border-primary/30 text-primary"
+                      : "border-border text-muted-foreground hover:border-border/80",
+                  )}
+                >
+                  <Eye className="w-3.5 h-3.5" /> Public
+                </button>
+                <button
+                  onClick={() => setAddressPublic(false)}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-sm border text-xs font-bold uppercase tracking-wide transition-all",
+                    !addressPublic
+                      ? "bg-primary/10 border-primary/30 text-primary"
+                      : "border-border text-muted-foreground hover:border-border/80",
+                  )}
+                >
+                  <EyeOff className="w-3.5 h-3.5" /> Shield
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground/60">
+                {addressPublic
+                  ? "Others can hover your name to see your full address."
+                  : "Others see ░ SHIELDED ░ when they hover your name."}
+              </p>
+            </div>
+
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              size="sm"
+              className="w-full gap-2"
+            >
+              {saving ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : saved ? (
+                <Check className="w-3.5 h-3.5" />
+              ) : null}
+              {saved ? "Saved!" : "Save identity"}
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── WebSocket hook ────────────────────────────────────────────────────────────
 
 type WsEvent =
@@ -75,7 +306,8 @@ type WsEvent =
   | { type: "chat_message"; message: ChatMessage }
   | { type: "new_comment"; comment: Comment }
   | { type: "new_post"; post: Post }
-  | { type: "post_upvoted"; postId: number; upvotes: number };
+  | { type: "post_upvoted"; postId: number; upvotes: number }
+  | { type: "profile_updated"; address: string; displayName: string; addressPublic: boolean };
 
 function useWs(onEvent: (e: WsEvent) => void) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -126,11 +358,13 @@ function useWs(onEvent: (e: WsEvent) => void) {
 function LiveChat({
   address,
   messages,
+  displayCache,
   onSend,
   online,
 }: {
   address: string;
   messages: ChatMessage[];
+  displayCache: DisplayCache;
   onSend: (content: string) => void;
   online: boolean;
 }) {
@@ -150,7 +384,6 @@ function LiveChat({
 
   return (
     <div className="flex flex-col h-full">
-      {/* message feed */}
       <div className="flex-1 overflow-y-auto space-y-1 p-4 min-h-0">
         {messages.length === 0 && (
           <div className="text-center text-muted-foreground/50 text-sm italic py-8">
@@ -159,6 +392,11 @@ function LiveChat({
         )}
         {messages.map((m) => {
           const isMe = m.author.toLowerCase() === address.toLowerCase();
+          // Live overrides from profile_updated events
+          const cached = displayCache.get(m.author.toLowerCase());
+          const displayName = cached?.displayName ?? m.displayName;
+          const addressPublic = cached !== undefined ? cached.addressPublic : m.addressPublic;
+
           return (
             <div key={m.id} className={cn("flex gap-2 group", isMe && "flex-row-reverse")}>
               <div className={cn(
@@ -168,8 +406,13 @@ function LiveChat({
                   : "bg-secondary/60 border border-border text-foreground",
               )}>
                 {!isMe && (
-                  <div className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1 font-mono">
-                    {shortAddr(m.author)}
+                  <div className="mb-1">
+                    <AuthorChip
+                      displayName={displayName}
+                      author={m.author}
+                      addressPublic={addressPublic}
+                      isMe={false}
+                    />
                   </div>
                 )}
                 <div>{m.content}</div>
@@ -183,7 +426,6 @@ function LiveChat({
         <div ref={bottomRef} />
       </div>
 
-      {/* input */}
       <div className="border-t border-border p-3 flex gap-2">
         <Input
           value={text}
@@ -227,7 +469,6 @@ function PostCard({
   const [loadingComments, setLoadingComments] = useState(false);
   const [commentText, setCommentText] = useState("");
 
-  // Merge loaded comments with live ones
   const allComments = React.useMemo(() => {
     const seen = new Set(comments.map((c) => c.id));
     const live = liveComments.filter((c) => c.postId === post.id && !seen.has(c.id));
@@ -257,30 +498,21 @@ function PostCard({
 
   return (
     <div className="border border-border rounded-sm bg-secondary/20">
-      {/* post header */}
       <div className="flex gap-3 p-4">
-        {/* upvote */}
         <div className="flex flex-col items-center gap-1 pt-0.5 shrink-0">
-          <button
-            onClick={() => onUpvote(post.id)}
-            className="text-muted-foreground hover:text-primary transition-colors"
-          >
+          <button onClick={() => onUpvote(post.id)} className="text-muted-foreground hover:text-primary transition-colors">
             <ArrowUp className="w-4 h-4" />
           </button>
           <span className="font-mono text-xs font-bold text-foreground">{post.upvotes}</span>
         </div>
 
-        {/* body */}
         <div className="flex-1 min-w-0">
           <h3 className="font-bold text-foreground text-sm leading-snug mb-1">{post.title}</h3>
           <p className="text-muted-foreground text-sm leading-relaxed line-clamp-3">{post.content}</p>
           <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground font-sans">
             <span className="font-mono text-primary/70">{shortAddr(post.author)}</span>
             <span>{timeAgo(post.createdAt)}</span>
-            <button
-              onClick={handleOpen}
-              className="flex items-center gap-1 hover:text-foreground transition-colors ml-auto"
-            >
+            <button onClick={handleOpen} className="flex items-center gap-1 hover:text-foreground transition-colors ml-auto">
               <MessageSquare className="w-3 h-3" />
               {allComments.length || post.commentCount} comments
               {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
@@ -289,7 +521,6 @@ function PostCard({
         </div>
       </div>
 
-      {/* comments section */}
       {open && (
         <div className="border-t border-border bg-black/20 px-4 py-3 space-y-3">
           {loadingComments ? (
@@ -312,8 +543,6 @@ function PostCard({
               </div>
             ))
           )}
-
-          {/* add comment */}
           <div className="flex gap-2 pt-1">
             <Input
               value={commentText}
@@ -390,28 +619,48 @@ export default function Community() {
   const [liveComments, setLiveComments] = useState<Comment[]>([]);
   const [showNewPost, setShowNewPost] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  // Tracks live display overrides from profile_updated broadcasts
+  const [displayCache, setDisplayCache] = useState<DisplayCache>(new Map());
+  // Own profile (for showing current settings badge)
+  const [myProfile, setMyProfile] = useState<Profile | null>(null);
 
-  // WebSocket
+  // Load own profile on mount
+  useEffect(() => {
+    if (!address) return;
+    fetch(`${BASE}/profile/${address}`)
+      .then((r) => (r.ok ? r.json() as Promise<Profile> : null))
+      .then((p) => { if (p) setMyProfile(p); })
+      .catch(() => {});
+  }, [address]);
+
   const { send, online } = useWs((event) => {
     if (event.type === "history") setChatMessages(event.messages);
     if (event.type === "chat_message") setChatMessages((p) => [...p, event.message].slice(-200));
     if (event.type === "new_comment") setLiveComments((p) => [...p, event.comment].slice(-200));
     if (event.type === "new_post") setPosts((p) => [event.post, ...p]);
     if (event.type === "post_upvoted") {
-      setPosts((p) => p.map((post) =>
-        post.id === event.postId ? { ...post, upvotes: event.upvotes } : post
-      ));
+      setPosts((p) => p.map((post) => post.id === event.postId ? { ...post, upvotes: event.upvotes } : post));
+    }
+    if (event.type === "profile_updated") {
+      setDisplayCache((prev) => {
+        const next = new Map(prev);
+        next.set(event.address.toLowerCase(), {
+          displayName: event.displayName,
+          addressPublic: event.addressPublic,
+        });
+        return next;
+      });
     }
   });
 
-  // Fetch posts on forum tab open
   useEffect(() => {
     if (tab !== "forum" || posts.length > 0) return;
     setLoadingPosts(true);
     fetch(`${BASE}/posts`)
       .then((r) => r.json() as Promise<Post[]>)
       .then(setPosts)
-      .catch(() => { /* ignore */ })
+      .catch(() => {})
       .finally(() => setLoadingPosts(false));
   }, [tab]);
 
@@ -444,9 +693,31 @@ export default function Community() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ author: address, title, content }),
       });
-      // The WebSocket will broadcast new_post and update state
     } catch { /* ignore */ }
   };
+
+  const handleProfileSaved = (profile: Profile) => {
+    setMyProfile(profile);
+    setShowProfile(false);
+    // Also update own entry in displayCache so our own messages update immediately
+    if (address) {
+      setDisplayCache((prev) => {
+        const next = new Map(prev);
+        next.set(address.toLowerCase(), {
+          displayName: profile.nickname ?? shortAddr(address),
+          addressPublic: profile.addressPublic,
+        });
+        return next;
+      });
+    }
+  };
+
+  // Derive own display name to show in header
+  const myDisplayName = (() => {
+    const cached = displayCache.get(address.toLowerCase());
+    if (cached) return cached.displayName;
+    return myProfile?.nickname ?? (address ? shortAddr(address) : null);
+  })();
 
   return (
     <Shell requireWallet={false}>
@@ -482,8 +753,31 @@ export default function Community() {
           </div>
 
           {address && (
-            <div className="text-xs font-mono text-muted-foreground border border-border rounded-sm px-2 py-1 bg-secondary/30">
-              {shortAddr(address)}
+            <div className="relative">
+              <button
+                onClick={() => setShowProfile((v) => !v)}
+                className={cn(
+                  "flex items-center gap-2 text-xs font-bold border rounded-sm px-2.5 py-1.5 transition-all",
+                  showProfile
+                    ? "bg-primary/10 border-primary/30 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground hover:border-border/80 bg-secondary/30",
+                )}
+              >
+                {/* Privacy indicator dot */}
+                {myProfile && !myProfile.addressPublic && (
+                  <EyeOff className="w-3 h-3 shrink-0" />
+                )}
+                <span className="font-mono">{myDisplayName}</span>
+                <Settings className="w-3 h-3 shrink-0" />
+              </button>
+
+              {showProfile && (
+                <ProfilePanel
+                  address={address}
+                  onClose={() => setShowProfile(false)}
+                  onSaved={handleProfileSaved}
+                />
+              )}
             </div>
           )}
         </div>
@@ -532,6 +826,7 @@ export default function Community() {
                 <LiveChat
                   address={address}
                   messages={chatMessages}
+                  displayCache={displayCache}
                   onSend={handleSendChat}
                   online={online}
                 />

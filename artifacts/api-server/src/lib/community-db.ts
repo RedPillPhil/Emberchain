@@ -44,6 +44,13 @@ export async function ensureCommunityTables(): Promise<void> {
         created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS community_profiles (
+        address        TEXT        PRIMARY KEY,
+        nickname       TEXT,
+        address_public BOOLEAN     NOT NULL DEFAULT TRUE,
+        updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
       CREATE INDEX IF NOT EXISTS community_comments_post_id_idx
         ON community_comments(post_id);
     `);
@@ -52,13 +59,85 @@ export async function ensureCommunityTables(): Promise<void> {
   }
 }
 
+// ── Profiles ──────────────────────────────────────────────────────────────────
+
+export interface Profile {
+  address: string;
+  nickname: string | null;
+  addressPublic: boolean;
+}
+
+export async function getProfile(address: string): Promise<Profile | null> {
+  const { rows } = await pool.query<{
+    address: string; nickname: string | null; address_public: boolean;
+  }>("SELECT address, nickname, address_public FROM community_profiles WHERE address = $1", [address.toLowerCase()]);
+  if (!rows[0]) return null;
+  return { address: rows[0].address, nickname: rows[0].nickname, addressPublic: rows[0].address_public };
+}
+
+export async function upsertProfile(
+  address: string,
+  nickname: string | null,
+  addressPublic: boolean,
+): Promise<Profile> {
+  const addr = address.toLowerCase();
+  const trimmed = nickname?.trim().slice(0, 32) || null;
+  await pool.query(
+    `INSERT INTO community_profiles (address, nickname, address_public, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (address) DO UPDATE
+       SET nickname = EXCLUDED.nickname,
+           address_public = EXCLUDED.address_public,
+           updated_at = NOW()`,
+    [addr, trimmed, addressPublic],
+  );
+  return { address: addr, nickname: trimmed, addressPublic };
+}
+
+/** Batch-fetch profiles for a list of addresses. Returns a map keyed by lowercase address. */
+export async function getProfilesForAddresses(addresses: string[]): Promise<Map<string, Profile>> {
+  if (addresses.length === 0) return new Map();
+  const lower = [...new Set(addresses.map((a) => a.toLowerCase()))];
+  const { rows } = await pool.query<{
+    address: string; nickname: string | null; address_public: boolean;
+  }>(
+    "SELECT address, nickname, address_public FROM community_profiles WHERE address = ANY($1)",
+    [lower],
+  );
+  const map = new Map<string, Profile>();
+  for (const r of rows) {
+    map.set(r.address, { address: r.address, nickname: r.nickname, addressPublic: r.address_public });
+  }
+  return map;
+}
+
 // ── Messages ──────────────────────────────────────────────────────────────────
 
 export interface ChatMessage {
   id: number;
-  author: string;
+  author: string;          // always the raw wallet address
+  displayName: string;     // nickname if set, otherwise short address
+  addressPublic: boolean;  // whether the sender chose to expose their address
   content: string;
   createdAt: string;
+}
+
+function shortAddr(addr: string): string {
+  return addr.slice(0, 6) + "…" + addr.slice(-4);
+}
+
+function toMessage(
+  r: { id: number; author: string; content: string; created_at: Date },
+  profile: Profile | undefined,
+): ChatMessage {
+  return {
+    id: r.id,
+    author: r.author,
+    displayName: profile?.nickname ?? shortAddr(r.author),
+    addressPublic: profile?.addressPublic ?? true,
+    content: r.content,
+    createdAt: r.created_at.toISOString(),
+  };
 }
 
 export async function getRecentMessages(limit = 80): Promise<ChatMessage[]> {
@@ -71,25 +150,24 @@ export async function getRecentMessages(limit = 80): Promise<ChatMessage[]> {
      LIMIT $1`,
     [limit],
   );
-  return rows.reverse().map((r) => ({
-    id: r.id,
-    author: r.author,
-    content: r.content,
-    createdAt: r.created_at.toISOString(),
-  }));
+  const reversed = rows.reverse();
+  const profiles = await getProfilesForAddresses(reversed.map((r) => r.author));
+  return reversed.map((r) => toMessage(r, profiles.get(r.author)));
 }
 
 export async function insertMessage(author: string, content: string): Promise<ChatMessage> {
+  const addr = author.toLowerCase();
   const { rows } = await pool.query<{
     id: number; author: string; content: string; created_at: Date;
   }>(
     `INSERT INTO community_messages (author, content)
      VALUES ($1, $2)
      RETURNING id, author, content, created_at`,
-    [author.toLowerCase(), content.trim()],
+    [addr, content.trim()],
   );
   const r = rows[0]!;
-  return { id: r.id, author: r.author, content: r.content, createdAt: r.created_at.toISOString() };
+  const profile = await getProfile(addr);
+  return toMessage(r, profile ?? undefined);
 }
 
 // ── Posts ─────────────────────────────────────────────────────────────────────
