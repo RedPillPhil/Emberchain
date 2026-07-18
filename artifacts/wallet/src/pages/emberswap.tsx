@@ -1978,9 +1978,26 @@ function usePoolState(userAddress: string | null) {
   }, [userAddress]);
 
   useEffect(() => {
-    load();
+    let retryId: ReturnType<typeof setTimeout> | null = null;
+
+    const tryLoad = async () => {
+      await load();
+      // If the load failed (error set, pairAddress still null), retry once
+      // after 3 s — handles transient rate-limit on first paint.
+      setState((s) => {
+        if (s.error && !s.pairAddress) {
+          retryId = setTimeout(load, 3_000);
+        }
+        return s;
+      });
+    };
+
+    tryLoad();
     const id = setInterval(load, 15_000);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      if (retryId) clearTimeout(retryId);
+    };
   }, [load]);
 
   return { ...state, refresh: load };
