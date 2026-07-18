@@ -3,6 +3,8 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { ensureProofsTable } from "./lib/db";
 import { ensureCommunityTables } from "./lib/community-db";
+import { ensureBridgeTables } from "./lib/bridge-db";
+import { startBridgeRelayer, stopBridgeRelayer } from "./lib/bridge-relayer";
 import { WebSocketServer } from "ws";
 import { setupCommunityWS } from "./routes/community";
 
@@ -24,6 +26,7 @@ if (Number.isNaN(port) || port <= 0) {
 Promise.all([
   ensureProofsTable(),
   ensureCommunityTables(),
+  ensureBridgeTables(),
 ]).catch((err) =>
   logger.warn({ err }, "Could not ensure database tables — continuing anyway"),
 );
@@ -41,4 +44,15 @@ server.listen(port, (err?: Error) => {
     process.exit(1);
   }
   logger.info({ port }, "Server listening");
+
+  // Start bridge relayer loops in the background after the server is up.
+  // Loops are no-ops when contract addresses / RPC URLs are not yet configured.
+  startBridgeRelayer();
+});
+
+// Clean shutdown — stop relayer loops before the process exits.
+process.on("SIGTERM", () => {
+  logger.info("SIGTERM received — shutting down bridge relayer");
+  stopBridgeRelayer();
+  server.close(() => process.exit(0));
 });

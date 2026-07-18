@@ -1,0 +1,10 @@
+{
+  "note": "Run pnpm deploy:testnet to populate with real testnet addresses.",
+  "network": "not yet deployed",
+  "contracts": {
+    "WrappedEMBR": "",
+    "EmberchainBridge": "",
+    "EmberBridge": "",
+    "EmberSwap": ""
+  }
+}
