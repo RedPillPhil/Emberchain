@@ -70,6 +70,8 @@ const WEMBR_ADDRESS =
 
 const UNISWAP_V2_ROUTER = "0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24";
 const WETH_ADDRESS = "0x4200000000000000000000000000000000000006";
+// Known wEMBR/WETH Uniswap V2 pair on Base mainnet — skip factory lookup
+const WEMBR_WETH_PAIR = "0xD7e6A5Dfdee7D141A036a5Af8C92Fe7ac20392a6";
 
 const CONTRACTS_DEPLOYED = !!(
   EMBER_BRIDGE_ADDRESS &&
@@ -1900,35 +1902,11 @@ function usePoolState(userAddress: string | null) {
   });
 
   const load = useCallback(async () => {
-    if (!WEMBR_ADDRESS) return;
     setState((s) => ({ ...s, loading: true, error: null }));
     try {
-      // Get factory from router
-      const factoryHex = await baseEthCall(
-        UNISWAP_V2_ROUTER,
-        "0x" + SEL.factory,
-      );
-      const factoryAddr = decodeAddress(factoryHex);
-
-      // Get pair address
-      const pairHex = await baseEthCall(
-        factoryAddr,
-        "0x" + SEL.getPair + padAddr(WEMBR_ADDRESS) + padAddr(WETH_ADDRESS),
-      );
-      const pairAddr = decodeAddress(pairHex);
-
-      if (pairAddr === "0x0000000000000000000000000000000000000000") {
-        setState({
-          pairAddress: null,
-          wEmbrReserve: 0n,
-          ethReserve: 0n,
-          lpTotalSupply: 0n,
-          userLpBalance: 0n,
-          loading: false,
-          error: null,
-        });
-        return;
-      }
+      // Use the known pair address directly — avoids two extra RPC hops
+      // (router.factory() → factory.getPair()) that can time-out under load.
+      const pairAddr = WEMBR_WETH_PAIR;
 
       // Get reserves + token0 + totalSupply in parallel
       const [reservesHex, token0Hex, supplyHex] = await Promise.all([
