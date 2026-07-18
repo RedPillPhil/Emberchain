@@ -9,6 +9,7 @@ import privacyRouter from "./privacy";
 import exchangeRouter from "./exchange";
 import rpcRouter from "./rpc";
 import onrampRouter from "./onramp";
+import communityRouter from "./community";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(privacyRouter);
 router.use(exchangeRouter);
 router.use(rpcRouter);
 router.use(onrampRouter);
+router.use(communityRouter);
 
 export default router;

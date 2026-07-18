@@ -15,6 +15,7 @@ import {
   useCancelListing,
   useBuyListing,
   useReserveListing,
+  useGetChainStatus,
   getListExchangeListingsQueryKey,
 } from "@workspace/api-client-react";
 import type { ExchangeListing, ExchangeCurrency } from "@workspace/api-client-react";
@@ -586,21 +587,72 @@ function ReservationCountdown({ listing }: { listing: ExchangeListing }) {
   );
 }
 
+// CoinGecko simple/price — live spot prices for sorting by USD value
+const spotPriceCache: Partial<Record<ExchangeCurrency, number>> = {};
+let spotPriceFetchedAt = 0;
+
+async function fetchSpotPrices(): Promise<Partial<Record<ExchangeCurrency, number>>> {
+  if (Date.now() - spotPriceFetchedAt < 60_000) return spotPriceCache;
+  try {
+    const res = await fetch(
+      "https://api.coingecko.com/api/v3/simple/price?ids=ethereum,bitcoin,solana&vs_currencies=usd",
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json() as {
+      ethereum?: { usd?: number };
+      bitcoin?: { usd?: number };
+      solana?: { usd?: number };
+    };
+    spotPriceCache.ETH  = json.ethereum?.usd ?? spotPriceCache.ETH ?? 0;
+    spotPriceCache.BTC  = json.bitcoin?.usd  ?? spotPriceCache.BTC  ?? 0;
+    spotPriceCache.SOL  = json.solana?.usd   ?? spotPriceCache.SOL  ?? 0;
+    spotPriceCache.USDT = 1;
+    spotPriceFetchedAt  = Date.now();
+  } catch {
+    spotPriceCache.USDT = 1;
+  }
+  return spotPriceCache;
+}
+
+type MarketSort = "newest" | "oldest" | "highest" | "lowest";
+
+function listingUsdValue(l: ExchangeListing, spots: Partial<Record<ExchangeCurrency, number>>): number {
+  return parseFloat(l.priceAmount) * (spots[l.currency] ?? 0);
+}
+
+function fmtDate(iso: string | undefined | null): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" });
+}
+
 function MarketplaceTab() {
   const { activeWallet } = useActiveWallet();
   const { data: listings = [], isLoading } = useListExchangeListings(
     { status: "open" },
     { query: { refetchInterval: 15_000 } },
   );
+  const [sortBy, setSortBy] = useState<MarketSort>("newest");
+  const [spots, setSpots] = useState<Partial<Record<ExchangeCurrency, number>>>({});
+
+  useEffect(() => {
+    fetchSpotPrices().then(setSpots).catch(() => {});
+  }, []);
 
   const now = Date.now();
   const myAddress = activeWallet?.address?.toLowerCase() ?? "";
 
-  // Auto-expand if the user already holds a reservation
   const myReservedListing = listings.find(
     (l) => l.reservedBy?.toLowerCase() === myAddress && l.reservedUntil && l.reservedUntil > now
   );
   const [expandedId, setExpandedId] = useState<string | null>(myReservedListing?.id ?? null);
+
+  const sorted = [...listings].sort((a, b) => {
+    if (sortBy === "newest") return new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime();
+    if (sortBy === "oldest") return new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime();
+    if (sortBy === "highest") return listingUsdValue(b, spots) - listingUsdValue(a, spots);
+    if (sortBy === "lowest")  return listingUsdValue(a, spots) - listingUsdValue(b, spots);
+    return 0;
+  });
 
   if (isLoading) {
     return (
@@ -620,102 +672,140 @@ function MarketplaceTab() {
     );
   }
 
+  const SORT_OPTIONS: { value: MarketSort; label: string }[] = [
+    { value: "newest",  label: "Newest" },
+    { value: "oldest",  label: "Oldest" },
+    { value: "highest", label: "Highest $" },
+    { value: "lowest",  label: "Lowest $" },
+  ];
+
   return (
-    <div className="space-y-2">
-      {listings.map((listing: ExchangeListing) => {
-        const open = expandedId === listing.id;
-        const isReservedByMe =
-          myAddress &&
-          listing.reservedBy?.toLowerCase() === myAddress &&
-          listing.reservedUntil !== null &&
-          listing.reservedUntil > now;
-        const isReservedByOther =
-          listing.reservedBy &&
-          listing.reservedUntil !== null &&
-          listing.reservedUntil > now &&
-          !isReservedByMe;
+    <div className="space-y-3">
+      {/* Sort controls */}
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest shrink-0">Sort by</span>
+        {SORT_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => setSortBy(opt.value)}
+            className={cn(
+              "text-xs font-bold uppercase tracking-wide px-2.5 py-1 rounded-sm border transition-all",
+              sortBy === opt.value
+                ? "bg-primary/10 text-primary border-primary/30"
+                : "border-border text-muted-foreground hover:text-foreground hover:border-border/80 bg-secondary/30",
+            )}
+          >
+            {opt.label}
+          </button>
+        ))}
+        <span className="ml-auto text-[10px] text-muted-foreground">{listings.length} listing{listings.length !== 1 ? "s" : ""}</span>
+      </div>
 
-        return (
-          <div key={listing.id} className="border border-border rounded-sm bg-secondary/30">
-            <div className="flex items-center gap-3 px-4 py-3">
-              <Badge className={`text-xs uppercase border ${CURRENCY_COLORS[listing.currency]} font-bold w-14 justify-center`}>
-                {listing.currency}
-              </Badge>
+      <div className="space-y-2">
+        {sorted.map((listing: ExchangeListing) => {
+          const open = expandedId === listing.id;
+          const isReservedByMe =
+            myAddress &&
+            listing.reservedBy?.toLowerCase() === myAddress &&
+            listing.reservedUntil !== null &&
+            listing.reservedUntil > now;
+          const isReservedByOther =
+            listing.reservedBy &&
+            listing.reservedUntil !== null &&
+            listing.reservedUntil > now &&
+            !isReservedByMe;
 
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-foreground">{formatEmbr(listing.amountEmbr)}</div>
-                <div className="text-xs text-muted-foreground font-mono">{truncate(listing.sellerAddress)}</div>
-                {listing.currency === "USDT" && listing.acceptedNetworks && listing.acceptedNetworks.length > 1 && (
-                  <div className="flex gap-1 mt-0.5 flex-wrap">
-                    {listing.acceptedNetworks.map((n) => (
-                      <span key={n} className="text-[10px] px-1.5 py-0 rounded border border-green-500/30 text-green-400/80">
-                        {n}
-                      </span>
-                    ))}
+          return (
+            <div key={listing.id} className="border border-border rounded-sm bg-secondary/30">
+              <div className="flex items-center gap-3 px-4 py-3">
+                <Badge className={`text-xs uppercase border ${CURRENCY_COLORS[listing.currency]} font-bold w-14 justify-center`}>
+                  {listing.currency}
+                </Badge>
+
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-foreground">{formatEmbr(listing.amountEmbr)}</div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="font-mono">{truncate(listing.sellerAddress)}</span>
+                    {listing.createdAt && (
+                      <span className="text-muted-foreground/50">· {fmtDate(listing.createdAt)}</span>
+                    )}
                   </div>
+                  {listing.currency === "USDT" && listing.acceptedNetworks && listing.acceptedNetworks.length > 1 && (
+                    <div className="flex gap-1 mt-0.5 flex-wrap">
+                      {listing.acceptedNetworks.map((n) => (
+                        <span key={n} className="text-[10px] px-1.5 py-0 rounded border border-green-500/30 text-green-400/80">
+                          {n}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-right mr-2">
+                  <div className="font-bold text-foreground">
+                    {CURRENCY_SYMBOLS[listing.currency]}{listing.priceAmount} {listing.currency}
+                  </div>
+                  {spots[listing.currency] !== undefined && (
+                    <div className="text-[10px] text-muted-foreground">
+                      ≈ ${listingUsdValue(listing, spots).toFixed(2)} USD
+                    </div>
+                  )}
+                </div>
+
+                {/* Reservation state / Buy button */}
+                {isReservedByOther ? (
+                  <div className="shrink-0 flex flex-col items-end gap-0.5">
+                    <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/40 uppercase text-xs gap-1">
+                      <Lock className="w-2.5 h-2.5" /> Reserved
+                    </Badge>
+                    <ReservationCountdown listing={listing} />
+                  </div>
+                ) : isReservedByMe ? (
+                  <Button
+                    size="sm"
+                    onClick={() => setExpandedId(open ? null : listing.id)}
+                    className="shrink-0 gap-1 bg-amber-500/20 border-amber-500/40 text-amber-400 hover:bg-amber-500/30"
+                    variant="outline"
+                  >
+                    {open ? (
+                      <><ChevronUp className="w-4 h-4" /> Close</>
+                    ) : (
+                      <><ShieldCheck className="w-4 h-4" /> Your reservation</>
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={() => setExpandedId(open ? null : listing.id)}
+                    className="shrink-0 gap-1"
+                  >
+                    {open ? (
+                      <><ChevronUp className="w-4 h-4" /> Close</>
+                    ) : (
+                      <><ChevronDown className="w-4 h-4" /> Buy</>
+                    )}
+                  </Button>
                 )}
               </div>
 
-              <div className="text-right mr-2">
-                <div className="font-bold text-foreground">
-                  {CURRENCY_SYMBOLS[listing.currency]}{listing.priceAmount} {listing.currency}
+              {open && activeWallet && (
+                <div className="px-4 pb-4">
+                  <BuyPanel
+                    listing={listing}
+                    myAddress={activeWallet.address}
+                    onClose={() => setExpandedId(null)}
+                  />
                 </div>
-                <div className="text-xs text-muted-foreground">asking price</div>
-              </div>
-
-              {/* Reservation state / Buy button */}
-              {isReservedByOther ? (
-                <div className="shrink-0 flex flex-col items-end gap-0.5">
-                  <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/40 uppercase text-xs gap-1">
-                    <Lock className="w-2.5 h-2.5" /> Reserved
-                  </Badge>
-                  <ReservationCountdown listing={listing} />
+              )}
+              {open && !activeWallet && (
+                <div className="px-4 pb-4 text-sm text-muted-foreground">
+                  Connect a wallet to buy this listing.
                 </div>
-              ) : isReservedByMe ? (
-                <Button
-                  size="sm"
-                  onClick={() => setExpandedId(open ? null : listing.id)}
-                  className="shrink-0 gap-1 bg-amber-500/20 border-amber-500/40 text-amber-400 hover:bg-amber-500/30"
-                  variant="outline"
-                >
-                  {open ? (
-                    <><ChevronUp className="w-4 h-4" /> Close</>
-                  ) : (
-                    <><ShieldCheck className="w-4 h-4" /> Your reservation</>
-                  )}
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  onClick={() => setExpandedId(open ? null : listing.id)}
-                  className="shrink-0 gap-1"
-                >
-                  {open ? (
-                    <><ChevronUp className="w-4 h-4" /> Close</>
-                  ) : (
-                    <><ChevronDown className="w-4 h-4" /> Buy</>
-                  )}
-                </Button>
               )}
             </div>
-
-            {open && activeWallet && (
-              <div className="px-4 pb-4">
-                <BuyPanel
-                  listing={listing}
-                  myAddress={activeWallet.address}
-                  onClose={() => setExpandedId(null)}
-                />
-              </div>
-            )}
-            {open && !activeWallet && (
-              <div className="px-4 pb-4 text-sm text-muted-foreground">
-                Connect a wallet to buy this listing.
-              </div>
-            )}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1133,6 +1223,7 @@ interface PricePoint { date: string; price: number; currency: string }
 
 function PriceHistoryTab() {
   const { data: listings = [] } = useListExchangeListings({ status: "fulfilled" });
+  const { data: chainStatus } = useGetChainStatus({ query: { refetchInterval: 30_000 } });
   const [points, setPoints] = useState<PricePoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1185,11 +1276,23 @@ function PriceHistoryTab() {
     );
   }
 
+  const totalSupplyEmbr = chainStatus?.totalSupply
+    ? Number(BigInt(chainStatus.totalSupply)) / 1e18
+    : null;
+  const marketCap = latest && totalSupplyEmbr
+    ? latest.price * totalSupplyEmbr
+    : null;
+  const fmtMarketCap = (v: number) =>
+    v >= 1_000_000 ? `${(v / 1_000_000).toFixed(2)}M` :
+    v >= 1_000    ? `${(v / 1_000).toFixed(2)}K` :
+    `${v.toFixed(2)}`;
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {[
-          { label: "Latest Price", value: latest ? `${latest.price.toFixed(6)}` : "—" },
+          { label: "Latest Price",  value: latest ? `${latest.price.toFixed(6)}` : "—" },
+          { label: "Market Cap",    value: marketCap !== null ? fmtMarketCap(marketCap) : "—" },
           { label: "All-time High", value: points.length ? `${Math.max(...points.map(p => p.price)).toFixed(6)}` : "—" },
           { label: "All-time Low",  value: points.length ? `${Math.min(...points.map(p => p.price)).toFixed(6)}` : "—" },
           {

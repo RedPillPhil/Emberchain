@@ -18,6 +18,7 @@ import Privacy from '@/pages/privacy';
 import Exchange from '@/pages/exchange';
 import Contacts from '@/pages/contacts';
 import OnRamp from '@/pages/onramp';
+import Community from '@/pages/community';
 
 const queryClient = new QueryClient();
 
@@ -38,6 +39,7 @@ function Router() {
       <Route path="/exchange" component={Exchange} />
       <Route path="/contacts" component={Contacts} />
       <Route path="/onramp" component={OnRamp} />
+      <Route path="/community" component={Community} />
       <Route component={NotFound} />
     </Switch>
   );

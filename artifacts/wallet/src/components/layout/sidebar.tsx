@@ -16,6 +16,7 @@ import {
   Search,
   BookUser,
   CreditCard,
+  MessageSquare,
 } from "lucide-react";
 
 const navItems = [
@@ -23,6 +24,7 @@ const navItems = [
   { href: "/send", label: "TRANSFER", icon: Send },
   { href: "/onramp", label: "BUY EMBR", icon: CreditCard, highlight: true },
   { href: "/exchange", label: "EXCHANGE", icon: Store },
+  { href: "/community", label: "COMMUNITY", icon: MessageSquare },
   { href: "/contacts", label: "ADDRESS BOOK", icon: BookUser },
   { href: "/privacy", label: "PRIVACY", icon: Shield },
   { href: "/mining", label: "FORGE (MINE)", icon: Flame },
