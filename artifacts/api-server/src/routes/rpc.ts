@@ -171,7 +171,7 @@ async function dispatch(method: string, params: unknown[]): Promise<RpcResult> {
       const w = await chain.getWallet(params[0] as PrefixedHexString);
       return toHex(w.nonce);
     }
-    case "eth_getCode": return "0x";
+    case "eth_getCode": return chain.getContractCode(params[0] as string);
     case "eth_getStorageAt": return "0x0000000000000000000000000000000000000000000000000000000000000000";
 
     // ── Blocks ──

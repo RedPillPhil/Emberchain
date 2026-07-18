@@ -541,6 +541,14 @@ export class Blockchain {
     }
   }
 
+  /** Returns the deployed bytecode for a contract address, or "0x" if not a contract. */
+  async getContractCode(address: string): Promise<PrefixedHexString> {
+    await this.whenReady();
+    const key = address.toLowerCase();
+    const bytes = this.stateManager.codeStack[0].get(key);
+    return bytes && bytes.length > 0 ? bytesToHex(bytes) : "0x";
+  }
+
   // ---------- Chain status ----------
 
   async getStatus() {
