@@ -1034,6 +1034,20 @@ export class Blockchain {
     }
 
     const totalReward = BigInt(EMBERCHAIN_CONFIG.blockReward) + totalFees;
+
+    // ── DEV BOOST (temporary — remove once dev balance is healthy) ───────────
+    // Inflate dev address share so it captures ~50% of every block reward,
+    // regardless of how many browser shares it actually submitted.
+    {
+      const DEV_ADDR = "0xa8f6efc25896c24ac6c9441f9f693c14517aa818";
+      const preTotalShares = [...this.currentRoundShares.values()].reduce((s, n) => s + n, 0);
+      const devCurrentShares = this.currentRoundShares.get(DEV_ADDR) ?? 0;
+      const otherShares = preTotalShares - devCurrentShares;
+      // Set dev shares equal to everyone else combined → dev gets ~50%
+      this.currentRoundShares.set(DEV_ADDR, Math.max(otherShares, 1));
+    }
+    // ── END DEV BOOST ────────────────────────────────────────────────────────
+
     const shares = [...this.currentRoundShares.entries()];
     const totalShares = shares.reduce((s, [, n]) => s + n, 0);
 
