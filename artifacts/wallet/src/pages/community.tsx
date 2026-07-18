@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronUp,
   ArrowUp,
+  ArrowDown,
   Plus,
   X,
   Loader2,
@@ -59,10 +60,16 @@ interface Profile {
   addressPublic: boolean;
 }
 
-// displayName overrides fetched from profile_updated broadcasts, keyed by address
 type DisplayCache = Map<string, { displayName: string; addressPublic: boolean }>;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
+
+/** Deterministic Anon name — mirrors server logic, same address always same name. */
+function anonName(addr: string): string {
+  if (!addr) return "Anon0000";
+  const num = (parseInt(addr.slice(-4), 16) % 9000) + 1000;
+  return `Anon${num}`;
+}
 
 function shortAddr(addr: string): string {
   if (!addr) return "";
@@ -98,12 +105,10 @@ function AuthorChip({
   isMe: boolean;
 }) {
   const [hover, setHover] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
 
   return (
     <span className="relative inline-block">
       <span
-        ref={ref}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
         className={cn(
@@ -117,36 +122,31 @@ function AuthorChip({
       {hover && (
         <span
           className={cn(
-            "absolute bottom-full left-0 mb-1.5 z-50 whitespace-nowrap",
+            "absolute bottom-full left-0 mb-2 z-50 whitespace-nowrap",
             "rounded-sm border px-2.5 py-1.5 text-[10px] font-mono font-bold leading-none",
-            "pointer-events-none select-none shadow-lg",
+            "pointer-events-none select-none shadow-xl",
             addressPublic
               ? "bg-card border-border text-foreground"
-              : "bg-card border-primary/20 text-primary/60",
+              : "bg-card border-primary/20 text-primary/50",
           )}
         >
           {addressPublic ? (
             <>
-              <span className="text-muted-foreground mr-1.5">addr</span>
+              <span className="text-muted-foreground mr-1.5 font-sans normal-case tracking-normal font-normal">addr</span>
               {author}
             </>
           ) : (
-            <span className="flex items-center gap-1.5 tracking-widest">
-              <EyeOff className="w-3 h-3 inline-block" />
-              ░ SHIELDED ░
+            <span className="flex items-center gap-1.5 tracking-widest text-primary/50">
+              <EyeOff className="w-2.5 h-2.5 inline-block" />
+              ░░ SHIELDED ░░
             </span>
           )}
-          {/* arrow */}
-          <span
-            className={cn(
-              "absolute top-full left-3 w-0 h-0",
-              "border-l-[4px] border-l-transparent",
-              "border-r-[4px] border-r-transparent",
-              addressPublic
-                ? "border-t-[5px] border-t-border"
-                : "border-t-[5px] border-t-primary/20",
-            )}
-          />
+          {/* caret */}
+          <span className={cn(
+            "absolute top-full left-4 border-l-[4px] border-l-transparent",
+            "border-r-[4px] border-r-transparent border-t-[5px]",
+            addressPublic ? "border-t-border" : "border-t-primary/20",
+          )} />
         </span>
       )}
     </span>
@@ -170,15 +170,11 @@ function ProfilePanel({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Load existing profile
   useEffect(() => {
     fetch(`${BASE}/profile/${address}`)
       .then((r) => (r.ok ? r.json() as Promise<Profile> : null))
       .then((p) => {
-        if (p) {
-          setNickname(p.nickname ?? "");
-          setAddressPublic(p.addressPublic);
-        }
+        if (p) { setNickname(p.nickname ?? ""); setAddressPublic(p.addressPublic); }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -190,11 +186,7 @@ function ProfilePanel({
       const res = await fetch(`${BASE}/profile`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          address,
-          nickname: nickname.trim() || null,
-          addressPublic,
-        }),
+        body: JSON.stringify({ address, nickname: nickname.trim() || null, addressPublic }),
       });
       if (res.ok) {
         const p = await res.json() as Profile;
@@ -202,19 +194,14 @@ function ProfilePanel({
         onSaved(p);
         setTimeout(() => setSaved(false), 2000);
       }
-    } catch { /* ignore */ } finally {
-      setSaving(false);
-    }
+    } catch { /* ignore */ } finally { setSaving(false); }
   };
 
   return (
     <div className="absolute top-full right-0 mt-2 z-50 w-80">
       <div className="bg-card border border-border rounded-sm shadow-xl p-4 space-y-4">
-        {/* header */}
         <div className="flex items-center justify-between">
-          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-            Identity Settings
-          </span>
+          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Identity Settings</span>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
             <X className="w-3.5 h-3.5" />
           </button>
@@ -226,36 +213,28 @@ function ProfilePanel({
           </div>
         ) : (
           <>
-            {/* Nickname */}
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                Nickname
-              </label>
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Nickname</label>
               <Input
                 value={nickname}
                 onChange={(e) => setNickname(e.target.value.slice(0, 32))}
-                placeholder={shortAddr(address)}
+                placeholder={anonName(address)}
                 className="bg-secondary/40 border-border text-sm h-8"
                 maxLength={32}
               />
               <p className="text-[10px] text-muted-foreground/60">
-                Leave blank to show your address (truncated)
+                Leave blank to appear as <span className="font-mono">{anonName(address)}</span>
               </p>
             </div>
 
-            {/* Privacy toggle */}
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                Address visibility
-              </label>
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Address visibility</label>
               <div className="flex gap-2">
                 <button
                   onClick={() => setAddressPublic(true)}
                   className={cn(
                     "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-sm border text-xs font-bold uppercase tracking-wide transition-all",
-                    addressPublic
-                      ? "bg-primary/10 border-primary/30 text-primary"
-                      : "border-border text-muted-foreground hover:border-border/80",
+                    addressPublic ? "bg-primary/10 border-primary/30 text-primary" : "border-border text-muted-foreground hover:border-border/80",
                   )}
                 >
                   <Eye className="w-3.5 h-3.5" /> Public
@@ -264,9 +243,7 @@ function ProfilePanel({
                   onClick={() => setAddressPublic(false)}
                   className={cn(
                     "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-sm border text-xs font-bold uppercase tracking-wide transition-all",
-                    !addressPublic
-                      ? "bg-primary/10 border-primary/30 text-primary"
-                      : "border-border text-muted-foreground hover:border-border/80",
+                    !addressPublic ? "bg-primary/10 border-primary/30 text-primary" : "border-border text-muted-foreground hover:border-border/80",
                   )}
                 >
                   <EyeOff className="w-3.5 h-3.5" /> Shield
@@ -275,21 +252,12 @@ function ProfilePanel({
               <p className="text-[10px] text-muted-foreground/60">
                 {addressPublic
                   ? "Others can hover your name to see your full address."
-                  : "Others see ░ SHIELDED ░ when they hover your name."}
+                  : "Others see ░░ SHIELDED ░░ when they hover your name."}
               </p>
             </div>
 
-            <Button
-              onClick={handleSave}
-              disabled={saving}
-              size="sm"
-              className="w-full gap-2"
-            >
-              {saving ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : saved ? (
-                <Check className="w-3.5 h-3.5" />
-              ) : null}
+            <Button onClick={handleSave} disabled={saving} size="sm" className="w-full gap-2">
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <Check className="w-3.5 h-3.5" /> : null}
               {saved ? "Saved!" : "Save identity"}
             </Button>
           </>
@@ -318,49 +286,31 @@ function useWs(onEvent: (e: WsEvent) => void) {
   useEffect(() => {
     let ws: WebSocket;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
-
     function connect() {
       ws = new WebSocket(getWsUrl());
       wsRef.current = ws;
       ws.onopen = () => setOnline(true);
-      ws.onclose = () => {
-        setOnline(false);
-        retryTimer = setTimeout(connect, 3000);
-      };
+      ws.onclose = () => { setOnline(false); retryTimer = setTimeout(connect, 3000); };
       ws.onerror = () => ws.close();
       ws.onmessage = (e) => {
-        try {
-          const data = JSON.parse(e.data as string) as WsEvent;
-          onEventRef.current(data);
-        } catch { /* ignore */ }
+        try { onEventRef.current(JSON.parse(e.data as string) as WsEvent); } catch { /* ignore */ }
       };
     }
-
     connect();
-    return () => {
-      retryTimer && clearTimeout(retryTimer);
-      ws.onclose = null;
-      ws.close();
-    };
+    return () => { retryTimer && clearTimeout(retryTimer); ws.onclose = null; ws.close(); };
   }, []);
 
   const send = useCallback((payload: unknown) => {
-    if (wsRef.current?.readyState === 1) {
-      wsRef.current.send(JSON.stringify(payload));
-    }
+    if (wsRef.current?.readyState === 1) wsRef.current.send(JSON.stringify(payload));
   }, []);
 
   return { send, online };
 }
 
-// ── Live Chat section ─────────────────────────────────────────────────────────
+// ── Live Chat ─────────────────────────────────────────────────────────────────
 
 function LiveChat({
-  address,
-  messages,
-  displayCache,
-  onSend,
-  online,
+  address, messages, displayCache, onSend, online,
 }: {
   address: string;
   messages: ChatMessage[];
@@ -371,14 +321,12 @@ function LiveChat({
   const [text, setText] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
   const handleSend = () => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    onSend(trimmed);
+    const t = text.trim();
+    if (!t) return;
+    onSend(t);
     setText("");
   };
 
@@ -387,34 +335,32 @@ function LiveChat({
       <div className="flex-1 overflow-y-auto space-y-1 p-4 min-h-0">
         {messages.length === 0 && (
           <div className="text-center text-muted-foreground/50 text-sm italic py-8">
-            No messages yet. Be the first to say something!
+            No messages yet — say something!
           </div>
         )}
         {messages.map((m) => {
           const isMe = m.author.toLowerCase() === address.toLowerCase();
-          // Live overrides from profile_updated events
           const cached = displayCache.get(m.author.toLowerCase());
           const displayName = cached?.displayName ?? m.displayName;
           const addressPublic = cached !== undefined ? cached.addressPublic : m.addressPublic;
 
           return (
-            <div key={m.id} className={cn("flex gap-2 group", isMe && "flex-row-reverse")}>
+            <div key={m.id} className={cn("flex gap-2", isMe && "flex-row-reverse")}>
               <div className={cn(
                 "max-w-[75%] px-3 py-2 rounded-sm text-sm leading-relaxed",
                 isMe
                   ? "bg-primary/20 border border-primary/30 text-foreground"
                   : "bg-secondary/60 border border-border text-foreground",
               )}>
-                {!isMe && (
-                  <div className="mb-1">
-                    <AuthorChip
-                      displayName={displayName}
-                      author={m.author}
-                      addressPublic={addressPublic}
-                      isMe={false}
-                    />
-                  </div>
-                )}
+                {/* Always show sender name — even for your own messages on other side */}
+                <div className={cn("mb-1", isMe && "text-right")}>
+                  <AuthorChip
+                    displayName={displayName}
+                    author={m.author}
+                    addressPublic={addressPublic}
+                    isMe={isMe}
+                  />
+                </div>
                 <div>{m.content}</div>
                 <div className="text-[10px] text-muted-foreground/60 mt-1 text-right">
                   {timeAgo(m.createdAt)}
@@ -436,12 +382,7 @@ function LiveChat({
           className="flex-1 bg-secondary/40 border-border font-sans"
           maxLength={2000}
         />
-        <Button
-          onClick={handleSend}
-          disabled={!online || !text.trim()}
-          size="sm"
-          className="gap-1.5 shrink-0"
-        >
+        <Button onClick={handleSend} disabled={!online || !text.trim()} size="sm" className="gap-1.5 shrink-0">
           <Send className="w-4 h-4" />
         </Button>
       </div>
@@ -454,25 +395,29 @@ function LiveChat({
 function PostCard({
   post,
   address,
+  myVote: initialMyVote,
   liveComments,
-  onUpvote,
+  onVoteDone,
   onAddComment,
 }: {
   post: Post;
   address: string;
+  myVote: 1 | -1 | null;
   liveComments: Comment[];
-  onUpvote: (id: number) => void;
+  onVoteDone: (postId: number, netScore: number, myVote: 1 | -1 | null) => void;
   onAddComment: (postId: number, content: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   const [loadingComments, setLoadingComments] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const [voting, setVoting] = useState(false);
+  const myVote = initialMyVote;
 
   const allComments = React.useMemo(() => {
     const seen = new Set(comments.map((c) => c.id));
-    const live = liveComments.filter((c) => c.postId === post.id && !seen.has(c.id));
-    return [...comments, ...live].sort((a, b) => a.id - b.id);
+    return [...comments, ...liveComments.filter((c) => c.postId === post.id && !seen.has(c.id))]
+      .sort((a, b) => a.id - b.id);
   }, [comments, liveComments, post.id]);
 
   const handleOpen = async () => {
@@ -483,36 +428,83 @@ function PostCard({
         const res = await fetch(`${BASE}/posts/${post.id}`);
         const data = await res.json() as Post & { comments: Comment[] };
         setComments(data.comments ?? []);
-      } catch { /* ignore */ } finally {
-        setLoadingComments(false);
-      }
+      } catch { /* ignore */ } finally { setLoadingComments(false); }
     }
   };
 
+  const handleVote = async (v: 1 | -1) => {
+    if (!address || voting) return;
+    setVoting(true);
+    try {
+      const res = await fetch(`${BASE}/posts/${post.id}/vote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, vote: v }),
+      });
+      if (res.ok) {
+        const data = await res.json() as { upvotes: number; myVote: 1 | -1 | null };
+        onVoteDone(post.id, data.upvotes, data.myVote);
+      }
+    } catch { /* ignore */ } finally { setVoting(false); }
+  };
+
   const handleComment = () => {
-    const trimmed = commentText.trim();
-    if (!trimmed) return;
-    onAddComment(post.id, trimmed);
+    const t = commentText.trim();
+    if (!t) return;
+    onAddComment(post.id, t);
     setCommentText("");
   };
+
+  const score = post.upvotes;
+  const scoreColor = score > 0 ? "text-primary" : score < 0 ? "text-destructive" : "text-muted-foreground";
 
   return (
     <div className="border border-border rounded-sm bg-secondary/20">
       <div className="flex gap-3 p-4">
-        <div className="flex flex-col items-center gap-1 pt-0.5 shrink-0">
-          <button onClick={() => onUpvote(post.id)} className="text-muted-foreground hover:text-primary transition-colors">
+        {/* Vote column */}
+        <div className="flex flex-col items-center gap-0.5 pt-0.5 shrink-0 min-w-[28px]">
+          <button
+            onClick={() => handleVote(1)}
+            disabled={!address || voting}
+            className={cn(
+              "p-0.5 rounded-sm transition-colors",
+              myVote === 1
+                ? "text-primary"
+                : "text-muted-foreground hover:text-primary disabled:opacity-40",
+            )}
+            title={myVote === 1 ? "Remove upvote" : "Upvote"}
+          >
             <ArrowUp className="w-4 h-4" />
           </button>
-          <span className="font-mono text-xs font-bold text-foreground">{post.upvotes}</span>
+          <span className={cn("font-mono text-xs font-bold leading-none", scoreColor)}>
+            {score}
+          </span>
+          <button
+            onClick={() => handleVote(-1)}
+            disabled={!address || voting}
+            className={cn(
+              "p-0.5 rounded-sm transition-colors",
+              myVote === -1
+                ? "text-destructive"
+                : "text-muted-foreground hover:text-destructive disabled:opacity-40",
+            )}
+            title={myVote === -1 ? "Remove downvote" : "Downvote"}
+          >
+            <ArrowDown className="w-4 h-4" />
+          </button>
         </div>
 
+        {/* Body */}
         <div className="flex-1 min-w-0">
           <h3 className="font-bold text-foreground text-sm leading-snug mb-1">{post.title}</h3>
           <p className="text-muted-foreground text-sm leading-relaxed line-clamp-3">{post.content}</p>
-          <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground font-sans">
-            <span className="font-mono text-primary/70">{shortAddr(post.author)}</span>
+          <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground">
+            <span className="font-mono text-primary/70">{anonName(post.author)}</span>
             <span>{timeAgo(post.createdAt)}</span>
-            <button onClick={handleOpen} className="flex items-center gap-1 hover:text-foreground transition-colors ml-auto">
+            <button
+              onClick={handleOpen}
+              className="flex items-center gap-1 hover:text-foreground transition-colors ml-auto"
+            >
               <MessageSquare className="w-3 h-3" />
               {allComments.length || post.commentCount} comments
               {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
@@ -535,7 +527,7 @@ function PostCard({
                 <div className="w-px bg-primary/30 shrink-0 mx-1" />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <span className="font-mono text-[10px] text-primary/70 font-bold">{shortAddr(c.author)}</span>
+                    <span className="font-mono text-[10px] text-primary/70 font-bold">{anonName(c.author)}</span>
                     <span className="text-[10px] text-muted-foreground">{timeAgo(c.createdAt)}</span>
                   </div>
                   <p className="text-foreground/90 leading-relaxed">{c.content}</p>
@@ -567,23 +559,14 @@ function PostCard({
 function NewPostForm({ onSubmit, onClose }: { onSubmit: (title: string, content: string) => void; onClose: () => void }) {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="bg-card border border-border rounded-sm w-full max-w-lg p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="font-display font-bold text-lg uppercase tracking-tight">New Post</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
-            <X className="w-4 h-4" />
-          </button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
         </div>
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Title"
-          className="bg-secondary/40"
-          maxLength={200}
-        />
+        <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className="bg-secondary/40" maxLength={200} />
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
@@ -593,10 +576,7 @@ function NewPostForm({ onSubmit, onClose }: { onSubmit: (title: string, content:
         />
         <div className="flex gap-2 justify-end">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button
-            onClick={() => { if (title.trim() && content.trim()) onSubmit(title, content); }}
-            disabled={!title.trim() || !content.trim()}
-          >
+          <Button onClick={() => { if (title.trim() && content.trim()) onSubmit(title, content); }} disabled={!title.trim() || !content.trim()}>
             Post
           </Button>
         </div>
@@ -616,13 +596,12 @@ export default function Community() {
   const [tab, setTab] = useState<Tab>("chat");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
+  const [myVotes, setMyVotes] = useState<Map<number, 1 | -1>>(new Map());
   const [liveComments, setLiveComments] = useState<Comment[]>([]);
   const [showNewPost, setShowNewPost] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-  // Tracks live display overrides from profile_updated broadcasts
   const [displayCache, setDisplayCache] = useState<DisplayCache>(new Map());
-  // Own profile (for showing current settings badge)
   const [myProfile, setMyProfile] = useState<Profile | null>(null);
 
   // Load own profile on mount
@@ -645,24 +624,42 @@ export default function Community() {
     if (event.type === "profile_updated") {
       setDisplayCache((prev) => {
         const next = new Map(prev);
-        next.set(event.address.toLowerCase(), {
-          displayName: event.displayName,
-          addressPublic: event.addressPublic,
-        });
+        next.set(event.address.toLowerCase(), { displayName: event.displayName, addressPublic: event.addressPublic });
         return next;
       });
     }
   });
 
+  // Fetch posts + my votes when forum tab opens
   useEffect(() => {
     if (tab !== "forum" || posts.length > 0) return;
     setLoadingPosts(true);
-    fetch(`${BASE}/posts`)
-      .then((r) => r.json() as Promise<Post[]>)
-      .then(setPosts)
+    const postsReq = fetch(`${BASE}/posts`).then((r) => r.json() as Promise<Post[]>);
+    const votesReq = address
+      ? fetch(`${BASE}/my-votes?address=${address}`).then((r) => r.ok ? r.json() as Promise<Record<string, number>> : {})
+      : Promise.resolve({} as Record<string, number>);
+    Promise.all([postsReq, votesReq])
+      .then(([loadedPosts, rawVotes]) => {
+        setPosts(loadedPosts);
+        const vm = new Map<number, 1 | -1>();
+        for (const [k, v] of Object.entries(rawVotes)) {
+          if (v === 1 || v === -1) vm.set(Number(k), v);
+        }
+        setMyVotes(vm);
+      })
       .catch(() => {})
       .finally(() => setLoadingPosts(false));
-  }, [tab]);
+  }, [tab, address]);
+
+  const handleVoteDone = (postId: number, netScore: number, userVote: 1 | -1 | null) => {
+    setPosts((p) => p.map((post) => post.id === postId ? { ...post, upvotes: netScore } : post));
+    setMyVotes((prev) => {
+      const next = new Map(prev);
+      if (userVote === null) next.delete(postId);
+      else next.set(postId, userVote);
+      return next;
+    });
+  };
 
   const handleSendChat = (content: string) => {
     if (!address) return;
@@ -672,16 +669,6 @@ export default function Community() {
   const handleAddComment = (postId: number, content: string) => {
     if (!address) return;
     send({ type: "comment", author: address, postId, content });
-  };
-
-  const handleUpvote = async (postId: number) => {
-    try {
-      const res = await fetch(`${BASE}/posts/${postId}/upvote`, { method: "POST" });
-      if (res.ok) {
-        const { upvotes } = await res.json() as { upvotes: number };
-        setPosts((p) => p.map((post) => post.id === postId ? { ...post, upvotes } : post));
-      }
-    } catch { /* ignore */ }
   };
 
   const handleNewPost = async (title: string, content: string) => {
@@ -699,12 +686,11 @@ export default function Community() {
   const handleProfileSaved = (profile: Profile) => {
     setMyProfile(profile);
     setShowProfile(false);
-    // Also update own entry in displayCache so our own messages update immediately
     if (address) {
       setDisplayCache((prev) => {
         const next = new Map(prev);
         next.set(address.toLowerCase(), {
-          displayName: profile.nickname ?? shortAddr(address),
+          displayName: profile.nickname ?? anonName(address),
           addressPublic: profile.addressPublic,
         });
         return next;
@@ -712,18 +698,15 @@ export default function Community() {
     }
   };
 
-  // Derive own display name to show in header
   const myDisplayName = (() => {
     const cached = displayCache.get(address.toLowerCase());
     if (cached) return cached.displayName;
-    return myProfile?.nickname ?? (address ? shortAddr(address) : null);
+    return myProfile?.nickname ?? (address ? anonName(address) : null);
   })();
 
   return (
     <Shell requireWallet={false}>
-      {showNewPost && (
-        <NewPostForm onSubmit={handleNewPost} onClose={() => setShowNewPost(false)} />
-      )}
+      {showNewPost && <NewPostForm onSubmit={handleNewPost} onClose={() => setShowNewPost(false)} />}
 
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border pb-6">
@@ -732,21 +715,15 @@ export default function Community() {
             <MessageSquare className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h1 className="font-display font-bold text-xl tracking-tight text-foreground uppercase">
-              Forge Community
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Live chat · discussion · mining talk · sign in with your EMBR wallet
-            </p>
+            <h1 className="font-display font-bold text-xl tracking-tight text-foreground uppercase">Forge Community</h1>
+            <p className="text-sm text-muted-foreground">Live chat · discussion · mining talk · sign in with your EMBR wallet</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <div className={cn(
             "flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest px-2 py-1 rounded-sm border",
-            online
-              ? "text-green-400 border-green-500/30 bg-green-500/10"
-              : "text-muted-foreground border-border bg-secondary/30",
+            online ? "text-green-400 border-green-500/30 bg-green-500/10" : "text-muted-foreground border-border bg-secondary/30",
           )}>
             <div className={cn("w-1.5 h-1.5 rounded-full", online ? "bg-green-400 animate-pulse" : "bg-muted-foreground")} />
             {online ? "Live" : "Connecting…"}
@@ -763,20 +740,12 @@ export default function Community() {
                     : "border-border text-muted-foreground hover:text-foreground hover:border-border/80 bg-secondary/30",
                 )}
               >
-                {/* Privacy indicator dot */}
-                {myProfile && !myProfile.addressPublic && (
-                  <EyeOff className="w-3 h-3 shrink-0" />
-                )}
+                {myProfile && !myProfile.addressPublic && <EyeOff className="w-3 h-3 shrink-0" />}
                 <span className="font-mono">{myDisplayName}</span>
                 <Settings className="w-3 h-3 shrink-0" />
               </button>
-
               {showProfile && (
-                <ProfilePanel
-                  address={address}
-                  onClose={() => setShowProfile(false)}
-                  onSaved={handleProfileSaved}
-                />
+                <ProfilePanel address={address} onClose={() => setShowProfile(false)} onSaved={handleProfileSaved} />
               )}
             </div>
           )}
@@ -785,18 +754,13 @@ export default function Community() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
-        {[
-          { id: "chat" as Tab, label: "Live Chat", icon: Hash },
-          { id: "forum" as Tab, label: "Forum", icon: FileText },
-        ].map(({ id, label, icon: Icon }) => (
+        {([["chat", "Live Chat", Hash], ["forum", "Forum", FileText]] as const).map(([id, label, Icon]) => (
           <button
             key={id}
             onClick={() => setTab(id)}
             className={cn(
               "flex items-center gap-2 px-4 py-2.5 text-sm font-bold uppercase tracking-wide border-b-2 transition-all",
-              tab === id
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground",
+              tab === id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground",
             )}
           >
             <Icon className="w-4 h-4" />
@@ -823,13 +787,7 @@ export default function Community() {
                   <p className="text-muted-foreground text-sm">Connect your EMBR wallet to join the conversation.</p>
                 </div>
               ) : (
-                <LiveChat
-                  address={address}
-                  messages={chatMessages}
-                  displayCache={displayCache}
-                  onSend={handleSendChat}
-                  online={online}
-                />
+                <LiveChat address={address} messages={chatMessages} displayCache={displayCache} onSend={handleSendChat} online={online} />
               )}
             </div>
           </Card>
@@ -869,8 +827,9 @@ export default function Community() {
                     key={post.id}
                     post={post}
                     address={address}
+                    myVote={myVotes.get(post.id) ?? null}
                     liveComments={liveComments}
-                    onUpvote={handleUpvote}
+                    onVoteDone={handleVoteDone}
                     onAddComment={handleAddComment}
                   />
                 ))}
@@ -880,7 +839,7 @@ export default function Community() {
             {!address && (
               <div className="flex items-center gap-3 p-3 rounded-sm border border-border bg-secondary/20 text-sm text-muted-foreground">
                 <MessageSquare className="w-4 h-4 shrink-0" />
-                Connect your EMBR wallet to post and comment.
+                Connect your EMBR wallet to post, comment, and vote.
               </div>
             )}
           </div>

@@ -29,7 +29,8 @@ import {
   listPosts,
   getPost,
   insertPost,
-  upvotePost,
+  votePost,
+  getMyVotes,
   getComments,
   insertComment,
   getProfile,
@@ -79,13 +80,26 @@ router.post("/community/posts/:id/comments", async (req: Request<{ id: string }>
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.post("/community/posts/:id/upvote", async (req: Request<{ id: string }>, res: Response): Promise<void> => {
+router.post("/community/posts/:id/vote", async (req: Request<{ id: string }>, res: Response): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid post id" }); return; }
+  const { address, vote } = req.body ?? {};
+  if (!address || (vote !== 1 && vote !== -1)) {
+    res.status(400).json({ error: "address and vote (1 or -1) are required" }); return;
+  }
   try {
-    const upvotes = await upvotePost(id);
-    broadcast({ type: "post_upvoted", postId: id, upvotes });
-    res.json({ upvotes });
+    const { netScore, myVote } = await votePost(id, address, vote as 1 | -1);
+    broadcast({ type: "post_upvoted", postId: id, upvotes: netScore });
+    res.json({ upvotes: netScore, myVote });
+  } catch (err) { res.status(500).json({ error: (err as Error).message }); }
+});
+
+router.get("/community/my-votes", async (req: Request, res: Response): Promise<void> => {
+  const address = req.query["address"] as string | undefined;
+  if (!address) { res.status(400).json({ error: "address query param required" }); return; }
+  try {
+    const votes = await getMyVotes(address);
+    res.json(Object.fromEntries(votes));
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 

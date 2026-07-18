@@ -53,6 +53,16 @@ export async function ensureCommunityTables(): Promise<void> {
 
       CREATE INDEX IF NOT EXISTS community_comments_post_id_idx
         ON community_comments(post_id);
+
+      CREATE TABLE IF NOT EXISTS community_votes (
+        post_id        INTEGER  NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+        voter_address  TEXT     NOT NULL,
+        vote           SMALLINT NOT NULL,
+        PRIMARY KEY (post_id, voter_address)
+      );
+
+      CREATE INDEX IF NOT EXISTS community_votes_voter_idx
+        ON community_votes(voter_address);
     `);
   } catch (err) {
     console.error("[community-db] Could not ensure community tables:", (err as Error).message);
@@ -122,8 +132,11 @@ export interface ChatMessage {
   createdAt: string;
 }
 
-function shortAddr(addr: string): string {
-  return addr.slice(0, 6) + "…" + addr.slice(-4);
+/** Deterministic Anon name derived from the address — same address → same name. */
+function anonName(addr: string): string {
+  // Use last 4 hex chars → 0–65535, map to 1000–9999
+  const num = (parseInt(addr.slice(-4), 16) % 9000) + 1000;
+  return `Anon${num}`;
 }
 
 function toMessage(
@@ -133,7 +146,7 @@ function toMessage(
   return {
     id: r.id,
     author: r.author,
-    displayName: profile?.nickname ?? shortAddr(r.author),
+    displayName: profile?.nickname ?? anonName(r.author),
     addressPublic: profile?.addressPublic ?? true,
     content: r.content,
     createdAt: r.created_at.toISOString(),
@@ -241,12 +254,63 @@ export async function insertPost(author: string, title: string, content: string)
     upvotes: r.upvotes, commentCount: 0, createdAt: r.created_at.toISOString() };
 }
 
-export async function upvotePost(id: number): Promise<number> {
-  const { rows } = await pool.query<{ upvotes: number }>(
-    `UPDATE community_posts SET upvotes = upvotes + 1 WHERE id = $1 RETURNING upvotes`,
-    [id],
+/**
+ * Cast or toggle a vote (+1 / -1) on a post.
+ * Voting the same direction a second time removes the vote (toggle off).
+ * Returns the new net score and the caller's resulting vote state.
+ */
+export async function votePost(
+  postId: number,
+  voterAddress: string,
+  vote: 1 | -1,
+): Promise<{ netScore: number; myVote: 1 | -1 | null }> {
+  const addr = voterAddress.toLowerCase();
+
+  const { rows: existing } = await pool.query<{ vote: number }>(
+    "SELECT vote FROM community_votes WHERE post_id = $1 AND voter_address = $2",
+    [postId, addr],
   );
-  return rows[0]?.upvotes ?? 0;
+
+  if (existing[0]?.vote === vote) {
+    // Same direction again → toggle off
+    await pool.query(
+      "DELETE FROM community_votes WHERE post_id = $1 AND voter_address = $2",
+      [postId, addr],
+    );
+  } else {
+    // New vote or switching direction → upsert
+    await pool.query(
+      `INSERT INTO community_votes (post_id, voter_address, vote) VALUES ($1, $2, $3)
+       ON CONFLICT (post_id, voter_address) DO UPDATE SET vote = EXCLUDED.vote`,
+      [postId, addr, vote],
+    );
+  }
+
+  // Recalculate net score and write back to posts table
+  const { rows: scoreRows } = await pool.query<{ net: string }>(
+    "SELECT COALESCE(SUM(vote), 0)::text AS net FROM community_votes WHERE post_id = $1",
+    [postId],
+  );
+  const netScore = parseInt(scoreRows[0]?.net ?? "0", 10);
+  await pool.query("UPDATE community_posts SET upvotes = $1 WHERE id = $2", [netScore, postId]);
+
+  const { rows: voteRows } = await pool.query<{ vote: number }>(
+    "SELECT vote FROM community_votes WHERE post_id = $1 AND voter_address = $2",
+    [postId, addr],
+  );
+  const myVote = voteRows[0] ? (voteRows[0].vote as 1 | -1) : null;
+  return { netScore, myVote };
+}
+
+/** Returns a map of postId → vote (1 | -1) for all posts this address has voted on. */
+export async function getMyVotes(voterAddress: string): Promise<Map<number, 1 | -1>> {
+  const { rows } = await pool.query<{ post_id: number; vote: number }>(
+    "SELECT post_id, vote FROM community_votes WHERE voter_address = $1",
+    [voterAddress.toLowerCase()],
+  );
+  const map = new Map<number, 1 | -1>();
+  for (const r of rows) map.set(r.post_id, r.vote as 1 | -1);
+  return map;
 }
 
 // ── Comments ──────────────────────────────────────────────────────────────────
