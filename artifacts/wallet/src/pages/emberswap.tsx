@@ -46,17 +46,43 @@ import { keccak256 } from "ethereum-cryptography/keccak.js";
 
 // ── Base RPC helper (read-only, no wallet required) ──────────────────────────
 
-const BASE_RPC_URL = "https://mainnet.base.org";
+// Multiple public Base RPC endpoints — tried in order, next used on rate-limit
+const BASE_RPCS = [
+  "https://base-rpc.publicnode.com",
+  "https://base.llamarpc.com",
+  "https://mainnet.base.org",
+  "https://1rpc.io/base",
+];
 
 async function baseEthCall(to: string, data: string): Promise<string> {
-  const res = await fetch(BASE_RPC_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
-  });
-  const d = await res.json();
-  if (d.error) throw new Error(d.error.message ?? JSON.stringify(d.error));
-  return d.result as string;
+  let lastErr: Error = new Error("No RPC available");
+  for (const rpc of BASE_RPCS) {
+    try {
+      const res = await fetch(rpc, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
+      });
+      const d = await res.json();
+      // Rate-limit responses come back as errors or HTTP 429 — skip to next RPC
+      if (d.error) {
+        const msg: string = d.error.message ?? JSON.stringify(d.error);
+        if (/rate.limit|too many|429|limit exceeded/i.test(msg)) {
+          lastErr = new Error(msg);
+          continue;
+        }
+        throw new Error(msg);
+      }
+      return d.result as string;
+    } catch (e) {
+      if (e instanceof Error && /rate.limit|too many|429|limit exceeded/i.test(e.message)) {
+        lastErr = e;
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
 }
 
 // ── Contract addresses (set via VITE_ env vars after deployment) ─────────────
