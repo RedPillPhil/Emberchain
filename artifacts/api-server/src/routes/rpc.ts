@@ -271,7 +271,16 @@ async function dispatch(method: string, params: unknown[]): Promise<RpcResult> {
     }
 
     // ── Gas estimation ──
-    case "eth_estimateGas": return "0x5208"; // 21 000
+    case "eth_estimateGas": {
+      const callObj = params[0] as { to?: string; from?: string; data?: string; value?: string } | undefined;
+      const gas = await chain.estimateGas({
+        to: callObj?.to ?? null,
+        data: callObj?.data,
+        from: callObj?.from ?? null,
+        value: callObj?.value ? BigInt(callObj.value) : 0n,
+      });
+      return "0x" + gas.toString(16);
+    }
 
     // ── Logs / filters (stub — no log indexing yet) ──
     case "eth_getLogs": return [];

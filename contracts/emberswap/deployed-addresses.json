@@ -4,7 +4,8 @@
   "contracts": {
     "WrappedEMBR": "",
     "EmberchainBridge": "",
-    "EmberBridge": "",
+    "EmberBridge": "0x1573EdF8F933601e6f37AC9B104cF62C7f85a0F4",
     "EmberSwap": ""
-  }
+  },
+  "embrChainId": 7773
 }

@@ -541,6 +541,48 @@ export class Blockchain {
     }
   }
 
+  /**
+   * Estimates gas for a call or contract deployment by dry-running it in a
+   * reversible checkpoint.  Adds a 20 % buffer and a minimum of 21 000.
+   */
+  async estimateGas(input: {
+    to?: string | null;
+    data?: string;
+    from?: string | null;
+    value?: bigint;
+  }): Promise<bigint> {
+    await this.whenReady();
+    await this.stateManager.checkpoint();
+    try {
+      const result = await this.evm.runCall({
+        caller: new Address(hexToBytes((input.from as PrefixedHexString | undefined) ?? ZERO_ADDRESS)),
+        to: input.to ? new Address(hexToBytes(input.to as PrefixedHexString)) : undefined,
+        data: hexToBytes((input.data as PrefixedHexString | undefined) ?? "0x"),
+        value: input.value ?? 0n,
+        gasLimit: 30_000_000n,
+        skipBalance: true,
+      });
+      const used = result.execResult.executionGasUsed;
+      // 20 % buffer, minimum 21 000
+      const withBuffer = (used * 12n) / 10n;
+      return withBuffer > 21_000n ? withBuffer : 21_000n;
+    } finally {
+      await this.stateManager.revert();
+    }
+  }
+
+  /**
+   * Bootstrap-only: directly credit an address without going through the
+   * normal transaction flow.  Used once to fund the contract deployer wallet
+   * so it can pay gas on the EMBR chain.  Remove after deployment.
+   */
+  async bootstrapCredit(address: PrefixedHexString, amountWei: bigint): Promise<void> {
+    await this.whenReady();
+    await ensureAccount(this.stateManager, address);
+    await credit(this.stateManager, address, amountWei);
+    await this.persist();
+  }
+
   /** Returns the deployed bytecode for a contract address, or "0x" if not a contract. */
   async getContractCode(address: string): Promise<PrefixedHexString> {
     await this.whenReady();

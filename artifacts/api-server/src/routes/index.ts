@@ -11,7 +11,6 @@ import rpcRouter from "./rpc";
 import onrampRouter from "./onramp";
 import communityRouter from "./community";
 import bridgeRouter from "./bridge";
-
 const router: IRouter = Router();
 
 router.use(healthRouter);
