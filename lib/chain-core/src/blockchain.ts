@@ -125,6 +125,22 @@ export class Blockchain {
     );
     return result;
   }
+
+  /**
+   * Serialises all EVM / stateManager operations so that block application
+   * (applyBlock) and concurrent RPC reads (eth_call, eth_estimateGas) or
+   * mempool writes (eth_sendRawTransaction) never race on the shared
+   * SimpleStateManager, which is not thread-safe.
+   */
+  private evmLock: Promise<void> = Promise.resolve();
+  private withEvmLock<T>(fn: () => Promise<T>): Promise<T> {
+    const result = this.evmLock.then(() => fn());
+    this.evmLock = result.then(
+      () => {},
+      () => {},
+    );
+    return result;
+  }
   private difficulty: bigint;
   private readonly dataFile: string;
   private readonly asyncLoadHook?: () => Promise<PersistedChain | null>;
@@ -464,15 +480,19 @@ export class Blockchain {
     const existing = this.transactions.get(params.hash);
     if (existing) return existing;
 
-    const expectedNonce = await getNonce(this.stateManager, params.from);
-    if (params.nonce !== BigInt(expectedNonce)) {
-      throw new Error(`Nonce mismatch: expected ${expectedNonce}, got ${params.nonce}`);
-    }
-    const balance = await getBalance(this.stateManager, params.from);
-    const maxCost = BigInt(params.value) + BigInt(params.gasLimit) * GAS_PRICE;
-    if (maxCost > balance) {
-      throw new Error(`Insufficient funds: need ${maxCost} wei (value + gas fee), have ${balance}`);
-    }
+    // Validate nonce and balance under the EVM lock so we don't race with
+    // applyBlock which modifies the same stateManager concurrently.
+    await this.withEvmLock(async () => {
+      const expectedNonce = await getNonce(this.stateManager, params.from);
+      if (params.nonce !== BigInt(expectedNonce)) {
+        throw new Error(`Nonce mismatch: expected ${expectedNonce}, got ${params.nonce}`);
+      }
+      const balance = await getBalance(this.stateManager, params.from);
+      const maxCost = BigInt(params.value) + BigInt(params.gasLimit) * GAS_PRICE;
+      if (maxCost > balance) {
+        throw new Error(`Insufficient funds: need ${maxCost} wei (value + gas fee), have ${balance}`);
+      }
+    });
 
     const tx: StoredTransaction = {
       hash: params.hash,
@@ -521,24 +541,26 @@ export class Blockchain {
     from?: string | null;
   }): Promise<{ success: boolean; returnData: PrefixedHexString; gasUsed: string; error: string | null }> {
     await this.whenReady();
-    await this.stateManager.checkpoint();
-    try {
-      const result = await this.evm.runCall({
-        caller: new Address(hexToBytes((input.from as PrefixedHexString) ?? ZERO_ADDRESS)),
-        to: new Address(hexToBytes(input.to as PrefixedHexString)),
-        data: hexToBytes((input.data as PrefixedHexString) ?? "0x"),
-        gasLimit: 10_000_000n,
-        skipBalance: true,
-      });
-      return {
-        success: !result.execResult.exceptionError,
-        returnData: bytesToHex(result.execResult.returnValue),
-        gasUsed: result.execResult.executionGasUsed.toString(),
-        error: result.execResult.exceptionError ? result.execResult.exceptionError.error : null,
-      };
-    } finally {
-      await this.stateManager.revert();
-    }
+    return this.withEvmLock(async () => {
+      await this.stateManager.checkpoint();
+      try {
+        const result = await this.evm.runCall({
+          caller: new Address(hexToBytes((input.from as PrefixedHexString) ?? ZERO_ADDRESS)),
+          to: new Address(hexToBytes(input.to as PrefixedHexString)),
+          data: hexToBytes((input.data as PrefixedHexString) ?? "0x"),
+          gasLimit: 10_000_000n,
+          skipBalance: true,
+        });
+        return {
+          success: !result.execResult.exceptionError,
+          returnData: bytesToHex(result.execResult.returnValue),
+          gasUsed: result.execResult.executionGasUsed.toString(),
+          error: result.execResult.exceptionError ? result.execResult.exceptionError.error : null,
+        };
+      } finally {
+        await this.stateManager.revert();
+      }
+    });
   }
 
   /**
@@ -552,23 +574,25 @@ export class Blockchain {
     value?: bigint;
   }): Promise<bigint> {
     await this.whenReady();
-    await this.stateManager.checkpoint();
-    try {
-      const result = await this.evm.runCall({
-        caller: new Address(hexToBytes((input.from as PrefixedHexString | undefined) ?? ZERO_ADDRESS)),
-        to: input.to ? new Address(hexToBytes(input.to as PrefixedHexString)) : undefined,
-        data: hexToBytes((input.data as PrefixedHexString | undefined) ?? "0x"),
-        value: input.value ?? 0n,
-        gasLimit: 30_000_000n,
-        skipBalance: true,
-      });
-      const used = result.execResult.executionGasUsed;
-      // 20 % buffer, minimum 21 000
-      const withBuffer = (used * 12n) / 10n;
-      return withBuffer > 21_000n ? withBuffer : 21_000n;
-    } finally {
-      await this.stateManager.revert();
-    }
+    return this.withEvmLock(async () => {
+      await this.stateManager.checkpoint();
+      try {
+        const result = await this.evm.runCall({
+          caller: new Address(hexToBytes((input.from as PrefixedHexString | undefined) ?? ZERO_ADDRESS)),
+          to: input.to ? new Address(hexToBytes(input.to as PrefixedHexString)) : undefined,
+          data: hexToBytes((input.data as PrefixedHexString | undefined) ?? "0x"),
+          value: input.value ?? 0n,
+          gasLimit: 30_000_000n,
+          skipBalance: true,
+        });
+        const used = result.execResult.executionGasUsed;
+        // 20 % buffer, minimum 21 000
+        const withBuffer = (used * 12n) / 10n;
+        return withBuffer > 21_000n ? withBuffer : 21_000n;
+      } finally {
+        await this.stateManager.revert();
+      }
+    });
   }
 
   /**
@@ -1033,6 +1057,7 @@ export class Blockchain {
     nonce: bigint,
     hash: PrefixedHexString,
   ): Promise<void> {
+    return this.withEvmLock(async () => {
     let totalFees = 0n;
 
     for (const tx of included) {
@@ -1143,6 +1168,7 @@ export class Blockchain {
     };
     this.blocks.push(block);
     this.persist();
+    }); // end withEvmLock
   }
 
   // ---------- Shielded pool (private transactions) ----------
