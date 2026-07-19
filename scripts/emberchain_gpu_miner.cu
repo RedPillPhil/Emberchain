@@ -7,7 +7,7 @@
  *   nvcc -O3 -o embr_miner emberchain_gpu_miner.cu -lcurl
  *
  * Dependencies:
- *   Ubuntu / Debian : sudo apt install libcurl4-openssl-dev
+ *   Ubuntu / Debian : sudo apt install libcurl4-openssl-devyes
  *   Arch            : sudo pacman -S curl
  *   CUDA toolkit    : https://developer.nvidia.com/cuda-downloads
  *
