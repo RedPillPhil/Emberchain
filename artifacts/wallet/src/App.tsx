@@ -22,6 +22,7 @@ import Community from '@/pages/community';
 import EmberSwap from '@/pages/emberswap';
 import Tokens from '@/pages/tokens';
 import TokenDetail from '@/pages/token-detail';
+import MercuryTales from '@/pages/mercury-tales';
 
 const queryClient = new QueryClient();
 
@@ -46,6 +47,7 @@ function Router() {
       <Route path="/emberswap" component={EmberSwap} />
       <Route path="/tokens" component={Tokens} />
       <Route path="/tokens/:address" component={TokenDetail} />
+      <Route path="/mercury-tales" component={MercuryTales} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -19,6 +19,7 @@ import {
   MessageSquare,
   Zap,
   Coins,
+  Gamepad2,
 } from "lucide-react";
 
 const navItems = [
@@ -27,6 +28,7 @@ const navItems = [
   { href: "/onramp", label: "BUY EMBR", icon: CreditCard, highlight: true },
   { href: "/exchange", label: "EXCHANGE", icon: Store },
   { href: "/emberswap", label: "EMBERSWAP", icon: Zap, highlight: true },
+  { href: "/mercury-tales", label: "MERCURY TALES", icon: Gamepad2 },
   { href: "/community", label: "COMMUNITY", icon: MessageSquare },
   { href: "/contacts", label: "ADDRESS BOOK", icon: BookUser },
   { href: "/privacy", label: "PRIVACY", icon: Shield },
