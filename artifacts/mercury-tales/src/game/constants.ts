@@ -2,7 +2,7 @@ export const WORLD_WIDTH   = 5600;
 export const WORLD_HEIGHT  = 480;
 export const GROUND_Y      = 448;   // surface of the ground (top of ground tiles)
 export const PLAYER_SPEED  = 210;
-export const PLAYER_JUMP   = -545;
+export const PLAYER_JUMP   = -415;   // max height ~95px; high platforms at Δy≥140 are unreachable
 export const THIEF_STEAL_PCT = 0.45;
 
 // Textures

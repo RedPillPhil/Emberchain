@@ -149,27 +149,251 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   private createPlayerTexture() {
-    // Ember Apprentice: 24 × 38
-    const gfx = this.g(24, 38);
-    // Hair
-    gfx.fillStyle(0x2d1f0e); gfx.fillRect(3, 0, 18, 6);
-    // Face
-    gfx.fillStyle(0xfad5a5); gfx.fillRect(4, 4, 16, 12);
-    // Eyes
-    gfx.fillStyle(0x1a1050); gfx.fillRect(7, 8, 3, 3); gfx.fillRect(14, 8, 3, 3);
-    gfx.fillStyle(0xffffff); gfx.fillRect(8, 9, 2, 2); gfx.fillRect(15, 9, 2, 2);
-    // Shirt — blue (free character)
-    gfx.fillStyle(0x2563eb); gfx.fillRect(2, 16, 20, 11);
-    // Belt
-    gfx.fillStyle(0x92400e); gfx.fillRect(2, 26, 20, 2);
-    // Legs
-    gfx.fillStyle(0x1e3a5f); gfx.fillRect(3, 28, 8, 8); gfx.fillRect(13, 28, 8, 8);
-    // Boots
-    gfx.fillStyle(0x2d1f0e); gfx.fillRect(2, 34, 10, 4); gfx.fillRect(12, 34, 10, 4);
-    // Blue glow outline (apprentice aura)
-    gfx.lineStyle(1, 0x60a5fa, 0.6);
-    gfx.strokeRect(1, 1, 22, 36);
-    gfx.generateTexture(TEX.PLAYER, 24, 38);
+    // Ember Apprentice — adult, 40×64
+    // Style: bold cartoon (Mario-esque solid shapes + outlines)
+    // Design: spiky black hair, steampunk goggles on forehead, red scarf/cape,
+    //         worn leather harness over cream shirt, dark pants, heavy boots,
+    //         ember gauntlet on left arm, battle scar, stubble.
+    const W = 40, H = 64;
+    const gfx = this.g(W, H);
+
+    // ── RED SCARF / CAPE (behind everything — drawn first) ────────────────
+    gfx.fillStyle(0xbb1111);
+    // Flowing cape trailing left (when character runs right)
+    gfx.fillTriangle(0, 22, 13, 24, 4, 50);
+    gfx.fillTriangle(4, 50, 13, 24, 8, 58);
+    gfx.fillTriangle(8, 58, 13, 24, 1, 63);
+    // Darker torn-edge shading
+    gfx.fillStyle(0x880b0b);
+    gfx.fillTriangle(1, 48, 6, 52, 2, 56);
+    gfx.fillTriangle(5, 56, 9, 60, 3, 63);
+    // Ember rune on cape
+    gfx.fillStyle(0xff4400);
+    gfx.fillCircle(5, 40, 3);
+    gfx.fillStyle(0xff8800);
+    gfx.fillCircle(5, 40, 1);
+
+    // ── BOOTS (heavy, dark brown) ─────────────────────────────────────────
+    gfx.fillStyle(0x231208);
+    gfx.fillRect(5, 52, 13, 12);
+    gfx.fillEllipse(11, 64, 18, 8);
+    gfx.fillRect(22, 52, 13, 12);
+    gfx.fillEllipse(29, 64, 18, 8);
+    // Boot surface sheen
+    gfx.fillStyle(0x3a2010);
+    gfx.fillRect(6, 53, 4, 10);
+    gfx.fillRect(23, 53, 4, 10);
+    // Buckle straps
+    gfx.fillStyle(0x5a3214);
+    gfx.fillRect(5, 55, 13, 2);
+    gfx.fillRect(22, 55, 13, 2);
+    // Brass buckles
+    gfx.fillStyle(0xc8901c);
+    gfx.fillRect(10, 55, 4, 2);
+    gfx.fillRect(27, 55, 4, 2);
+
+    // ── DARK PANTS ────────────────────────────────────────────────────────
+    gfx.fillStyle(0x1c1728);
+    gfx.fillRect(8, 42, 24, 12);
+    // Outer-leg highlight
+    gfx.fillStyle(0x28203a);
+    gfx.fillRect(8, 42, 5, 11);
+    gfx.fillRect(27, 42, 5, 11);
+
+    // ── BELT ──────────────────────────────────────────────────────────────
+    gfx.fillStyle(0x442008);
+    gfx.fillRect(8, 40, 24, 4);
+    // Brass buckle
+    gfx.fillStyle(0xc8901c);
+    gfx.fillRect(17, 41, 6, 2);
+    // Belt pouches
+    gfx.fillStyle(0x34180a);
+    gfx.fillRect(8, 40, 5, 5);
+    gfx.fillRect(27, 40, 5, 5);
+    gfx.fillStyle(0xc8901c);
+    gfx.fillRect(9, 41, 3, 2);
+    gfx.fillRect(28, 41, 3, 2);
+
+    // ── TORSO / SHIRT (worn cream) ────────────────────────────────────────
+    gfx.fillStyle(0xc0986a);
+    gfx.fillRect(10, 24, 20, 18);
+    // Dirty worn patches
+    gfx.fillStyle(0xa88055);
+    gfx.fillRect(11, 25, 6, 4);
+    gfx.fillRect(23, 31, 5, 5);
+
+    // ── LEATHER CHEST HARNESS ─────────────────────────────────────────────
+    gfx.fillStyle(0x2c1006);
+    gfx.fillRect(10, 29, 20, 3);   // horizontal strap
+    gfx.fillRect(18, 24, 4, 18);   // vertical spine strap
+    // Harness clasp (center)
+    gfx.fillStyle(0x7a481a);
+    gfx.fillRect(16, 28, 8, 4);
+    // EMBER EMBLEM on chest (glowing orange circle)
+    gfx.fillStyle(0xff5500);
+    gfx.fillCircle(20, 36, 4);
+    gfx.fillStyle(0xff9900);
+    gfx.fillCircle(20, 36, 2);
+    gfx.fillStyle(0xffee88);
+    gfx.fillCircle(20, 36, 1);
+
+    // ── LEFT ARM + LEATHER GLOVE (character's right — sprite left side) ───
+    gfx.fillStyle(0xba8858);   // arm skin
+    gfx.fillRect(3, 25, 8, 14);
+    // Glove
+    gfx.fillStyle(0x34180a);
+    gfx.fillRect(2, 36, 10, 9);
+    gfx.fillStyle(0x4e2810);
+    gfx.fillRect(3, 37, 7, 7);
+    // Knuckle rivets
+    gfx.fillStyle(0x8a6420);
+    gfx.fillRect(3, 37, 2, 2);
+    gfx.fillRect(6, 37, 2, 2);
+    gfx.fillRect(9, 37, 2, 2);
+
+    // ── RIGHT ARM + EMBER GAUNTLET (character's left — sprite right side) ─
+    gfx.fillStyle(0xba8858);
+    gfx.fillRect(29, 25, 8, 14);
+    // Heavy gauntlet casing
+    gfx.fillStyle(0x2c1006);
+    gfx.fillRect(28, 34, 12, 12);
+    gfx.fillStyle(0x44200a);
+    gfx.fillRect(29, 35, 9, 10);
+    // Vent lines
+    gfx.fillStyle(0x180802);
+    gfx.fillRect(30, 36, 7, 1);
+    gfx.fillRect(30, 38, 7, 1);
+    gfx.fillRect(30, 40, 7, 1);
+    // GLOWING EMBER CORE
+    gfx.fillStyle(0xff4400);
+    gfx.fillCircle(34, 43, 4);
+    gfx.fillStyle(0xff8800);
+    gfx.fillCircle(34, 43, 2);
+    gfx.fillStyle(0xffee44);
+    gfx.fillCircle(34, 43, 1);
+    // Outer glow ring
+    gfx.lineStyle(1, 0xff4400);
+    gfx.strokeCircle(34, 43, 6);
+
+    // ── SCARF FRONT WRAP (over shirt, around neck) ────────────────────────
+    gfx.fillStyle(0xcc1515);
+    gfx.fillRect(10, 22, 20, 5);    // neck wrap
+    // Scarf knot hanging to character's right (sprite right = char's left)
+    gfx.fillStyle(0xe81c1c);
+    gfx.fillEllipse(27, 23, 8, 7);
+    // Scarf shadow fold
+    gfx.fillStyle(0x990e0e);
+    gfx.fillRect(10, 25, 9, 3);
+
+    // ── HEAD (adult proportions — less big-head, stronger jaw) ────────────
+    gfx.fillStyle(0xc08858);    // warm adult skin tone
+    gfx.fillEllipse(20, 14, 20, 17);
+    gfx.fillRect(11, 15, 18, 7);   // widen jaw area
+
+    // ── SPIKY BLACK HAIR ──────────────────────────────────────────────────
+    gfx.fillStyle(0x0e0a06);
+    // Hair base
+    gfx.fillEllipse(20, 10, 22, 13);
+    // Five wild spikes
+    gfx.fillTriangle(6,  10, 10,  0, 14, 10);
+    gfx.fillTriangle(12,  7, 16, -2, 20,  8);
+    gfx.fillTriangle(18,  5, 22, -4, 26,  6);
+    gfx.fillTriangle(24,  7, 29, -1, 32,  8);
+    gfx.fillTriangle(29, 10, 34,  2, 36, 11);
+    // Sideburns
+    gfx.fillRect(8, 11, 4, 7);
+    gfx.fillRect(28, 11, 4, 7);
+    // Subtle hair sheen
+    gfx.fillStyle(0x1e140c);
+    gfx.fillRect(15, 4, 7, 5);
+
+    // ── STEAMPUNK GOGGLES (pushed up on forehead, over hair) ──────────────
+    // Goggle strap
+    gfx.fillStyle(0x3e2208);
+    gfx.fillRect(7, 8, 26, 3);
+    // Brass frames
+    gfx.fillStyle(0x9a5e1c);
+    gfx.fillEllipse(16, 9, 12, 9);
+    gfx.fillEllipse(26, 9, 12, 9);
+    // Bridge
+    gfx.fillStyle(0x7a481a);
+    gfx.fillRect(19, 8, 4, 3);
+    // Dark lenses
+    gfx.fillStyle(0x100814);
+    gfx.fillEllipse(16, 9, 8, 6);
+    gfx.fillEllipse(26, 9, 8, 6);
+    // Red lens glow (powered/active)
+    gfx.fillStyle(0xe01400);
+    gfx.fillEllipse(16, 9, 5, 4);
+    gfx.fillEllipse(26, 9, 5, 4);
+    // Lens highlight
+    gfx.fillStyle(0xff7060);
+    gfx.fillCircle(14, 8, 1);
+    gfx.fillCircle(24, 8, 1);
+    // Frame rivets
+    gfx.fillStyle(0xd4a830);
+    gfx.fillCircle(11, 9, 1);
+    gfx.fillCircle(21, 9, 1);
+    gfx.fillCircle(23, 9, 1);
+    gfx.fillCircle(31, 9, 1);
+
+    // ── FACE FEATURES ─────────────────────────────────────────────────────
+    // Brows — thick, slightly furrowed inward for adult determination
+    gfx.fillStyle(0x0e0a06);
+    gfx.fillRect(13, 14, 6, 2);
+    gfx.fillRect(21, 14, 6, 2);
+    gfx.fillRect(13, 15, 2, 1);   // inner brow drop (stern)
+    gfx.fillRect(25, 15, 2, 1);
+
+    // Eyes — adult narrower
+    gfx.fillStyle(0x140e0a);
+    gfx.fillEllipse(16, 17, 5, 4);
+    gfx.fillEllipse(25, 17, 5, 4);
+    // Iris — warm amber-brown
+    gfx.fillStyle(0x7a3c0a);
+    gfx.fillEllipse(16, 17, 3, 3);
+    gfx.fillEllipse(25, 17, 3, 3);
+    // Catchlight
+    gfx.fillStyle(0xffffff);
+    gfx.fillCircle(17, 16, 1);
+    gfx.fillCircle(26, 16, 1);
+
+    // Nose (adult — triangular, defined)
+    gfx.fillStyle(0xa07048);
+    gfx.fillTriangle(19, 19, 21, 19, 20, 22);
+    gfx.fillStyle(0x886038);
+    gfx.fillCircle(19, 22, 1);
+    gfx.fillCircle(21, 22, 1);
+
+    // Smirk (confident, one side raised)
+    gfx.lineStyle(1, 0x7a4820, 1);
+    gfx.beginPath();
+    gfx.moveTo(14, 24); gfx.lineTo(19, 23); gfx.lineTo(23, 25);
+    gfx.strokePath();
+
+    // Battle scar (right cheek — shows history)
+    gfx.lineStyle(1, 0xb07858, 1);
+    gfx.beginPath();
+    gfx.moveTo(24, 16); gfx.lineTo(27, 21);
+    gfx.strokePath();
+
+    // Stubble (5 o'clock shadow, adult marker)
+    gfx.fillStyle(0x6a3e28);
+    for (let sx = 13; sx <= 27; sx += 2) { gfx.fillRect(sx, 25, 1, 1); }
+    for (let sx = 14; sx <= 26; sx += 2) { gfx.fillRect(sx, 26, 1, 1); }
+
+    // ── BOLD OUTLINES (Mario-style clarity) ───────────────────────────────
+    gfx.lineStyle(1, 0x080402, 1);
+    gfx.strokeEllipse(20, 14, 20, 17);      // head
+    gfx.strokeRect(10, 24, 20, 18);         // torso
+    gfx.strokeRect(3, 25, 8, 20);           // left arm
+    gfx.strokeRect(29, 25, 8, 20);          // right arm
+    gfx.strokeRect(5, 52, 13, 12);          // left boot
+    gfx.strokeRect(22, 52, 13, 12);         // right boot
+    gfx.strokeEllipse(16, 9, 12, 9);        // left goggle
+    gfx.strokeEllipse(26, 9, 12, 9);        // right goggle
+
+    gfx.generateTexture(TEX.PLAYER, W, H);
     gfx.destroy();
   }
 

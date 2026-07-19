@@ -205,8 +205,15 @@ export class GameScene extends Phaser.Scene {
     this.platGroup = this.physics.add.staticGroup();
 
     for (const p of PLATFORMS) {
-      const tex  = p.high ? TEX.PLAT_HIGH : this.platTex(p.w);
-      const spr  = this.platGroup.create(p.cx, p.cy, tex) as Phaser.Physics.Arcade.Sprite;
+      if (p.high) {
+        // Visual-only — no physics body so the player passes through.
+        // These are permanently out of reach for the free character.
+        const img = this.add.image(p.cx, p.cy, TEX.PLAT_HIGH);
+        img.setDisplaySize(p.w, 24);
+        img.setAlpha(0.65);
+        continue;
+      }
+      const spr = this.platGroup.create(p.cx, p.cy, this.platTex(p.w)) as Phaser.Physics.Arcade.Sprite;
       spr.setDisplaySize(p.w, 24);
       (spr.body as Phaser.Physics.Arcade.StaticBody).setSize(p.w, 24);
       spr.refreshBody();
@@ -276,11 +283,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildPlayer() {
-    this.player = this.physics.add.sprite(80, GROUND_Y - 19, TEX.PLAYER);
+    // Texture is 40×64; physics body is 22×56 inset so feet align with GROUND_Y
+    this.player = this.physics.add.sprite(80, GROUND_Y - 30, TEX.PLAYER);
     this.player.setCollideWorldBounds(true);
-    (this.player.body as Phaser.Physics.Arcade.Body).setMaxVelocityY(900);
-    // Subtle glow
-    this.player.setTint(0xddeeff);
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    body.setSize(22, 56);
+    body.setOffset(9, 6);
+    body.setMaxVelocityY(900);
   }
 
   private buildHUD() {
@@ -303,10 +312,7 @@ export class GameScene extends Phaser.Scene {
       stroke: '#000000', strokeThickness: 2,
     }).setScrollFactor(0).setOrigin(0.5, 0).setDepth(21);
 
-    // Free character tip
-    this.add.text(W - 10, 10, '🔒 Upgrade for high coins', {
-      fontFamily: 'Georgia, serif', fontSize: '11px', color: '#886644',
-    }).setScrollFactor(0).setOrigin(1, 0).setDepth(21);
+    // (no free-character tip — high coins simply can't be reached)
   }
 
   private setupCamera() {
