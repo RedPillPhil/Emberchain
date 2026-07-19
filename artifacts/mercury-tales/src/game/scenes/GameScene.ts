@@ -241,14 +241,17 @@ export class GameScene extends Phaser.Scene {
   private buildPlatforms() {
     this.platGroup = this.physics.add.staticGroup();
 
-    // Shared graphics object for platform stalactite decorations
-    const decorGfx = this.add.graphics().setDepth(1);
+    // Graphics layer for boulder bases and lava drips (drawn behind player)
+    const rockGfx = this.add.graphics().setDepth(0.8);
 
     for (const p of PLATFORMS) {
       if (p.high) {
         const img = this.add.image(p.cx, p.cy, TEX.PLAT_HIGH);
         img.setDisplaySize(p.w, 24);
         img.setAlpha(0.70);
+        // Faint crystal glow below
+        rockGfx.fillStyle(0x4466DD, 0.10);
+        rockGfx.fillEllipse(p.cx, p.cy + 20, p.w * 0.8, 20);
         continue;
       }
 
@@ -257,19 +260,62 @@ export class GameScene extends Phaser.Scene {
       (spr.body as Phaser.Physics.Arcade.StaticBody).setSize(p.w, 24);
       spr.refreshBody();
 
-      // ── Stalactite drips below each platform ────────────────────────────
-      const platBottom = p.cy + 12; // bottom edge of the 24px sprite
-      for (let sx = p.cx - p.w / 2 + 14; sx < p.cx + p.w / 2 - 10; sx += 28) {
-        const dh = 5 + (Math.floor(sx * 0.13) % 7);  // varies 5–11 px
-        // Stalactite body
-        decorGfx.fillStyle(0x5A2010);
-        decorGfx.fillTriangle(sx - 4, platBottom, sx + 4, platBottom, sx, platBottom + dh);
-        // Lava drip tip
-        decorGfx.fillStyle(0xFF3300, 0.7);
-        decorGfx.fillCircle(sx, platBottom + dh, 2.5);
-        decorGfx.fillStyle(0xFF8800, 0.8);
-        decorGfx.fillCircle(sx, platBottom + dh, 1.2);
+      // ── Boulder/cliff face below the ledge ──────────────────────────────
+      // This gives platforms visual mass so the player clearly stands ON TOP
+      const ledgeTop    = p.cy - 12;  // top of physics body = standing surface
+      const ledgeBottom = p.cy + 12;  // bottom of physics body
+      const boulderH    = 28 + ((p.cx * 7) % 12); // varies 28–39px per platform
+
+      // Outer rock body — gets slightly narrower at the base (natural taper)
+      const inset = 6;
+      const pts: Phaser.Types.Math.Vector2Like[] = [
+        { x: p.cx - p.w / 2,         y: ledgeBottom },
+        { x: p.cx - p.w / 2 + inset, y: ledgeBottom + boulderH * 0.5 },
+        { x: p.cx - p.w / 2 + inset + 4, y: ledgeBottom + boulderH },
+        { x: p.cx + p.w / 2 - inset - 4, y: ledgeBottom + boulderH },
+        { x: p.cx + p.w / 2 - inset, y: ledgeBottom + boulderH * 0.5 },
+        { x: p.cx + p.w / 2,         y: ledgeBottom },
+      ];
+
+      // Main boulder rock — dark volcanic stone
+      rockGfx.fillStyle(0x3A1408);
+      rockGfx.fillPoints(pts, true);
+
+      // Rock strata mid-band — slightly lighter
+      rockGfx.fillStyle(0x4C1C0C, 0.6);
+      rockGfx.fillRect(p.cx - p.w / 2 + inset, ledgeBottom + 5, p.w - inset * 2, 7);
+
+      // Lava crack veins running down the face
+      rockGfx.lineStyle(1, 0xFF4400, 0.55);
+      for (let cx = p.cx - p.w * 0.35; cx < p.cx + p.w * 0.45; cx += p.w * 0.22) {
+        const jitter = (cx % 7) - 3;
+        rockGfx.beginPath();
+        rockGfx.moveTo(cx,         ledgeBottom + 2);
+        rockGfx.lineTo(cx + jitter, ledgeBottom + boulderH * 0.4);
+        rockGfx.lineTo(cx + jitter * 0.5, ledgeBottom + boulderH * 0.75);
+        rockGfx.strokePath();
       }
+
+      // Lava seam glow along the very underside edge
+      rockGfx.fillStyle(0xFF3300, 0.50);
+      rockGfx.fillRect(p.cx - p.w / 2 + inset + 4, ledgeBottom + boulderH - 3, p.w - (inset + 4) * 2, 3);
+      rockGfx.fillStyle(0xFF8800, 0.65);
+      rockGfx.fillRect(p.cx - p.w / 2 + inset + 4, ledgeBottom + boulderH - 1, p.w - (inset + 4) * 2, 1);
+
+      // Lava drip stalactites at irregular intervals
+      for (let sx = p.cx - p.w / 2 + 18; sx < p.cx + p.w / 2 - 14; sx += 22) {
+        const dh = 8 + (Math.floor(sx * 0.11) % 9);
+        rockGfx.fillStyle(0x5A1C08);
+        rockGfx.fillTriangle(sx - 4, ledgeBottom + boulderH, sx + 4, ledgeBottom + boulderH, sx, ledgeBottom + boulderH + dh);
+        rockGfx.fillStyle(0xFF2200, 0.75);
+        rockGfx.fillCircle(sx, ledgeBottom + boulderH + dh, 2.8);
+        rockGfx.fillStyle(0xFF8800, 0.85);
+        rockGfx.fillCircle(sx, ledgeBottom + boulderH + dh, 1.4);
+      }
+
+      // Ambient lava glow pool below the boulder (light from underside)
+      rockGfx.fillStyle(0xFF4400, 0.08);
+      rockGfx.fillEllipse(p.cx, ledgeBottom + boulderH + 14, p.w * 0.7, 18);
     }
   }
 
@@ -300,7 +346,7 @@ export class GameScene extends Phaser.Scene {
     for (const e of ENEMIES) {
       const spr = this.enemyGroup.create(e.x, e.y, TEX.SLUG) as Phaser.Physics.Arcade.Sprite;
       spr.play('cinderslug-walk');
-      spr.setScale(1.5);
+      spr.setScale(1.5);   // 44×28 → ~66×42 displayed
       spr.setData('left',  e.left);
       spr.setData('right', e.right);
       spr.setData('dir',   1);
@@ -309,7 +355,7 @@ export class GameScene extends Phaser.Scene {
       spr.setCollideWorldBounds(false);
       const sb = spr.body as Phaser.Physics.Arcade.Body;
       sb.setGravityY(200);
-      sb.setSize(26, 26);
+      sb.setSize(40, 18);   // wide flat lizard — snug to body shape
     }
   }
 
