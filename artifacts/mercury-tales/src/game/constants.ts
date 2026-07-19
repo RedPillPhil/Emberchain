@@ -19,6 +19,8 @@ export const TEX = {
   PORTAL:       'portal',
   COLLECTOR:    'char-collector',
   BG_SKY:       'bg-sky',
+  BG_CLOUDS:    'bg-clouds',
   BG_FAR:       'bg-far',
+  BG_MID:       'bg-mid',
   BG_NEAR:      'bg-near',
 } as const;

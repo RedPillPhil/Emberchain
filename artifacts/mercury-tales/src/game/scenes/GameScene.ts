@@ -124,9 +124,11 @@ export class GameScene extends Phaser.Scene {
   private wasOnGround   = false;
 
   // bg parallax
-  private bgFar!:  Phaser.GameObjects.TileSprite;
-  private bgNear!: Phaser.GameObjects.TileSprite;
-  private lavaGfx!: Phaser.GameObjects.Graphics;
+  private bgClouds!: Phaser.GameObjects.TileSprite;
+  private bgFar!:    Phaser.GameObjects.TileSprite;
+  private bgMid!:    Phaser.GameObjects.TileSprite;
+  private bgNear!:   Phaser.GameObjects.TileSprite;
+  private lavaGfx!:  Phaser.GameObjects.Graphics;
 
   constructor() { super({ key: 'GameScene' }); }
 
@@ -160,19 +162,27 @@ export class GameScene extends Phaser.Scene {
   private buildBackground() {
     const { width: W, height: H } = this.scale;
 
-    // Sky covers entire world (set scroll factor 0 = fixed)
+    // ── Layer 0: Sky (fixed, gradient from crimson→gold) ──────────────────
     this.add.image(W / 2, H / 2, TEX.BG_SKY)
-      .setScrollFactor(0).setDisplaySize(W, H).setDepth(-3);
+      .setScrollFactor(0).setDisplaySize(W, H).setDepth(-5);
 
-    // Parallax far mountains — tileSprite tiles horizontally
-    this.bgFar  = this.add.tileSprite(W / 2, H - 200, W, 200, TEX.BG_FAR)
-      .setScrollFactor(0).setOrigin(0.5, 1).setDepth(-2).setAlpha(0.8);
+    // ── Layer 1: Ember clouds (drift slowly) ──────────────────────────────
+    this.bgClouds = this.add.tileSprite(W / 2, 80, W, 100, TEX.BG_CLOUDS)
+      .setScrollFactor(0).setOrigin(0.5, 0.5).setDepth(-4);
 
-    // Parallax near rocks
-    this.bgNear = this.add.tileSprite(W / 2, H - 28, W, 120, TEX.BG_NEAR)
+    // ── Layer 2: Distant colourful volcanic formations (0.08x parallax) ───
+    this.bgFar = this.add.tileSprite(W / 2, H - 80, W, 220, TEX.BG_FAR)
+      .setScrollFactor(0).setOrigin(0.5, 1).setDepth(-3);
+
+    // ── Layer 3: Mid-distance warm spires (0.18x parallax) ────────────────
+    this.bgMid = this.add.tileSprite(W / 2, H - 56, W, 160, TEX.BG_MID)
+      .setScrollFactor(0).setOrigin(0.5, 1).setDepth(-2);
+
+    // ── Layer 4: Near ember-grass strip (0.34x parallax) ──────────────────
+    this.bgNear = this.add.tileSprite(W / 2, H - 28, W, 60, TEX.BG_NEAR)
       .setScrollFactor(0).setOrigin(0.5, 1).setDepth(-1);
 
-    // Lava graphics (depth below everything)
+    // Lava graphics (over near strip, below entities)
     this.lavaGfx = this.add.graphics().setDepth(-0.5);
   }
 
@@ -353,23 +363,49 @@ export class GameScene extends Phaser.Scene {
     this.time.addEvent({ delay: 20, loop: true, callback: () => {
       phase += 0.05;
       this.lavaGfx.clear();
-      // Main lava
-      this.lavaGfx.fillStyle(0xff4400, 0.8 + Math.sin(phase) * 0.1);
-      this.lavaGfx.fillRect(0, GROUND_Y + 32, WORLD_WIDTH, 20);
-      // Lava in gaps
+
+      // ── Lava river below ground (vivid orange-red) ──────────────────────
+      this.lavaGfx.fillStyle(0xFF3300, 1.0);
+      this.lavaGfx.fillRect(0, GROUND_Y + 32, WORLD_WIDTH, 60);
+
+      // Bright surface wave (animated sine strip)
+      this.lavaGfx.fillStyle(0xFF6600, 1.0);
+      this.lavaGfx.fillRect(0, GROUND_Y + 32, WORLD_WIDTH, 8);
+
+      // Golden surface shimmer
+      this.lavaGfx.fillStyle(0xFFCC00, 0.5 + Math.sin(phase * 0.8) * 0.25);
+      this.lavaGfx.fillRect(0, GROUND_Y + 32, WORLD_WIDTH, 3);
+
+      // ── Lava pools in the ground gaps ───────────────────────────────────
       for (const [gStart, gEnd] of GROUND_GAPS) {
-        this.lavaGfx.fillRect(gStart, GROUND_Y - 20, gEnd - gStart, 52);
+        // Deep lava base
+        this.lavaGfx.fillStyle(0xFF2200, 1.0);
+        this.lavaGfx.fillRect(gStart, GROUND_Y - 24, gEnd - gStart, 60);
+        // Bright surface
+        this.lavaGfx.fillStyle(0xFF6600, 1.0);
+        this.lavaGfx.fillRect(gStart, GROUND_Y - 24, gEnd - gStart, 6);
+        // Golden hotspot glow
+        this.lavaGfx.fillStyle(0xFFCC00, 0.4 + Math.sin(phase * 1.2) * 0.2);
+        this.lavaGfx.fillRect(gStart, GROUND_Y - 22, gEnd - gStart, 10);
       }
-      // Bubble glow
-      this.lavaGfx.fillStyle(0xff8800, 0.3 + Math.sin(phase * 1.4) * 0.15);
-      for (let x = 40; x < WORLD_WIDTH; x += 120) {
-        const bSize = 6 + Math.sin(phase + x * 0.03) * 4;
-        this.lavaGfx.fillCircle(x, GROUND_Y + 40, bSize);
+
+      // ── Large bubbling hotspots ──────────────────────────────────────────
+      for (let x = 60; x < WORLD_WIDTH; x += 180) {
+        const bSize = 7 + Math.sin(phase + x * 0.025) * 5;
+        this.lavaGfx.fillStyle(0xFF8800, 0.75);
+        this.lavaGfx.fillCircle(x, GROUND_Y + 38, bSize);
+        this.lavaGfx.fillStyle(0xFFDD00, 0.5);
+        this.lavaGfx.fillCircle(x, GROUND_Y + 38, bSize * 0.45);
       }
-      // Lava in gaps glowing hot
-      this.lavaGfx.fillStyle(0xffcc00, 0.15 + Math.sin(phase * 0.8) * 0.1);
+
+      // ── Gap hotspots ─────────────────────────────────────────────────────
       for (const [gStart, gEnd] of GROUND_GAPS) {
-        this.lavaGfx.fillRect(gStart, GROUND_Y - 10, gEnd - gStart, 30);
+        const cx = (gStart + gEnd) / 2;
+        const gR = 14 + Math.sin(phase * 1.3) * 8;
+        this.lavaGfx.fillStyle(0xFFCC00, 0.5);
+        this.lavaGfx.fillCircle(cx, GROUND_Y - 10, gR);
+        this.lavaGfx.fillStyle(0xFFFF80, 0.6);
+        this.lavaGfx.fillCircle(cx, GROUND_Y - 10, gR * 0.5);
       }
     }});
   }
@@ -539,9 +575,11 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // Parallax scroll
-    this.bgFar.tilePositionX  = this.cameras.main.scrollX * 0.12;
-    this.bgNear.tilePositionX = this.cameras.main.scrollX * 0.32;
+    // Parallax scroll (4 layers for depth)
+    this.bgClouds.tilePositionX = this.cameras.main.scrollX * 0.04;
+    this.bgFar.tilePositionX    = this.cameras.main.scrollX * 0.10;
+    this.bgMid.tilePositionX    = this.cameras.main.scrollX * 0.20;
+    this.bgNear.tilePositionX   = this.cameras.main.scrollX * 0.38;
 
     this.wasOnGround = this.isOnGround;
   }

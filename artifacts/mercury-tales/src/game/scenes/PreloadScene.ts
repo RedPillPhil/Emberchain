@@ -6,7 +6,9 @@ export class PreloadScene extends Phaser.Scene {
 
   create() {
     this.createSkyTexture();
+    this.createCloudsTexture();
     this.createFarBgTexture();
+    this.createMidBgTexture();
     this.createNearBgTexture();
     this.createGroundTile();
     this.createPlatformTextures();
@@ -23,120 +25,225 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   private createSkyTexture() {
+    // Vivid Scoria sky: deep burnt-orange at zenith → bright gold at horizon
     const gfx = this.g(854, 480);
-    // Gradient bands: near-black top → deep dark-red at bottom
-    const bands = [
-      [0x050002, 60], [0x0a0305, 60], [0x120506, 60],
-      [0x1a0708, 60], [0x230a09, 60], [0x2d0d0a, 60],
-      [0x380f0b, 60], [0x420f0a, 60],
-    ] as [number, number][];
+    const bands: [number, number][] = [
+      [0xB83A00, 60],  // deep volcanic orange-red
+      [0xD05200, 60],  // flame orange
+      [0xE86C00, 60],  // bright amber-orange
+      [0xF08400, 60],  // golden amber
+      [0xF89C00, 60],  // warm gold
+      [0xFCB400, 60],  // bright gold
+      [0xFACC00, 60],  // yellow-gold
+      [0xF8E000, 60],  // radiant horizon glow
+    ];
     let y = 0;
     for (const [color, h] of bands) {
-      gfx.fillStyle(color);
-      gfx.fillRect(0, y, 854, h);
-      y += h;
+      gfx.fillStyle(color); gfx.fillRect(0, y, 854, h); y += h;
     }
     gfx.generateTexture(TEX.BG_SKY, 854, 480);
     gfx.destroy();
   }
 
-  private createFarBgTexture() {
-    // Distant volcanic mountain silhouettes — tiled 400px wide
-    const W = 400, H = 200;
+  private createCloudsTexture() {
+    // Puffy ember clouds — golden-orange, tiled 800px wide
+    const W = 800, H = 100;
     const gfx = this.g(W, H);
-    gfx.fillStyle(0x1a0508, 1);
-    // Several overlapping triangular peaks
-    const peaks: [number, number, number][] = [
-      [0, H, 120, 20, 240, H],
-      [80, H, 200, 40, 320, H],
-      [200, H, 330, 10, 400, H],
-      [280, H, 380, 55, 400, H],
+    // Three cloud clusters spaced across the tile
+    const drawCloud = (cx: number, cy: number, scale: number) => {
+      // Shadow layer
+      gfx.fillStyle(0xCC5A00, 0.5);
+      gfx.fillEllipse(cx,      cy + 8 * scale, 54 * scale, 26 * scale);
+      gfx.fillEllipse(cx + 22 * scale, cy + 10 * scale, 42 * scale, 22 * scale);
+      gfx.fillEllipse(cx - 18 * scale, cy + 10 * scale, 40 * scale, 20 * scale);
+      // Main body
+      gfx.fillStyle(0xFF9A30);
+      gfx.fillEllipse(cx,      cy,            50 * scale, 30 * scale);
+      gfx.fillEllipse(cx + 20 * scale, cy + 6 * scale, 38 * scale, 24 * scale);
+      gfx.fillEllipse(cx - 16 * scale, cy + 6 * scale, 36 * scale, 22 * scale);
+      // Top highlight
+      gfx.fillStyle(0xFFD050);
+      gfx.fillEllipse(cx - 4 * scale, cy - 4 * scale, 26 * scale, 14 * scale);
+      gfx.fillEllipse(cx + 18 * scale, cy - 2 * scale, 18 * scale, 10 * scale);
+      // Tiny shine
+      gfx.fillStyle(0xFFF0A0);
+      gfx.fillEllipse(cx - 6 * scale, cy - 6 * scale, 10 * scale, 6 * scale);
+    };
+    drawCloud(120, 55, 1.0);
+    drawCloud(380, 40, 1.3);
+    drawCloud(620, 60, 0.85);
+    gfx.generateTexture(TEX.BG_CLOUDS, W, H);
+    gfx.destroy();
+  }
+
+  private createFarBgTexture() {
+    // Distant rounded volcanic formations — vivid jewel colours, tiled 500px wide
+    // Inspired by the colourful egg-rock formations in NSMB Wii
+    const W = 500, H = 220;
+    const gfx = this.g(W, H);
+
+    // Draw big rounded formations in rich, saturated colours
+    const formations: [number, number, number, number][] = [
+      // [color, cx, cy, r]
+      [0x9A2080, 80,  H, 80],   // magenta-purple
+      [0xC03060, 200, H, 100],  // vivid pink-red
+      [0xE05020, 340, H, 90],   // coral orange
+      [0xB02870, 440, H, 70],   // rich magenta
+      [0xD04840, 500, H, 85],   // tomato
+      [0x8A1870, 0,   H, 60],   // deep purple
     ];
-    for (const [x1,y1,x2,y2,x3,y3] of peaks) {
-      gfx.fillTriangle(x1, y1, x2, y2, x3, y3);
+    for (const [color, cx, cy, r] of formations) {
+      // Base colour
+      gfx.fillStyle(color);
+      gfx.fillCircle(cx, cy, r);
+      // Lighter top cap (rim lighting from the twin suns)
+      gfx.fillStyle(0xFFB860, 0.25);
+      gfx.fillEllipse(cx - r * 0.15, cy - r * 0.55, r * 1.1, r * 0.5);
+      // Lava vein crack
+      gfx.lineStyle(2, 0xFF8800, 0.7);
+      gfx.beginPath();
+      gfx.moveTo(cx - 6, cy - r * 0.7);
+      gfx.lineTo(cx, cy - r * 0.3);
+      gfx.lineTo(cx + 8, cy - r * 0.6);
+      gfx.strokePath();
+      // Glowing lava pool at base
+      gfx.fillStyle(0xFF6600, 0.6);
+      gfx.fillEllipse(cx, cy + r * 0.15, r * 0.6, 16);
+      gfx.fillStyle(0xFFCC00, 0.4);
+      gfx.fillEllipse(cx, cy + r * 0.15, r * 0.3, 8);
     }
-    // Lava cracks — bright orange lines
-    gfx.lineStyle(1, 0xff4400, 0.4);
-    gfx.beginPath();
-    gfx.moveTo(100, H); gfx.lineTo(115, 80); gfx.lineTo(130, H);
-    gfx.moveTo(290, H); gfx.lineTo(330, 30); gfx.lineTo(360, H);
-    gfx.strokePath();
+    // Outline for depth
+    gfx.lineStyle(2, 0x000000, 0.15);
+    for (const [, cx, cy, r] of formations) {
+      gfx.strokeCircle(cx, cy, r);
+    }
     gfx.generateTexture(TEX.BG_FAR, W, H);
     gfx.destroy();
   }
 
-  private createNearBgTexture() {
-    // Closer rock formations and steam vents — tiled 600px wide
-    const W = 600, H = 120;
+  private createMidBgTexture() {
+    // Mid-distance rounded spire formations — warm reds and oranges
+    const W = 700, H = 160;
     const gfx = this.g(W, H);
-    gfx.fillStyle(0x0e0408, 1);
-    // Jagged rocks
-    const rocks: number[][] = [
-      [0, H, 40, 50, 100, H],
-      [60, H, 130, 30, 200, H],
-      [170, H, 230, 60, 290, H],
-      [280, H, 340, 20, 410, H],
-      [380, H, 450, 45, 510, H],
-      [480, H, 540, 15, 600, H],
+    const spires: [number, number, number, number, number][] = [
+      [0xC84820, 80,  H, 55, 130],  // cx,cy,rx,ry
+      [0xE06030, 220, H, 70, 160],
+      [0xD05028, 370, H, 60, 140],
+      [0xB83818, 490, H, 50, 120],
+      [0xD86838, 600, H, 65, 150],
+      [0xC04020, 700, H, 55, 130],
     ];
-    for (const [x1,y1,x2,y2,x3,y3] of rocks) {
-      gfx.fillTriangle(x1, y1, x2, y2, x3, y3);
+    for (const [color, cx, cy, rx, ry] of spires) {
+      gfx.fillStyle(color);
+      gfx.fillEllipse(cx, cy, rx * 2, ry * 2);
+      // Top highlight
+      gfx.fillStyle(0xFFAA40, 0.3);
+      gfx.fillEllipse(cx - rx * 0.2, cy - ry * 0.5, rx * 1.0, ry * 0.4);
+      // Lava glow at top
+      gfx.fillStyle(0xFF8800, 0.5);
+      gfx.fillCircle(cx, cy - ry * 0.8, 8);
+      gfx.fillStyle(0xFFDD00, 0.7);
+      gfx.fillCircle(cx, cy - ry * 0.8, 4);
     }
-    // Rock top highlights
-    gfx.lineStyle(1, 0x3d1010, 0.6);
-    gfx.beginPath();
-    gfx.moveTo(0, H); gfx.lineTo(40, 50); gfx.lineTo(100, H);
-    gfx.moveTo(280, H); gfx.lineTo(340, 20); gfx.lineTo(410, H);
-    gfx.strokePath();
+    gfx.generateTexture(TEX.BG_MID, W, H);
+    gfx.destroy();
+  }
+
+  private createNearBgTexture() {
+    // Close decorative volcanic grass / shrubs — vivid warm strip
+    const W = 600, H = 60;
+    const gfx = this.g(W, H);
+    // Rolling hill base
+    gfx.fillStyle(0xD06020);
+    gfx.fillRect(0, 20, W, H);
+    // Bright top edge (like Mario's green top stripe)
+    gfx.fillStyle(0xFF8C30);
+    gfx.fillRect(0, 16, W, 8);
+    // Golden glowing lip
+    gfx.fillStyle(0xFFCC40);
+    gfx.fillRect(0, 14, W, 4);
+    // Ember grass tufts
+    for (let x = 0; x < W; x += 22) {
+      const h = 8 + (x % 3) * 4;
+      gfx.fillStyle(0xFF6010);
+      gfx.fillTriangle(x, 14, x + 5, 14 - h, x + 11, 14);
+      gfx.fillStyle(0xFFAA30);
+      gfx.fillTriangle(x + 2, 14, x + 6, 14 - h + 3, x + 10, 14);
+    }
+    // Small glowing flowers / iridium crystals
+    for (let x = 30; x < W; x += 80) {
+      gfx.fillStyle(0xC0F0FF);
+      gfx.fillCircle(x, 12, 4);
+      gfx.fillStyle(0x80D8FF);
+      gfx.fillCircle(x, 12, 2);
+    }
     gfx.generateTexture(TEX.BG_NEAR, W, H);
     gfx.destroy();
   }
 
   private createGroundTile() {
+    // Bright golden-amber volcanic sandstone — like NSMB's warm tan ground
     const gfx = this.g(32, 32);
-    // Dark volcanic rock base
-    gfx.fillStyle(0x1c1008);
+    // Main body — warm amber-brown
+    gfx.fillStyle(0xC87820);
     gfx.fillRect(0, 0, 32, 32);
-    // Slightly lighter top edge
-    gfx.fillStyle(0x2e1a0d);
+    // Side shading (slightly darker)
+    gfx.fillStyle(0xA86010);
+    gfx.fillRect(0, 6, 32, 26);
+    // Top surface — bright golden
+    gfx.fillStyle(0xE89030);
     gfx.fillRect(0, 0, 32, 6);
-    // Orange-red top strip (surface layer — hot rock)
-    gfx.fillStyle(0x5a1e08);
-    gfx.fillRect(0, 0, 32, 3);
-    // Glow highlight on surface
-    gfx.fillStyle(0x8b2e0e, 0.4);
-    gfx.fillRect(0, 0, 32, 1);
-    // Random cracks / texture variation
-    gfx.lineStyle(1, 0x0a0604, 0.7);
+    // Gleaming top lip (Mario's bright top stripe)
+    gfx.fillStyle(0xFFD050);
+    gfx.fillRect(0, 0, 32, 2);
+    // Iridium vein streaks (silver-blue)
+    gfx.lineStyle(1, 0xC0D8F8, 0.7);
     gfx.beginPath();
-    gfx.moveTo(8, 6); gfx.lineTo(12, 20); gfx.moveTo(22, 8); gfx.lineTo(18, 25);
-    gfx.moveTo(0, 15); gfx.lineTo(6, 22); gfx.moveTo(26, 12); gfx.lineTo(32, 18);
+    gfx.moveTo(6, 8); gfx.lineTo(14, 20);
+    gfx.moveTo(22, 10); gfx.lineTo(18, 28);
+    gfx.strokePath();
+    // Rock texture lines
+    gfx.lineStyle(1, 0x8A5010, 0.4);
+    gfx.beginPath();
+    gfx.moveTo(0, 14); gfx.lineTo(10, 18); gfx.moveTo(18, 10); gfx.lineTo(32, 16);
     gfx.strokePath();
     gfx.generateTexture(TEX.GROUND, 32, 32);
     gfx.destroy();
   }
 
   private createPlatformTextures() {
-    const drawPlatform = (w: number, key: string, alpha = false) => {
+    const drawPlatform = (w: number, key: string, isHigh = false) => {
       const H = 24;
       const gfx = this.g(w, H);
-      // Base rock
-      gfx.fillStyle(alpha ? 0x1a1030 : 0x180e06);
-      gfx.fillRect(0, 0, w, H);
-      // Top bright strip
-      gfx.fillStyle(alpha ? 0x4a2080 : 0x3d1a0a);
-      gfx.fillRect(0, 0, w, 5);
-      // Hot glowing top edge
-      gfx.fillStyle(alpha ? 0x7c3aed : 0x8b2e0e, 0.5);
-      gfx.fillRect(0, 0, w, 2);
-      // Bottom shadow
-      gfx.fillStyle(0x000000, 0.5);
-      gfx.fillRect(0, H - 3, w, 3);
-      // Crack details
-      gfx.lineStyle(1, alpha ? 0x0a0820 : 0x0a0604, 0.6);
+      if (isHigh) {
+        // Unreachable — cool blue-purple tint, slightly transparent look
+        gfx.fillStyle(0x6030A0); gfx.fillRect(0, 0, w, H);
+        gfx.fillStyle(0x8050C8); gfx.fillRect(0, 0, w, 5);
+        gfx.fillStyle(0xC090FF); gfx.fillRect(0, 0, w, 2);
+        gfx.fillStyle(0x000000, 0.3); gfx.fillRect(0, H - 3, w, 3);
+        gfx.lineStyle(1, 0x4020708.toString() as unknown as number);
+        gfx.generateTexture(key, w, H);
+        gfx.destroy();
+        return;
+      }
+      // Warm rust-orange volcanic rock shelf
+      gfx.fillStyle(0xA85828); gfx.fillRect(0, 0, w, H);
+      // Underside darker
+      gfx.fillStyle(0x7A3810); gfx.fillRect(0, H - 6, w, 6);
+      // Top surface — bright amber
+      gfx.fillStyle(0xD47838); gfx.fillRect(0, 0, w, 6);
+      // Gleaming top edge (golden glow)
+      gfx.fillStyle(0xFFB840); gfx.fillRect(0, 0, w, 2);
+      // Iridium crystal deposits along top
+      for (let x = 12; x < w - 8; x += 32) {
+        gfx.fillStyle(0xC8E8FF, 0.8);
+        gfx.fillRect(x, 1, 4, 3);
+      }
+      // Crack lines
+      gfx.lineStyle(1, 0x6A2C08, 0.6);
       gfx.beginPath();
-      for (let x = 20; x < w - 10; x += 40) {
-        gfx.moveTo(x, 5); gfx.lineTo(x + 6, 18); gfx.moveTo(x + 20, 5); gfx.lineTo(x + 14, 18);
+      for (let x = 24; x < w - 12; x += 48) {
+        gfx.moveTo(x, 6); gfx.lineTo(x + 8, 18); gfx.moveTo(x + 22, 4); gfx.lineTo(x + 16, 20);
       }
       gfx.strokePath();
       gfx.generateTexture(key, w, H);
@@ -145,7 +252,7 @@ export class PreloadScene extends Phaser.Scene {
     drawPlatform(96,  TEX.PLAT_S);
     drawPlatform(192, TEX.PLAT_M);
     drawPlatform(288, TEX.PLAT_L);
-    drawPlatform(192, TEX.PLAT_HIGH, true);  // unreachable platforms have purple tint
+    drawPlatform(192, TEX.PLAT_HIGH, true);
   }
 
   private createPlayerTexture() {

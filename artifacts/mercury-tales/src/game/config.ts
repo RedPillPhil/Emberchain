@@ -10,7 +10,7 @@ export function createGameConfig(parent: HTMLElement): Phaser.Types.Core.GameCon
     parent,
     width: 854,
     height: 480,
-    backgroundColor: '#0a0005',
+    backgroundColor: '#B83A00',   // matches vivid sky top band
     physics: {
       default: 'arcade',
       arcade: { gravity: { x: 0, y: 900 }, debug: false },
