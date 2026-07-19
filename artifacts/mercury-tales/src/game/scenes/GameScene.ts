@@ -143,8 +143,8 @@ export class GameScene extends Phaser.Scene {
     this.buildPlatforms();
     this.buildCoins();
     this.buildEnemies();
+    this.buildPlayer();   // must come before buildPortal & setupCollisions
     this.buildPortal();
-    this.buildPlayer();
     this.buildHUD();
     this.setupCamera();
     this.setupControls();
