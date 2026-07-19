@@ -364,35 +364,37 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildHUD() {
-    const { width: W } = this.scale;
+    const { width: W, height: H } = this.scale;
 
     const hudBg = this.add.graphics().setScrollFactor(0).setDepth(20);
     hudBg.fillStyle(0x000000, 0.55);
-    hudBg.fillRoundedRect(8, 8, 220, 36, 8);
+    hudBg.fillRoundedRect(8, 8, 220, 38, 10);
 
-    this.add.image(26, 26, TEX.COIN).setScrollFactor(0).setScale(0.9).setDepth(21);
+    this.add.image(26, 27, TEX.COIN).setScrollFactor(0).setScale(0.9).setDepth(21);
     this.iridiumText = this.add.text(44, 16, '0  IRIDIUM', {
-      fontFamily: 'Georgia, serif', fontSize: '16px', color: '#e8e8e8',
+      fontFamily: '"Fredoka One", "Nunito", sans-serif',
+      fontSize: '17px', color: '#ffe080',
       stroke: '#000000', strokeThickness: 3,
     }).setScrollFactor(0).setDepth(21);
 
-    this.add.text(W / 2, 16, 'World 1-1   The Char Plains', {
-      fontFamily: 'Georgia, serif', fontSize: '13px', color: '#ffaa66',
-      stroke: '#000000', strokeThickness: 2,
+    this.add.text(W / 2, 15, 'World 1-1   The Char Plains', {
+      fontFamily: '"Nunito", sans-serif',
+      fontStyle: 'bold',
+      fontSize: '13px', color: '#ffcc88',
+      stroke: '#000000', strokeThickness: 3,
     }).setScrollFactor(0).setOrigin(0.5, 0).setDepth(21);
 
-    // Double-jump hint (fades after first use)
-    const hint = this.add.text(W / 2, H - 22, '↑ double-jump available', {
-      fontFamily: 'Georgia, serif', fontSize: '11px', color: '#ffcc88',
-      stroke: '#000000', strokeThickness: 2, alpha: 0.8,
-    }).setScrollFactor(0).setOrigin(0.5, 1).setDepth(21);
-    this.time.delayedCall(4000, () => {
-      this.tweens.add({ targets: hint, alpha: 0, duration: 800, onComplete: () => hint.destroy() });
+    // Double-jump hint (fades after a few seconds)
+    const hint = this.add.text(W / 2, H - 16, '↑  Press JUMP again mid-air for a double jump!', {
+      fontFamily: '"Nunito", sans-serif',
+      fontStyle: 'bold',
+      fontSize: '12px', color: '#ffee99',
+      stroke: '#000000', strokeThickness: 3,
+    }).setScrollFactor(0).setOrigin(0.5, 1).setDepth(21).setAlpha(0.9);
+    this.time.delayedCall(4500, () => {
+      this.tweens.add({ targets: hint, alpha: 0, duration: 900, onComplete: () => hint.destroy() });
     });
   }
-
-  // Local alias so we can reference scale.height in buildHUD without capturing class member
-  private get H() { return this.scale.height; }
 
   private setupCamera() {
     this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
