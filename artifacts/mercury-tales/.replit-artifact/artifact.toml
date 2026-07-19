@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/mercury-tales/"
+title = "Mercury Tales"
+version = "1.0.0"
+id = "artifacts/mercury-tales"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/mercury-tales/" ]
+localPort = 19873
+
+[services.development]
+run = "pnpm --filter @workspace/mercury-tales run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mercury-tales", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/mercury-tales/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19873"
+BASE_PATH = "/mercury-tales/"
