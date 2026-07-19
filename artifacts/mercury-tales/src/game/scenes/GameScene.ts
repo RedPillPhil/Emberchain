@@ -2,8 +2,10 @@ import Phaser from 'phaser';
 import { TEX, WORLD_WIDTH, WORLD_HEIGHT, GROUND_Y, PLAYER_SPEED, PLAYER_JUMP } from '../constants';
 
 // ── Player animation ──────────────────────────────────────────────────────────
-const PLAYER_SCALE = 0.75;  // 85×100 run frame → 64×75 displayed
-type PlayerAnimState = 'idle-r' | 'idle-l' | 'run-r' | 'run-l';
+// Alex sprite: 256×256 frame. Character occupies ~185px tall, ~110px wide.
+// At scale 0.38 → displayed frame 97×97, character body ≈ 70px tall × 42px wide.
+const PLAYER_SCALE = 0.38;
+type PlayerAnimState = 'idle' | 'run' | 'air';
 
 // ── Movement feel ─────────────────────────────────────────────────────────────
 const GROUND_ACCEL = 2800;   // px/s² on ground
@@ -146,6 +148,7 @@ export class GameScene extends Phaser.Scene {
   // player animation state
   private playerFacing: 'r' | 'l' = 'r';
   private playerAnimState: PlayerAnimState | '' = '';
+  private playerOnGround = false; // track for air animation
 
   // run trail throttle
   private runTrailTimer = 0;
@@ -360,16 +363,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildPlayer() {
-    this.player = this.physics.add.sprite(80, GROUND_Y, 'player-idle-r');
+    this.player = this.physics.add.sprite(80, GROUND_Y, 'alex-run');
     this.player.setOrigin(0.5, 1);
     this.player.setCollideWorldBounds(true);
-    this.player.setTint(0xFFBB60);  // warm amber for Scoria
+    // No tint — Alex is a full-colour 3D-rendered sprite
 
     const body = this.player.body as Phaser.Physics.Arcade.Body;
     body.setMaxVelocityY(900);
-    body.setMaxVelocityX(PLAYER_SPEED);   // acceleration respects this cap
+    body.setMaxVelocityX(PLAYER_SPEED);
 
-    this.setPlayerAnimation('idle-r');
+    this.setPlayerAnimation('idle');
   }
 
   private buildGeysers() {
@@ -656,20 +659,27 @@ export class GameScene extends Phaser.Scene {
   // ── Player animation ────────────────────────────────────────────────────────
 
   private setPlayerAnimation(state: PlayerAnimState) {
-    const key = `ember-${state}`;
+    // Always keep flipX in sync with facing direction
+    this.player.setFlipX(this.playerFacing === 'l');
+
     if (this.playerAnimState === state) return;
     this.playerAnimState = state;
 
+    const key = state === 'run' ? 'alex-run' : state === 'air' ? 'alex-air' : 'alex-idle';
     this.player.play(key, true);
     this.player.setScale(PLAYER_SCALE);
 
-    const isRun   = state.startsWith('run');
-    const displayW = (isRun ? 85 : 45) * PLAYER_SCALE;   // 64 or 34 px
-    const displayH = 100 * PLAYER_SCALE;                  // 75 px
-    const BODY_W = 18, BODY_H = 52;
+    // Frame is 256×256 at PLAYER_SCALE → displayed 97×97 px
+    // Character body within frame: ~110px wide, ~185px tall centred/bottom-anchored
+    // Displayed character: ~42px wide × ~70px tall
+    const displayW = 256 * PLAYER_SCALE;  // ≈ 97
+    const displayH = 256 * PLAYER_SCALE;  // ≈ 97
+    const BODY_W = 20, BODY_H = 60;
     const body = this.player.body as Phaser.Physics.Arcade.Body;
     body.setSize(BODY_W, BODY_H);
-    body.setOffset((displayW - BODY_W) / 2, displayH - BODY_H - 4);
+    // With origin (0.5, 1): frame bottom = player.y; place body near char feet.
+    // Character feet are at ~220/256 of frame height; offset.y positions body top.
+    body.setOffset((displayW - BODY_W) / 2, displayH - BODY_H - 12);
   }
 
   // ── Game logic ──────────────────────────────────────────────────────────────
@@ -756,11 +766,9 @@ export class GameScene extends Phaser.Scene {
     body.setVelocityY(-520);  // blast upward
     this.cameras.main.shake(120, 0.007);
     this.tweens.add({
-      targets: this.player, alpha: 0.25, tint: 0xFF4400,
+      targets: this.player, alpha: 0.25,
       duration: 80, yoyo: true, repeat: 7,
       onComplete: () => {
-        this.player.clearTint();
-        this.player.setTint(0xFFBB60);  // restore amber
         this.player.setAlpha(1);
         this.player.setData('geyserHit', false);
       },
@@ -839,20 +847,18 @@ export class GameScene extends Phaser.Scene {
     if (goLeft) {
       body.setAccelerationX(-accel);
       this.playerFacing = 'l';
-      this.setPlayerAnimation('run-l');
+      this.setPlayerAnimation(this.isOnGround ? 'run' : 'air');
     } else if (goRight) {
       body.setAccelerationX(accel);
       this.playerFacing = 'r';
-      this.setPlayerAnimation('run-r');
+      this.setPlayerAnimation(this.isOnGround ? 'run' : 'air');
     } else {
       body.setAccelerationX(0);
       // Friction / air drag
       const drag = this.isOnGround ? GROUND_DRAG : AIR_DRAG;
       const newVx = body.velocity.x * (1 - Math.min(1, drag * dt));
       body.setVelocityX(Math.abs(newVx) < 5 ? 0 : newVx);
-      this.setPlayerAnimation(this.isOnGround
-        ? (`idle-${this.playerFacing}` as PlayerAnimState)
-        : (`run-${this.playerFacing}` as PlayerAnimState));
+      this.setPlayerAnimation(this.isOnGround ? 'idle' : 'air');
     }
 
     // ── Run trail ────────────────────────────────────────────────────────────
