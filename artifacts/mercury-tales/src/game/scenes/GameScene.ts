@@ -1,6 +1,10 @@
 import Phaser from 'phaser';
 import { TEX, WORLD_WIDTH, WORLD_HEIGHT, GROUND_Y, PLAYER_SPEED, PLAYER_JUMP, THIEF_STEAL_PCT } from '../constants';
 
+// ── Player animation constants ────────────────────────────────────────────────
+const PLAYER_SCALE = 0.75;  // 85×100 run frame → 64×75 displayed, 45×100 idle → 34×75
+type PlayerAnimState = 'idle-r' | 'idle-l' | 'run-r' | 'run-l';
+
 // ── Level layout data ─────────────────────────────────────────────────────────
 
 interface PlatDef { cx: number; cy: number; w: number; high?: true }
@@ -122,6 +126,10 @@ export class GameScene extends Phaser.Scene {
   private jumpBuffer    = 0;
   private isOnGround    = false;
   private wasOnGround   = false;
+
+  // player animation state
+  private playerFacing: 'r' | 'l' = 'r';
+  private playerAnimState: PlayerAnimState | '' = '';  // '' forces first setPlayerAnimation() to always execute
 
   // bg parallax
   private bgClouds!: Phaser.GameObjects.TileSprite;
@@ -268,17 +276,16 @@ export class GameScene extends Phaser.Scene {
 
     for (const e of ENEMIES) {
       const spr = this.enemyGroup.create(e.x, e.y, TEX.SLUG) as Phaser.Physics.Arcade.Sprite;
+      spr.play('cinderslug-walk');
+      spr.setScale(1.5);             // 32×32 frame → 48×48 displayed
       spr.setData('left',  e.left);
       spr.setData('right', e.right);
       spr.setData('dir',   1);
       spr.setVelocityX(70);
       spr.setCollideWorldBounds(false);
-      (spr.body as Phaser.Physics.Arcade.Body).setGravityY(200);
-      // Subtle breathe tween
-      this.tweens.add({
-        targets: spr, scaleX: 1.05, scaleY: 0.96,
-        duration: 600 + Math.random() * 200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-      });
+      const sb = spr.body as Phaser.Physics.Arcade.Body;
+      sb.setGravityY(200);
+      sb.setSize(26, 26);            // tighter hitbox inside the 48px frame
     }
   }
 
@@ -293,13 +300,35 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildPlayer() {
-    // Texture is 40×64; physics body is 22×56 inset so feet align with GROUND_Y
-    this.player = this.physics.add.sprite(80, GROUND_Y - 30, TEX.PLAYER);
+    // Real animated sprite — origin at foot centre so y === ground level
+    this.player = this.physics.add.sprite(80, GROUND_Y, 'player-idle-r');
+    this.player.setOrigin(0.5, 1);
     this.player.setCollideWorldBounds(true);
+    // Warm amber tint: white→golden, blue→brownish-amber for the Scoria palette
+    this.player.setTint(0xFFBB60);
     const body = this.player.body as Phaser.Physics.Arcade.Body;
-    body.setSize(22, 56);
-    body.setOffset(9, 6);
     body.setMaxVelocityY(900);
+    this.setPlayerAnimation('idle-r');
+  }
+
+  /** Switch player animation + update physics body to match new frame width */
+  private setPlayerAnimation(state: PlayerAnimState) {
+    const key = `ember-${state}`;
+    if (this.playerAnimState === state) return;
+    this.playerAnimState = state;
+
+    this.player.play(key, true);
+    this.player.setScale(PLAYER_SCALE);
+
+    // Physics body in game-pixels (origin is foot-centre, so y = sprite bottom)
+    const isRun   = state.startsWith('run');
+    const displayW = (isRun ? 85 : 45) * PLAYER_SCALE; // 64 or 34 px
+    const displayH = 100 * PLAYER_SCALE;               // 75 px
+    const BODY_W = 18, BODY_H = 52;
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    body.setSize(BODY_W, BODY_H);
+    // offset from sprite top-left (origin is bottom-centre)
+    body.setOffset((displayW - BODY_W) / 2, displayH - BODY_H - 4);
   }
 
   private buildHUD() {
@@ -538,18 +567,24 @@ export class GameScene extends Phaser.Scene {
 
     if (goLeft) {
       body.setVelocityX(-PLAYER_SPEED);
-      this.player.setFlipX(true);
+      this.playerFacing = 'l';
+      this.setPlayerAnimation('run-l');
     } else if (goRight) {
       body.setVelocityX(PLAYER_SPEED);
-      this.player.setFlipX(false);
+      this.playerFacing = 'r';
+      this.setPlayerAnimation('run-r');
     } else {
       // Instant stop on ground, slight drift in air
       body.setVelocityX(this.isOnGround ? 0 : body.velocity.x * (1 - dt * 14));
+      // Idle on ground, continue run-stride pose in the air
+      this.setPlayerAnimation(this.isOnGround
+        ? (`idle-${this.playerFacing}` as PlayerAnimState)
+        : (`run-${this.playerFacing}` as PlayerAnimState));
     }
 
     // Kill player who falls into lava
     if (this.player.y > WORLD_HEIGHT + 60) {
-      this.player.setPosition(80, GROUND_Y - 19);
+      this.player.setPosition(80, GROUND_Y);  // origin at foot-centre
       body.setVelocity(0, 0);
       this.iridiumCount = Math.max(0, this.iridiumCount - 3);
       this.iridiumText.setText(`${this.iridiumCount}  IRIDIUM`);
