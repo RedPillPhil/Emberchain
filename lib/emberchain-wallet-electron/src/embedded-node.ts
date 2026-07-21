@@ -132,7 +132,9 @@ export function getNodeStatus(): NodeStatus {
   const syncPct    = bestPeer > 0 && h < bestPeer
     ? Math.min(99, Math.round((h / bestPeer) * 100))
     : h > 0 ? 100 : 0;
-  const synced = bestPeer === 0 || h >= bestPeer;
+  // Only call synced if we actually have peers — 0 peers means we can't
+  // know the real chain tip, so "height 0 == peer 0" is NOT synced.
+  const synced = peers.length > 0 && h >= bestPeer;
 
   return {
     running: true, downloading: false, downloadError: null,
