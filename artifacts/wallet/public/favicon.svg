@@ -1,10 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <circle cx="32" cy="32" r="32" fill="#1a1a1a"/>
-  <path d="M32 8C32 8 20 22 20 34c0 6.627 5.373 12 12 12s12-5.373 12-12c0-4-2-7-2-7s-1 4-4 6c0 0 2-6-6-16z" fill="#f37021"/>
-  <path d="M32 28c0 0-6 6-6 12a6 6 0 0012 0c0-3-1.5-5-1.5-5s-.5 3-2.5 4c0 0 1-4-2-11z" fill="#ffd580"/>
-  <!-- Wallet badge: card body + stripe + coin -->
-  <rect x="37" y="43" width="22" height="15" rx="3" fill="#1a1a1a" stroke="#f37021" stroke-width="1.5"/>
-  <rect x="37" y="47" width="22" height="4" fill="#f37021" opacity="0.9"/>
-  <circle cx="55" cy="53" r="3.5" fill="#f37021"/>
-  <rect x="40" y="52" width="9" height="2" rx="1" fill="#666"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <path d="M50 4 C50 4 22 28 22 54 C22 70 34 84 50 84 C66 84 78 70 78 54 C78 43 72 34 72 34 C72 34 68 48 60 55 C60 55 65 38 50 4Z" fill="#f37021"/>
+  <path d="M50 34 C50 34 36 47 36 59 C36 67 42 74 50 74 C58 74 64 67 64 59 C64 53 60 47 60 47 C60 47 58 55 54 59 C54 59 56 49 50 34Z" fill="#ffd580"/>
 </svg>

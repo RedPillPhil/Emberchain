@@ -54,7 +54,9 @@ function randomNonce(): bigint {
 }
 
 async function fetchTemplate() {
-  const r = await fetch(`${nodeUrl}/api/mining/template?minerAddress=${address}`);
+  const r = await fetch(`${nodeUrl}/api/mining/template?minerAddress=${address}`, {
+    signal: AbortSignal.timeout(10_000),
+  });
   if (!r.ok) throw new Error(`Template fetch failed: ${r.status}`);
   return r.json() as Promise<{ header: Header; target: string; shareTarget: string }>;
 }
@@ -78,7 +80,9 @@ async function submitBlock(header: Header, nonce: string, blockHash: string) {
 
 async function fetchStatus() {
   try {
-    const r = await fetch(`${nodeUrl}/api/chain/status`);
+    const r = await fetch(`${nodeUrl}/api/chain/status`, {
+      signal: AbortSignal.timeout(8_000),
+    });
     if (r.ok) return r.json();
   } catch {}
   return null;
@@ -106,7 +110,7 @@ async function mine() {
     } catch (err) {
       // Use "warn" so the UI logs it without clobbering the status line
       parentPort!.postMessage({ type: "warn", msg: (err as Error).message });
-      await new Promise(r => setTimeout(r, 5000));
+      await new Promise(r => setTimeout(r, 2_000));
       continue;
     }
 
