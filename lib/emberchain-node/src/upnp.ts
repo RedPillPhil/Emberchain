@@ -8,6 +8,15 @@
  * No npm packages needed — pure Node.js built-ins (dgram, http, os, url).
  * This is the same mechanism Bitcoin Core uses to become publicly reachable
  * without manual port-forwarding configuration.
+ *
+ * Improvements over v1:
+ *  - Searches for IGD:1, IGD:2, WANIPConnection:1 and WANPPPConnection:1 in
+ *    a single M-SEARCH burst so routers that only respond to one ST are found.
+ *  - Collects ALL LOCATION responses; if the first control-URL fetch fails the
+ *    next candidate is tried rather than giving up immediately.
+ *  - SOAPAction matches the actual service type (WANIPConnection vs
+ *    WANPPPConnection) so PPPoE routers no longer silently reject the mapping.
+ *  - setMulticastTTL(4) improves delivery on segmented LANs.
  */
 
 import dgram from "node:dgram";
@@ -24,51 +33,76 @@ export interface UPnPResult {
 
 const SSDP_ADDR    = "239.255.255.250";
 const SSDP_PORT    = 1900;
-const DISCOVER_TTL = 5_000; // ms
+const DISCOVER_TTL = 6_000; // ms — wait for all router replies
+
+/** Service-types we search for, in preference order */
+const ST_LIST = [
+  "urn:schemas-upnp-org:device:InternetGatewayDevice:2",
+  "urn:schemas-upnp-org:device:InternetGatewayDevice:1",
+  "urn:schemas-upnp-org:service:WANIPConnection:1",
+  "urn:schemas-upnp-org:service:WANPPPConnection:1",
+];
 
 // ── SSDP discovery ────────────────────────────────────────────────────────────
 
-function discoverControlUrl(): Promise<string | null> {
+interface ControlUrlResult {
+  controlUrl:  string;
+  serviceType: "WANIPConnection" | "WANPPPConnection";
+}
+
+/**
+ * Sends M-SEARCH queries for all known ST values and collects every unique
+ * LOCATION header that arrives within DISCOVER_TTL ms.  Returns them in
+ * arrival order so the first successful parse wins.
+ */
+function discoverLocations(): Promise<string[]> {
   return new Promise((resolve) => {
     const sock = dgram.createSocket("udp4");
+    const seen = new Set<string>();
+    const locs: string[] = [];
     let done = false;
 
-    const finish = (url: string | null) => {
+    const finish = () => {
       if (done) return;
       done = true;
       try { sock.close(); } catch { /* ignore */ }
-      resolve(url);
+      resolve(locs);
     };
 
-    const msg = Buffer.from(
-      "M-SEARCH * HTTP/1.1\r\n" +
-      `HOST: ${SSDP_ADDR}:${SSDP_PORT}\r\n` +
-      "MAN: \"ssdp:discover\"\r\n" +
-      "MX: 3\r\n" +
-      "ST: urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\n\r\n",
-    );
-
-    sock.on("error", () => finish(null));
+    sock.on("error", () => finish());
 
     sock.on("message", (buf) => {
       const text = buf.toString("utf-8");
-      const locationMatch = text.match(/LOCATION:\s*(http[^\r\n]+)/i);
-      if (!locationMatch) return;
-      const location = locationMatch[1]!.trim();
-      fetchControlUrl(location).then(finish).catch(() => finish(null));
+      const m = text.match(/LOCATION:\s*(http[^\r\n]+)/i);
+      if (!m) return;
+      const loc = m[1]!.trim();
+      if (!seen.has(loc)) { seen.add(loc); locs.push(loc); }
     });
 
     sock.bind(0, () => {
-      sock.send(msg, 0, msg.length, SSDP_PORT, SSDP_ADDR, (err) => {
-        if (err) finish(null);
-      });
+      try { sock.setMulticastTTL(4); } catch { /* ignore */ }
+
+      // Send one M-SEARCH per service type
+      for (const st of ST_LIST) {
+        const msg = Buffer.from(
+          "M-SEARCH * HTTP/1.1\r\n" +
+          `HOST: ${SSDP_ADDR}:${SSDP_PORT}\r\n` +
+          "MAN: \"ssdp:discover\"\r\n" +
+          "MX: 3\r\n" +
+          `ST: ${st}\r\n\r\n`,
+        );
+        sock.send(msg, 0, msg.length, SSDP_PORT, SSDP_ADDR, (err) => {
+          if (err && !done) finish();
+        });
+      }
     });
 
-    setTimeout(() => finish(null), DISCOVER_TTL);
+    setTimeout(finish, DISCOVER_TTL);
   });
 }
 
-function fetchControlUrl(location: string): Promise<string> {
+/** Parse a UPnP device descriptor and return the WAN control URL + service type. */
+function fetchControlUrl(location: string): Promise<ControlUrlResult> {
   return new Promise((resolve, reject) => {
     const u = new URL(location);
     const req = http.get(
@@ -77,13 +111,25 @@ function fetchControlUrl(location: string): Promise<string> {
         let body = "";
         res.on("data", (chunk: Buffer) => { body += chunk.toString(); });
         res.on("end", () => {
-          const m = body.match(
-            /<serviceType>[^<]*(?:WANIPConnection|WANPPPConnection)[^<]*<\/serviceType>[\s\S]*?<controlURL>([^<]+)<\/controlURL>/i,
-          );
-          if (!m) { reject(new Error("No WAN control URL in descriptor")); return; }
-          const base = `${u.protocol}//${u.host}`;
-          const ctrl = m[1]!.trim();
-          resolve(ctrl.startsWith("http") ? ctrl : `${base}${ctrl.startsWith("/") ? "" : "/"}${ctrl}`);
+          // Try WANIPConnection first, then WANPPPConnection
+          for (const svcType of ["WANIPConnection", "WANPPPConnection"] as const) {
+            const m = body.match(
+              new RegExp(
+                `<serviceType>[^<]*${svcType}[^<]*<\\/serviceType>[\\s\\S]*?<controlURL>([^<]+)<\\/controlURL>`,
+                "i",
+              ),
+            );
+            if (m) {
+              const base = `${u.protocol}//${u.host}`;
+              const ctrl = m[1]!.trim();
+              const controlUrl = ctrl.startsWith("http")
+                ? ctrl
+                : `${base}${ctrl.startsWith("/") ? "" : "/"}${ctrl}`;
+              resolve({ controlUrl, serviceType: svcType });
+              return;
+            }
+          }
+          reject(new Error("No WAN control URL in descriptor"));
         });
       },
     );
@@ -94,9 +140,15 @@ function fetchControlUrl(location: string): Promise<string> {
 
 // ── SOAP helpers ──────────────────────────────────────────────────────────────
 
-function soapRequest(controlUrl: string, action: string, body: string): Promise<string> {
+function soapRequest(
+  controlUrl:  string,
+  serviceType: "WANIPConnection" | "WANPPPConnection",
+  action:      string,
+  body:        string,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const u = new URL(controlUrl);
+    const ns = `urn:schemas-upnp-org:service:${serviceType}:1`;
     const payload = Buffer.from(
       `<?xml version="1.0"?>\r\n` +
       `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" ` +
@@ -112,7 +164,7 @@ function soapRequest(controlUrl: string, action: string, body: string): Promise<
         method:  "POST",
         headers: {
           "Content-Type":   "text/xml; charset=utf-8",
-          "SOAPAction":     `"urn:schemas-upnp-org:service:WANIPConnection:1#${action}"`,
+          "SOAPAction":     `"${ns}#${action}"`,
           "Content-Length": String(payload.length),
         },
         timeout: 6000,
@@ -131,11 +183,14 @@ function soapRequest(controlUrl: string, action: string, body: string): Promise<
 }
 
 async function addPortMapping(
-  controlUrl: string, internalIp: string,
-  internalPort: number, externalPort: number,
+  { controlUrl, serviceType }: ControlUrlResult,
+  internalIp:   string,
+  internalPort: number,
+  externalPort: number,
 ): Promise<void> {
+  const ns = `urn:schemas-upnp-org:service:${serviceType}:1`;
   const body =
-    `<u:AddPortMapping xmlns:u="urn:schemas-upnp-org:service:WANIPConnection:1">` +
+    `<u:AddPortMapping xmlns:u="${ns}">` +
     `<NewRemoteHost></NewRemoteHost>` +
     `<NewExternalPort>${externalPort}</NewExternalPort>` +
     `<NewProtocol>TCP</NewProtocol>` +
@@ -145,14 +200,15 @@ async function addPortMapping(
     `<NewPortMappingDescription>EmberchainNode</NewPortMappingDescription>` +
     `<NewLeaseDuration>0</NewLeaseDuration>` +
     `</u:AddPortMapping>`;
-  await soapRequest(controlUrl, "AddPortMapping", body);
+  await soapRequest(controlUrl, serviceType, "AddPortMapping", body);
 }
 
-async function getExternalIp(controlUrl: string): Promise<string> {
+async function getExternalIp(result: ControlUrlResult): Promise<string> {
+  const ns = `urn:schemas-upnp-org:service:${result.serviceType}:1`;
   const body =
-    `<u:GetExternalIPAddress xmlns:u="urn:schemas-upnp-org:service:WANIPConnection:1">` +
+    `<u:GetExternalIPAddress xmlns:u="${ns}">` +
     `</u:GetExternalIPAddress>`;
-  const res = await soapRequest(controlUrl, "GetExternalIPAddress", body);
+  const res = await soapRequest(result.controlUrl, result.serviceType, "GetExternalIPAddress", body);
   const m = res.match(/<NewExternalIPAddress>([^<]+)<\/NewExternalIPAddress>/i);
   if (!m) throw new Error("External IP not found in SOAP response");
   return m[1]!.trim();
@@ -178,14 +234,30 @@ function getLocalIp(): string {
  */
 export async function tryUPnP(internalPort: number): Promise<UPnPResult> {
   try {
-    const controlUrl = await discoverControlUrl();
-    if (!controlUrl) return { mapped: false, reason: "No UPnP router found on local network" };
+    const locations = await discoverLocations();
+    if (locations.length === 0) {
+      return { mapped: false, reason: "No UPnP router found on local network (SSDP timeout)" };
+    }
 
     const internalIp = getLocalIp();
-    await addPortMapping(controlUrl, internalIp, internalPort, internalPort);
-    const externalIp = await getExternalIp(controlUrl);
+    const errors: string[] = [];
 
-    return { mapped: true, externalIp, externalPort: internalPort };
+    // Try each discovered LOCATION in order; use the first that works end-to-end
+    for (const loc of locations) {
+      try {
+        const ctrlResult = await fetchControlUrl(loc);
+        await addPortMapping(ctrlResult, internalIp, internalPort, internalPort);
+        const externalIp = await getExternalIp(ctrlResult);
+        return { mapped: true, externalIp, externalPort: internalPort };
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    return {
+      mapped: false,
+      reason: `UPnP router found but mapping failed: ${errors.join("; ")}`,
+    };
   } catch (err) {
     return { mapped: false, reason: err instanceof Error ? err.message : "UPnP failed" };
   }

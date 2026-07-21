@@ -39,7 +39,7 @@ export async function startServer(port: number): Promise<ServerHandle> {
   setupCommunityWS(wss);
 
   await new Promise<void>((resolve, reject) => {
-    server.listen(port, (err?: Error) => {
+    server.listen(port, "0.0.0.0", (err?: Error) => {
       if (err) { reject(err); return; }
       logger.info({ port }, "Emberchain API server listening");
       startBridgeRelayer();
