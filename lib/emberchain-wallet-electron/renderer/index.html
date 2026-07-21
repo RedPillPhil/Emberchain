@@ -79,14 +79,26 @@
 <div id="overlay-settings" class="overlay hidden">
   <div class="overlay-box">
     <h3>Settings</h3>
-    <label>Emberchain Node URL</label>
+    <label>Preferred Node URL</label>
     <input id="settings-node-url" type="text" placeholder="https://emberchain.org/api">
-    <p class="hint">The URL of your deployed Emberchain API server (no trailing slash). Required — the wallet cannot connect without this.</p>
+    <p class="hint">Any Emberchain node URL. If this node is unreachable, the wallet automatically tries backup nodes from the built-in list.</p>
+    <p id="settings-active-node" class="hint" style="color:#f37021;margin-top:4px;"></p>
     <div class="overlay-actions">
       <button class="btn-primary" id="btn-settings-save">Save</button>
       <button class="btn-secondary" id="btn-settings-cancel">Cancel</button>
     </div>
   </div>
+</div>
+
+<!-- Fallback-node toast (shown when the wallet switches to a backup node) -->
+<div id="toast-fallback" class="hidden" style="
+  position:fixed;bottom:20px;right:20px;
+  background:#2a2a2a;border:1px solid #f37021;border-radius:8px;
+  padding:12px 16px;color:#ccc;font-size:12px;
+  max-width:320px;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.5);">
+  <strong style="color:#f37021;">⚡ Using backup node</strong><br>
+  <span id="toast-fallback-url"></span><br>
+  <span style="color:#666;font-size:11px;">Primary node unreachable. Saved for next session.</span>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════

@@ -46,23 +46,41 @@ function args(name: string): string[] {
   return result;
 }
 
-const PORT       = arg("port", "8545");
-const DATA_DIR   = path.resolve(arg("data", "./emberchain-data"));
-const MY_URL     = arg("url", "").replace(/\/$/, "");
-const FORCE_SYNC = process.argv.includes("--resync");
-const SNAPSHOT   = path.join(DATA_DIR, "chain.json");
+const PORT         = arg("port", "8545");
+const DATA_DIR     = path.resolve(arg("data", "./emberchain-data"));
+const MY_URL       = arg("url", "").replace(/\/$/, "");
+const FORCE_SYNC   = process.argv.includes("--resync");
+const SNAPSHOT     = path.join(DATA_DIR, "chain.json");
 const PEER_LIST_FILE = path.join(DATA_DIR, "peers.json");
+// --snapshot <file>  load chain from a local file instead of downloading
+const LOCAL_SNAPSHOT = arg("snapshot", "");
 
 /**
  * Bootstrap peers — tried in this order until one works:
- *   1. Peers from saved peers.json (nodes this machine has talked to before)
- *   2. --peer flags from the command line
- *   3. Hardcoded community fallbacks (so the network survives without emberchain.org)
+ *   1. bootstrap-peers.json shipped alongside this file in the download package
+ *   2. Peers from saved peers.json (nodes this machine has talked to before)
+ *   3. --peer flags from the command line
+ *   4. Hardcoded fallbacks
+ *
+ * This means a fresh node can always bootstrap as long as ANY peer in
+ * bootstrap-peers.json (which ships with every GitHub release) is reachable.
  */
 const HARDCODED_FALLBACKS = [
   "https://emberchain.org",
-  // Community nodes — add yours here to help the network survive
+  // Community nodes — run yours with --url and submit a PR to add it here
 ];
+
+function loadBootstrapPeers(): string[] {
+  try {
+    const file = path.join(__dirname, "bootstrap-peers.json");
+    if (existsSync(file)) {
+      return (JSON.parse(readFileSync(file, "utf-8")) as string[])
+        .map((u) => u.replace(/\/$/, ""))
+        .filter(Boolean);
+    }
+  } catch { /* ignore */ }
+  return [];
+}
 
 function loadSavedPeers(): string[] {
   try {
@@ -76,14 +94,15 @@ function loadSavedPeers(): string[] {
 }
 
 function buildBootstrapList(): string[] {
-  const explicit   = args("peer").map((u) => u.replace(/\/$/, "")).filter(Boolean);
-  const saved      = loadSavedPeers();
-  const fallbacks  = HARDCODED_FALLBACKS.map((u) => u.replace(/\/$/, ""));
+  const bundled  = loadBootstrapPeers();
+  const explicit = args("peer").map((u) => u.replace(/\/$/, "")).filter(Boolean);
+  const saved    = loadSavedPeers();
+  const fallbacks = HARDCODED_FALLBACKS.map((u) => u.replace(/\/$/, ""));
 
-  // Deduplicate while preserving priority: saved → explicit → fallbacks
+  // Deduplicate: bundled (from release) → saved (from past sessions) → explicit → fallbacks
   const seen = new Set<string>();
   const list: string[] = [];
-  for (const u of [...saved, ...explicit, ...fallbacks]) {
+  for (const u of [...bundled, ...saved, ...explicit, ...fallbacks]) {
     if (u && !seen.has(u)) { seen.add(u); list.push(u); }
   }
   return list;
@@ -214,7 +233,22 @@ async function main() {
   printBanner(bootstrapPeers);
 
   // ── 1. Snapshot ─────────────────────────────────────────────────────────────
-  if (!existsSync(SNAPSHOT) || FORCE_SYNC) {
+  if (LOCAL_SNAPSHOT) {
+    // --snapshot <file>: load from a local file (USB, IPFS download, etc.)
+    if (!existsSync(LOCAL_SNAPSHOT)) {
+      console.error(`\n❌  Snapshot file not found: ${LOCAL_SNAPSHOT}\n`);
+      process.exit(1);
+    }
+    mkdirSync(DATA_DIR, { recursive: true });
+    const snapshotData = readFileSync(LOCAL_SNAPSHOT, "utf-8");
+    writeFileSync(SNAPSHOT, snapshotData, "utf-8");
+    try {
+      const meta = JSON.parse(snapshotData) as { blocks?: unknown[] };
+      log(`📂  Loaded local snapshot: ${LOCAL_SNAPSHOT} (${meta.blocks?.length ?? "?"} blocks)`);
+    } catch {
+      log(`📂  Loaded local snapshot: ${LOCAL_SNAPSHOT}`);
+    }
+  } else if (!existsSync(SNAPSHOT) || FORCE_SYNC) {
     log(`📥  No local chain data — downloading snapshot …`);
     log(`    Will try ${bootstrapPeers.length} peer(s) in order.`);
     await downloadSnapshotFromAnyPeer(bootstrapPeers);
