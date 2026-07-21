@@ -89,6 +89,11 @@ export class Blockchain {
   private stateManager: SimpleStateManager;
   private evm!: EVM;
   private blocks: StoredBlock[] = [];
+  /** O(1) block lookup by hash — covers canonical chain and orphan pool. */
+  private blocksByHash: Map<string, StoredBlock> = new Map();
+  /** Competing-fork blocks waiting to see if their chain accumulates more total work. */
+  private orphanPool: Map<string, { block: StoredBlock; txs: StoredTransaction[] }> = new Map();
+  private static readonly MAX_ORPHANS = 500;
   private transactions = new Map<PrefixedHexString, StoredTransaction>();
   private mempool: PendingTx[] = [];
   private wallets: Map<PrefixedHexString, WalletRecord> = new Map();
@@ -221,6 +226,16 @@ export class Blockchain {
     if (persisted) {
       this.difficulty = BigInt(persisted.difficulty);
       this.blocks = persisted.blocks;
+      // Backfill totalDifficulty for blocks loaded from pre-fork-choice persisted data
+      {
+        let accumulated = 0n;
+        for (const block of this.blocks) {
+          accumulated += BigInt(block.difficulty);
+          if (!block.totalDifficulty) block.totalDifficulty = accumulated.toString();
+          else accumulated = BigInt(block.totalDifficulty);
+        }
+      }
+      for (const block of this.blocks) this.blocksByHash.set(block.hash, block);
       for (const tx of persisted.transactions) this.transactions.set(tx.hash, tx);
       this.wallets = new Map(persisted.wallets);
       this.stateManager = loadState(this.common, persisted.state);
@@ -266,20 +281,21 @@ export class Blockchain {
       }
     }
     if (!persisted) {
-      this.blocks = [
-        {
-          number: 0,
-          hash: GENESIS_PARENT_HASH,
-          parentHash: GENESIS_PARENT_HASH,
-          timestamp: GENESIS_TIMESTAMP,
-          miner: ZERO_ADDRESS,
-          difficulty: this.difficulty.toString(),
-          nonce: "0",
-          stateRoot: `0x${"0".repeat(64)}`,
-          reward: "0",
-          transactionHashes: [],
-        },
-      ];
+      const genesisBlock: StoredBlock = {
+        number: 0,
+        hash: GENESIS_PARENT_HASH,
+        parentHash: GENESIS_PARENT_HASH,
+        timestamp: GENESIS_TIMESTAMP,
+        miner: ZERO_ADDRESS,
+        difficulty: this.difficulty.toString(),
+        nonce: "0",
+        stateRoot: `0x${"0".repeat(64)}`,
+        reward: "0",
+        transactionHashes: [],
+        totalDifficulty: this.difficulty.toString(),
+      };
+      this.blocks = [genesisBlock];
+      this.blocksByHash.set(genesisBlock.hash, genesisBlock);
     }
     this.evm = await createEVM({ common: this.common, stateManager: this.stateManager });
   }
@@ -666,6 +682,7 @@ export class Blockchain {
       height: latest.number,
       latestBlockHash: latest.hash,
       difficulty: this.difficulty.toString(),
+      totalDifficulty: this.getTotalDifficulty().toString(),
       targetBlockTimeSeconds: EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
       pendingTransactionCount: this.mempool.length,
       isMining: this.mining.active,
@@ -1212,6 +1229,10 @@ export class Blockchain {
     this.currentRoundShares = new Map();
     this.submittedShareNonces = new Set();
 
+    const parentForTD = this.blocks[this.blocks.length - 1];
+    const totalDifficulty = (
+      BigInt(parentForTD?.totalDifficulty ?? parentForTD?.difficulty ?? "0") + header.difficulty
+    ).toString();
     const block: StoredBlock = {
       number: header.number,
       hash,
@@ -1224,8 +1245,10 @@ export class Blockchain {
       reward: EMBERCHAIN_CONFIG.blockReward,
       transactionHashes: included.map((t) => t.hash),
       payouts,
+      totalDifficulty,
     };
     this.blocks.push(block);
+    this.blocksByHash.set(block.hash, block);
     this.persist();
 
     // Notify listeners (e.g. API server broadcasting to peers)
@@ -1241,50 +1264,31 @@ export class Blockchain {
   /**
    * Imports a fully-mined block received from a peer node.
    *
-   * - Validates the block extends the current chain tip.
-   * - Verifies the proof-of-work hash meets the declared difficulty.
-   * - Re-executes all included transactions against the local EVM state.
-   * - Credits block rewards using the payouts map from the incoming block
-   *   (deterministic: every node applies the same distribution).
-   * - Adjusts difficulty and persists exactly like a locally mined block.
+   * Implements Nakamoto fork-choice: the chain with the greatest accumulated
+   * proof-of-work (totalDifficulty) is canonical.  When a competing fork arrives
+   * with more cumulative work than our current chain, a full chain reorganization
+   * is triggered — EVM state is reset to genesis and replayed along the winning fork.
    *
-   * Throws on stale blocks, PoW failures, or hash mismatches.
-   * Returns silently (with the existing block) if we already have this block.
+   * Returns the canonical tip block after import (may differ from the input block
+   * if a reorg occurred).  Returns the block itself if stored as a lower-work orphan.
    */
   async importBlock(block: StoredBlock, transactions: StoredTransaction[]): Promise<StoredBlock> {
     await this.whenReady();
 
-    const parent = this.blocks[this.blocks.length - 1];
-    if (!parent) throw new Error("Chain not initialised");
-
-    // Already have this exact block — idempotent
-    if (block.number <= parent.number) {
-      const existing = this.blocks.find((b) => b.hash === block.hash);
-      if (existing) return existing;
-      throw new Error(
-        `Block ${block.number} does not extend current tip (height ${parent.number})`,
-      );
-    }
-    if (block.number !== parent.number + 1) {
-      throw new Error(
-        `Block ${block.number} is too far ahead (tip: ${parent.number}) — sync incrementally first`,
-      );
-    }
-    if (block.parentHash !== parent.hash) {
-      throw new Error("Block parentHash mismatch — this block is on a different fork");
+    // Idempotent — already have this exact block
+    if (this.blocksByHash.has(block.hash)) {
+      return this.blocksByHash.get(block.hash)!;
     }
 
-    // Reconstruct the header the miner committed to
+    // Verify proof-of-work unconditionally, before any state changes
     const minableHeader: MinableHeader = {
-      number: block.number,
-      parentHash: block.parentHash as PrefixedHexString,
-      timestamp: new Date(block.timestamp).getTime(),
-      miner: block.miner as PrefixedHexString,
-      difficulty: BigInt(block.difficulty),
+      number:           block.number,
+      parentHash:       block.parentHash as PrefixedHexString,
+      timestamp:        new Date(block.timestamp).getTime(),
+      miner:            block.miner as PrefixedHexString,
+      difficulty:       BigInt(block.difficulty),
       transactionsRoot: transactionsRootOf(block.transactionHashes),
     };
-
-    // Verify proof-of-work
     const nonce = BigInt(block.nonce);
     const { hashHex, hashValue } = hashHeader(minableHeader, nonce);
     const target = targetForDifficulty(BigInt(block.difficulty));
@@ -1295,95 +1299,328 @@ export class Blockchain {
       throw new Error(`Block hash mismatch: expected ${block.hash}, got ${hashHex}`);
     }
 
-    return this.withEvmLock(async () => {
-      // Register transactions locally and build PendingTx list for EVM replay
-      const pendingTxs: PendingTx[] = [];
-      for (const tx of transactions) {
-        if (!this.transactions.has(tx.hash as PrefixedHexString)) {
-          this.transactions.set(tx.hash as PrefixedHexString, {
-            ...tx,
-            status: "pending",
-            blockNumber: null,
-          });
-        }
-        this.mempool = this.mempool.filter((m) => m.hash !== tx.hash);
-        pendingTxs.push({
-          hash: tx.hash as PrefixedHexString,
-          from: tx.from as PrefixedHexString,
-          to: tx.to as PrefixedHexString | null,
-          value: BigInt(tx.value),
-          data: (tx.data ?? "0x") as PrefixedHexString,
-          gasLimit: BigInt(tx.gasLimit),
+    const ourTip = this.blocks[this.blocks.length - 1]!;
+
+    // Locate this block's parent anywhere we know about
+    const parentBlock =
+      this.blocksByHash.get(block.parentHash) ??
+      this.orphanPool.get(block.parentHash)?.block;
+
+    // Compute totalDifficulty for the incoming block
+    const parentTD = parentBlock
+      ? BigInt(parentBlock.totalDifficulty ?? parentBlock.difficulty)
+      : BigInt(block.difficulty); // unknown parent — best effort
+    const incomingTD = parentTD + BigInt(block.difficulty);
+    block = { ...block, totalDifficulty: incomingTD.toString() };
+
+    const ourTD = BigInt(ourTip.totalDifficulty ?? ourTip.difficulty);
+
+    // ── Fast path: cleanly extends the canonical tip ──────────────────────────
+    if (block.parentHash === ourTip.hash && block.number === ourTip.number + 1) {
+      return this.withEvmLock(async () =>
+        this.applyImportedBlock(block, transactions, ourTip),
+      );
+    }
+
+    // ── Orphan path: incoming chain has equal or less accumulated work ─────────
+    if (incomingTD <= ourTD) {
+      this.storeOrphan(block, transactions);
+      return block;
+    }
+
+    // ── Reorg path: incoming fork has more accumulated work than ours ──────────
+    console.log(
+      `[chain] Fork-choice reorg triggered: ` +
+      `our totalDifficulty=${ourTD}, incoming=${incomingTD} ` +
+      `(block #${block.number} ${block.hash.slice(0, 10)}…)`,
+    );
+    await this.reorgTo(block, transactions);
+    return this.blocks[this.blocks.length - 1]!;
+  }
+
+  /**
+   * Applies an imported peer block as the next canonical block.
+   * Called inside withEvmLock — do not acquire the lock again here.
+   */
+  private async applyImportedBlock(
+    block: StoredBlock,
+    transactions: StoredTransaction[],
+    parent: StoredBlock,
+  ): Promise<StoredBlock> {
+    // Register transactions and build replay list
+    const pendingTxs: PendingTx[] = [];
+    for (const tx of transactions) {
+      if (!this.transactions.has(tx.hash as PrefixedHexString)) {
+        this.transactions.set(tx.hash as PrefixedHexString, {
+          ...tx,
+          status: "pending",
+          blockNumber: null,
         });
       }
+      this.mempool = this.mempool.filter((m) => m.hash !== tx.hash);
+      pendingTxs.push({
+        hash:     tx.hash as PrefixedHexString,
+        from:     tx.from as PrefixedHexString,
+        to:       tx.to as PrefixedHexString | null,
+        value:    BigInt(tx.value),
+        data:     (tx.data ?? "0x") as PrefixedHexString,
+        gasLimit: BigInt(tx.gasLimit),
+      });
+    }
 
-      // Re-execute transactions against local EVM state
-      for (const tx of pendingTxs) {
-        const stored = this.transactions.get(tx.hash);
-        if (!stored) continue;
+    // Re-execute transactions against local EVM state
+    for (const tx of pendingTxs) {
+      const stored = this.transactions.get(tx.hash);
+      if (!stored) continue;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (this.stateManager as any).originalStorageCache?.clear?.();
+      try {
+        const result = await this.evm.runCall({
+          caller:   new Address(hexToBytes(tx.from)),
+          to:       tx.to ? new Address(hexToBytes(tx.to)) : undefined,
+          value:    tx.value,
+          data:     hexToBytes(tx.data),
+          gasLimit: tx.gasLimit,
+        });
+        stored.status   = result.execResult.exceptionError ? "failed" : "success";
+        stored.gasUsed  = result.execResult.executionGasUsed.toString();
+        stored.error    = result.execResult.exceptionError
+          ? result.execResult.exceptionError.error
+          : null;
+        stored.contractAddress = result.createdAddress
+          ? (result.createdAddress.toString() as PrefixedHexString)
+          : null;
+        stored.returnData = bytesToHex(result.execResult.returnValue);
+      } catch (err) {
+        stored.status  = "failed";
+        stored.gasUsed = stored.gasLimit;
+        stored.error   = err instanceof Error ? err.message : "Execution failed";
+      }
+      const gasUsed = BigInt(stored.gasUsed ?? stored.gasLimit);
+      const fee = gasUsed * GAS_PRICE;
+      try { await debit(this.stateManager, tx.from, fee); } catch { /* ignore */ }
+      stored.blockNumber = block.number;
+      if (tx.to && !this.wallets.has(tx.to.toLowerCase() as PrefixedHexString)) {
+        this.wallets.set(tx.to.toLowerCase() as PrefixedHexString, {
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    // Apply payouts exactly as committed by the originating miner (deterministic)
+    const payouts = block.payouts ?? { [block.miner.toLowerCase()]: block.reward };
+    for (const [addr, amount] of Object.entries(payouts)) {
+      if (BigInt(amount) > 0n) {
+        await credit(this.stateManager, addr as PrefixedHexString, BigInt(amount));
+      }
+    }
+
+    // Reset round — new mining round begins after each canonical block
+    this.currentRoundShares   = new Map();
+    this.submittedShareNonces = new Set();
+
+    // Commit to canonical chain
+    this.blocks.push(block);
+    this.blocksByHash.set(block.hash, block);
+    this.persist();
+
+    // Retarget difficulty
+    const actualBlockTimeSec =
+      (new Date(block.timestamp).getTime() - new Date(parent.timestamp).getTime()) / 1000;
+    this.difficulty = retargetDifficulty(
+      this.difficulty,
+      actualBlockTimeSec > 0 ? actualBlockTimeSec : EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+      EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+    );
+
+    // Notify gossip layer so the block propagates to other peers
+    if (this.onBlock) {
+      const txs = block.transactionHashes
+        .map((h) => this.transactions.get(h))
+        .filter((t): t is StoredTransaction => Boolean(t));
+      queueMicrotask(() => this.onBlock!(block, txs));
+    }
+
+    return block;
+  }
+
+  /** Stores a block in the orphan pool, evicting the oldest entry if over the limit. */
+  private storeOrphan(block: StoredBlock, txs: StoredTransaction[]): void {
+    this.orphanPool.set(block.hash, { block, txs });
+    if (this.orphanPool.size > Blockchain.MAX_ORPHANS) {
+      const oldest = this.orphanPool.keys().next().value;
+      if (oldest) this.orphanPool.delete(oldest);
+    }
+    // Also index by hash so future blocks can find this as their parent
+    this.blocksByHash.set(block.hash, block);
+  }
+
+  /**
+   * Executes a chain reorganization to switch the canonical chain to the fork
+   * ending at `newTip`.
+   *
+   * Strategy:
+   *   1. Walk the orphan pool backwards from newTip to find the common ancestor
+   *      with our current canonical chain.
+   *   2. Reset EVM state to empty and replay every canonical block from genesis
+   *      to the new tip — this is O(chain length) but fully deterministic.
+   *   3. Replace this.blocks and persist.
+   */
+  private async reorgTo(newTip: StoredBlock, newTipTxs: StoredTransaction[]): Promise<void> {
+    return this.withEvmLock(async () => {
+      // Build the full fork chain by walking back through orphans
+      const forkChain: StoredBlock[] = [newTip];
+      const forkTxMap = new Map<string, StoredTransaction[]>([
+        [newTip.hash, newTipTxs],
+      ]);
+
+      let cursor = newTip;
+      while (!this.blocksByHash.has(cursor.parentHash) || this.orphanPool.has(cursor.parentHash)) {
+        // Prefer canonical chain; stop when we hit it
+        if (this.blocksByHash.has(cursor.parentHash) && !this.orphanPool.has(cursor.parentHash)) break;
+        const parentEntry = this.orphanPool.get(cursor.parentHash);
+        if (!parentEntry) {
+          // Also check blocksByHash in case it's a canonical ancestor
+          if (this.blocksByHash.has(cursor.parentHash)) break;
+          throw new Error(
+            `Reorg aborted: cannot trace fork to canonical chain ` +
+            `(missing ancestor ${cursor.parentHash.slice(0, 10)}…). ` +
+            `Sync loop will retry once the full fork is available.`,
+          );
+        }
+        forkChain.unshift(parentEntry.block);
+        forkTxMap.set(parentEntry.block.hash, parentEntry.txs);
+        cursor = parentEntry.block;
+      }
+
+      // Common ancestor: the canonical block whose hash is forkChain[0].parentHash
+      const commonAncestorHash = forkChain[0]!.parentHash;
+      const commonAncestorIdx  = this.blocks.findIndex((b) => b.hash === commonAncestorHash);
+      if (commonAncestorIdx === -1) {
+        throw new Error("Reorg aborted: common ancestor not found in canonical chain");
+      }
+
+      console.log(
+        `[chain] Reorg: common ancestor #${this.blocks[commonAncestorIdx]!.number}, ` +
+        `rolling back ${this.blocks.length - 1 - commonAncestorIdx} block(s), ` +
+        `applying ${forkChain.length} fork block(s)`,
+      );
+
+      // Register fork transactions so the EVM replay can find them
+      for (const [, txs] of forkTxMap) {
+        for (const tx of txs) {
+          if (!this.transactions.has(tx.hash as PrefixedHexString)) {
+            this.transactions.set(tx.hash as PrefixedHexString, {
+              ...tx, status: "pending", blockNumber: null,
+            });
+          }
+        }
+      }
+
+      // Build new canonical chain
+      const newCanonical = [
+        ...this.blocks.slice(0, commonAncestorIdx + 1),
+        ...forkChain,
+      ];
+
+      // Reset EVM state to empty and replay the entire new canonical chain
+      this.stateManager = createStateManager(this.common);
+      this.evm           = await createEVM({ common: this.common, stateManager: this.stateManager });
+      await this.replayChainEVM(newCanonical, forkTxMap);
+
+      // Commit
+      this.blocks       = newCanonical;
+      this.blocksByHash = new Map(newCanonical.map((b) => [b.hash, b]));
+
+      // Retarget difficulty from the tip of the new canonical chain
+      const newTipBlock = newCanonical[newCanonical.length - 1]!;
+      const prevBlock   = newCanonical[newCanonical.length - 2];
+      if (prevBlock) {
+        const actualSec =
+          (new Date(newTipBlock.timestamp).getTime() - new Date(prevBlock.timestamp).getTime()) / 1000;
+        this.difficulty = retargetDifficulty(
+          BigInt(prevBlock.difficulty),
+          actualSec > 0 ? actualSec : EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+          EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+        );
+      }
+
+      // Clean up reorg'd blocks from orphan pool
+      for (const b of forkChain) this.orphanPool.delete(b.hash);
+
+      this.persist();
+
+      console.log(
+        `[chain] Reorg complete. New canonical tip: #${newTipBlock.number} ` +
+        `totalDifficulty=${newTipBlock.totalDifficulty}`,
+      );
+
+      // Gossip new canonical tip to peers
+      if (this.onBlock) {
+        const tipTxs = newTipBlock.transactionHashes
+          .map((h) => this.transactions.get(h))
+          .filter((t): t is StoredTransaction => Boolean(t));
+        queueMicrotask(() => this.onBlock!(newTipBlock, tipTxs));
+      }
+    });
+  }
+
+  /**
+   * Replays all blocks from block #1 onward against a freshly reset EVM state.
+   * Genesis (block #0) is skipped — it has no transactions and no payouts.
+   * Called exclusively during reorgs to reconstruct account balances deterministically.
+   */
+  private async replayChainEVM(
+    chain: StoredBlock[],
+    extraTxs: Map<string, StoredTransaction[]>,
+  ): Promise<void> {
+    for (const block of chain.slice(1)) {
+      // Gather transactions for this block from the main tx store or the extra map
+      const blockTxs: StoredTransaction[] = [];
+      for (const h of block.transactionHashes) {
+        const tx =
+          this.transactions.get(h as PrefixedHexString) ??
+          extraTxs.get(block.hash)?.find((t) => t.hash === h);
+        if (tx) blockTxs.push(tx);
+      }
+
+      for (const tx of blockTxs) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (this.stateManager as any).originalStorageCache?.clear?.();
         try {
           const result = await this.evm.runCall({
-            caller: new Address(hexToBytes(tx.from)),
-            to: tx.to ? new Address(hexToBytes(tx.to)) : undefined,
-            value: tx.value,
-            data: hexToBytes(tx.data),
-            gasLimit: tx.gasLimit,
+            caller:   new Address(hexToBytes(tx.from as PrefixedHexString)),
+            to:       tx.to ? new Address(hexToBytes(tx.to as PrefixedHexString)) : undefined,
+            value:    BigInt(tx.value),
+            data:     hexToBytes((tx.data ?? "0x") as PrefixedHexString),
+            gasLimit: BigInt(tx.gasLimit),
           });
-          stored.status = result.execResult.exceptionError ? "failed" : "success";
-          stored.gasUsed = result.execResult.executionGasUsed.toString();
-          stored.error = result.execResult.exceptionError
-            ? result.execResult.exceptionError.error
-            : null;
-          stored.contractAddress = result.createdAddress
-            ? (result.createdAddress.toString() as PrefixedHexString)
-            : null;
-          stored.returnData = bytesToHex(result.execResult.returnValue);
-        } catch (err) {
-          stored.status = "failed";
-          stored.gasUsed = stored.gasLimit;
-          stored.error = err instanceof Error ? err.message : "Execution failed";
+          tx.status  = result.execResult.exceptionError ? "failed" : "success";
+          tx.gasUsed = result.execResult.executionGasUsed.toString();
+          const gasUsed = BigInt(tx.gasUsed ?? tx.gasLimit);
+          const fee = gasUsed * GAS_PRICE;
+          try { await debit(this.stateManager, tx.from as PrefixedHexString, fee); } catch { /* ignore */ }
+        } catch {
+          tx.status  = "failed";
+          tx.gasUsed = tx.gasLimit;
         }
-        const gasUsed = BigInt(stored.gasUsed ?? stored.gasLimit);
-        const fee = gasUsed * GAS_PRICE;
-        try { await debit(this.stateManager, tx.from, fee); } catch { /* ignore */ }
-        stored.blockNumber = block.number;
-        if (tx.to && !this.wallets.has(tx.to.toLowerCase() as PrefixedHexString)) {
-          this.wallets.set(tx.to.toLowerCase() as PrefixedHexString, {
-            createdAt: new Date().toISOString(),
-          });
-        }
+        tx.blockNumber = block.number;
       }
 
-      // Apply payouts exactly as computed by the originating miner (deterministic)
+      // Credit payouts exactly as stored — same on every node (deterministic)
       const payouts = block.payouts ?? { [block.miner.toLowerCase()]: block.reward };
       for (const [addr, amount] of Object.entries(payouts)) {
         if (BigInt(amount) > 0n) {
           await credit(this.stateManager, addr as PrefixedHexString, BigInt(amount));
         }
       }
+    }
+  }
 
-      // Reset round — new round begins after this block
-      this.currentRoundShares = new Map();
-      this.submittedShareNonces = new Set();
-
-      // Commit block
-      this.blocks.push(block);
-      this.persist();
-
-      // Adjust difficulty
-      const parentTimestampMs = new Date(parent.timestamp).getTime();
-      const blockTimestampMs  = new Date(block.timestamp).getTime();
-      const actualBlockTimeSec = (blockTimestampMs - parentTimestampMs) / 1000;
-      this.difficulty = retargetDifficulty(
-        this.difficulty,
-        actualBlockTimeSec > 0 ? actualBlockTimeSec : EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
-        EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
-      );
-
-      return this.blocks[this.blocks.length - 1]!;
-    });
+  /** Returns the canonical chain's cumulative proof-of-work as a bigint. */
+  getTotalDifficulty(): bigint {
+    const tip = this.blocks[this.blocks.length - 1];
+    return tip ? BigInt(tip.totalDifficulty ?? tip.difficulty) : 0n;
   }
 
   // ---------- Shielded pool (private transactions) ----------

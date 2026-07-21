@@ -32,6 +32,13 @@ export interface StoredBlock {
   transactionHashes: PrefixedHexString[];
   /** Per-miner payout breakdown for proportional share-based rewards. address → wei amount string. */
   payouts?: Record<string, string>;
+  /**
+   * Cumulative proof-of-work accumulated by the canonical chain up to and
+   * including this block (sum of all block difficulties from genesis).
+   * Used for Nakamoto fork-choice: the chain with the greatest totalDifficulty wins.
+   * Optional for backward compatibility with pre-fork-choice persisted data.
+   */
+  totalDifficulty?: string;
 }
 
 export interface ChainConfig {

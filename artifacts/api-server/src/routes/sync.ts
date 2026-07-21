@@ -29,10 +29,11 @@ const router: IRouter = Router();
 router.get("/sync/status", async (_req: Request, res: Response): Promise<void> => {
   const status = await chain.getStatus();
   res.status(200).json({
-    latestBlock: status.height,
-    difficulty: status.difficulty,
-    chainId: 7773,
-    network: "emberchain",
+    latestBlock:     status.height,
+    difficulty:      status.difficulty,
+    totalDifficulty: status.totalDifficulty,   // Nakamoto fork-choice weight
+    chainId:         7773,
+    network:         "emberchain",
   });
 });
 
