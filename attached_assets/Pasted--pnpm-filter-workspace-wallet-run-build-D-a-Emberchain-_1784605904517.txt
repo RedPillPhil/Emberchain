@@ -1,0 +1,68 @@
+ pnpm --filter @workspace/wallet run build
+D:\a\Emberchain\Emberchain\node_modules\.pnpm\rollup@4.62.2\node_modules\rollup\dist\native.js:121
+		throw new Error(
+		      ^
+
+Error: Cannot find module @rollup/rollup-win32-x64-msvc. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Please try `npm i` again after removing both package-lock.json and node_modules directory.
+    at requireWithFriendlyError (D:\a\Emberchain\Emberchain\node_modules\.pnpm\rollup@4.62.2\node_modules\rollup\dist\native.js:121:9)
+    at Object.<anonymous> (D:\a\Emberchain\Emberchain\node_modules\.pnpm\rollup@4.62.2\node_modules\rollup\dist\native.js:130:76)
+    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+    at Object..js (node:internal/modules/cjs/loader:1913:10)
+    at Module.load (node:internal/modules/cjs/loader:1505:32)
+    at Function._load (node:internal/modules/cjs/loader:1309:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
+    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25) {
+  [cause]: Error: Cannot find module '@rollup/rollup-win32-x64-msvc'
+  Require stack:
+  - D:\a\Emberchain\Emberchain\node_modules\.pnpm\rollup@4.62.2\node_modules\rollup\dist\native.js
+      at Function._resolveFilename (node:internal/modules/cjs/loader:1430:15)
+      at defaultResolveImpl (node:internal/modules/cjs/loader:1040:19)
+      at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1045:22)
+      at Function._load (node:internal/modules/cjs/loader:1216:25)
+      at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+      at Module.require (node:internal/modules/cjs/loader:1527:12)
+      at require (node:internal/modules/helpers:147:16)
+      at requireWithFriendlyError (D:\a\Emberchain\Emberchain\node_modules\.pnpm\rollup@4.62.2\node_modules\rollup\dist\native.js:103:10)
+      at Object.<anonymous> (D:\a\Emberchain\Emberchain\node_modules\.pnpm\rollup@4.62.2\node_modules\rollup\dist\native.js:130:76)
+      at Module._compile (node:internal/modules/cjs/loader:1781:14) {
+    code: 'MODULE_NOT_FOUND',
+    requireStack: [
+      'D:\\a\\Emberchain\\Emberchain\\node_modules\\.pnpm\\rollup@4.62.2\\node_modules\\rollup\\dist\\native.js'
+    ]
+  }
+}
+
+Node.js v22.23.1
+
+> @workspace/wallet@0.0.0 build D:\a\Emberchain\Emberchain\artifacts\wallet
+> vite build --config vite.config.ts
+
+node:internal/errors:983
+  const err = new Error(message);
+              ^
+
+Error: Command failed: pnpm --filter @workspace/wallet run build
+    at genericNodeError (node:internal/errors:983:15)
+    at wrappedFn (node:internal/errors:537:14)
+    at checkExecSyncError (node:child_process:916:11)
+    at execSync (node:child_process:988:15)
+    at run (file:///D:/a/Emberchain/Emberchain/lib/emberchain-wallet-electron/scripts/build.mjs:21:3)
+    at file:///D:/a/Emberchain/Emberchain/lib/emberchain-wallet-electron/scripts/build.mjs:25:1
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {
+  status: 1,
+  signal: null,
+  output: [ null, null, null ],
+  pid: 7264,
+  stdout: null,
+  stderr: null
+}
+
+Node.js v22.23.1
+D:\a\Emberchain\Emberchain\artifacts\wallet:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/wallet@0.0.0 build: `vite build --config vite.config.ts`
+Exit status 1
+Error: Process completed with exit code 1.
