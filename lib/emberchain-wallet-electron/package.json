@@ -1,7 +1,7 @@
 {
   "name": "@workspace/emberchain-wallet-electron",
   "version": "1.0.0",
-  "description": "Emberchain desktop wallet — full node + wallet UI in one app",
+  "description": "Emberchain desktop wallet",
   "main": "main.js",
   "private": true,
   "author": {
@@ -12,17 +12,18 @@
     "type": "git",
     "url": "https://github.com/RedPillPhil/Emberchain.git"
   },
-  "scripts": {
-    "start": "electron .",
-    "build": "node scripts/build.mjs",
-    "dist": "node scripts/build.mjs && electron-builder",
-    "dist:win": "node scripts/build.mjs && electron-builder --win",
-    "dist:mac": "node scripts/build.mjs && electron-builder --mac",
-    "dist:linux": "node scripts/build.mjs && electron-builder --linux"
+  "dependencies": {
+    "ethers": "^6.13.4"
   },
   "devDependencies": {
     "electron": "^33.3.1",
     "electron-builder": "^25.1.8"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:linux": "electron-builder --linux --publish never"
   },
   "build": {
     "appId": "org.emberchain.wallet",
@@ -35,43 +36,27 @@
     "files": [
       "main.js",
       "preload.js",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "_resources/server.mjs",
-        "to": "server.mjs"
-      },
-      {
-        "from": "_resources/wallet-ui",
-        "to": "wallet-ui"
-      }
+      "renderer/**/*",
+      "package.json",
+      "node_modules/**/*"
     ],
     "win": {
-      "target": [
-        { "target": "nsis", "arch": ["x64"] }
-      ],
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
       "icon": "build/icon.ico"
     },
     "mac": {
-      "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] }
-      ],
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
       "icon": "build/icon.icns",
       "category": "public.app-category.finance"
     },
     "linux": {
-      "target": [
-        { "target": "AppImage", "arch": ["x64"] }
-      ],
+      "target": [{ "target": "AppImage", "arch": ["x64"] }],
       "icon": "build/icon.png",
       "category": "Office"
     },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
-      "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico",
       "deleteAppDataOnUninstall": false
     },
     "dmg": {

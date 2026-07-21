@@ -12,39 +12,9 @@ on:
         default: 'true'
 
 jobs:
-  # ── Step 1: build the wallet UI + API server bundle once on Linux ──────────
-  build-assets:
-    name: Build wallet UI + server
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - uses: pnpm/action-setup@v4
-
-      - name: Install workspace dependencies
-        run: pnpm install --no-frozen-lockfile
-
-      - name: Build wallet UI + API server
-        run: node lib/emberchain-wallet-electron/scripts/build.mjs
-        env:
-          BASE_PATH: /
-          NODE_ENV: production
-
-      - name: Upload built resources
-        uses: actions/upload-artifact@v4
-        with:
-          name: electron-resources
-          path: lib/emberchain-wallet-electron/_resources/
-          if-no-files-found: error
-
-  # ── Step 2: package for each platform using the pre-built assets ───────────
+  # ── Package for each platform ─────────────────────────────────────────────
   build:
     name: Package — ${{ matrix.label }}
-    needs: build-assets
     strategy:
       fail-fast: false
       matrix:
@@ -65,15 +35,13 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Download pre-built resources
-        uses: actions/download-artifact@v4
-        with:
-          name: electron-resources
-          path: lib/emberchain-wallet-electron/_resources/
-
       - name: Install Electron app dependencies
         working-directory: lib/emberchain-wallet-electron
         run: npm install
+
+      - name: Validate renderer files
+        working-directory: lib/emberchain-wallet-electron
+        run: node scripts/build.mjs
 
       - name: Build installers (Windows)
         if: matrix.os == 'windows-latest'
@@ -97,7 +65,7 @@ jobs:
           path: lib/emberchain-wallet-electron/dist/
           if-no-files-found: error
 
-  # ── Step 3: attach everything to a GitHub Release (tag builds only) ────────
+  # ── Attach everything to a GitHub Release (tag builds only) ──────────────
   release:
     name: Publish GitHub Release
     needs: build
@@ -130,13 +98,15 @@ jobs:
           body: |
             ## Emberchain Wallet ${{ github.ref_name }}
 
-            Full Emberchain node + wallet — no MetaMask, no Node.js required.
+            Native desktop wallet for the Emberchain network. No browser, no MetaMask — your keys stay on your machine.
 
-            | Platform | File | Notes |
-            |----------|------|-------|
+            | Platform | Download | Notes |
+            |----------|----------|-------|
             | 🪟 Windows | `*-Setup.exe` | Run installer, launch from Start Menu |
             | 🍎 macOS Intel | `*-x64.dmg` | Open DMG, drag to Applications |
             | 🍎 macOS Apple Silicon | `*-arm64.dmg` | Open DMG, drag to Applications |
-            | 🐧 Linux | `*.AppImage` | `chmod +x` then run |
+            | 🐧 Linux | `*.AppImage` | `chmod +x *.AppImage` then run |
+
+            **First run:** create or import your wallet, then set your Emberchain node URL in Settings → Network.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

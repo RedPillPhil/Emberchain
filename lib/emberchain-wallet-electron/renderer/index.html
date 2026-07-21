@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+  <title>Emberchain Wallet</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SETUP SCREEN (first run)
+════════════════════════════════════════════════════════════════════════ -->
+<div id="screen-setup" class="screen">
+  <div class="setup-box">
+    <div class="setup-logo">
+      <img src="../build/icon.png" alt="Emberchain" width="64" height="64">
+      <h1>Emberchain Wallet</h1>
+      <p class="setup-sub">Secure · Private · Decentralised</p>
+    </div>
+    <div class="setup-tabs">
+      <button class="setup-tab active" data-setup="create">Create New Wallet</button>
+      <button class="setup-tab" data-setup="import">Import Wallet</button>
+    </div>
+
+    <!-- Create -->
+    <div id="setup-create" class="setup-panel active">
+      <label>Choose a password to encrypt your keystore</label>
+      <input type="password" id="create-pwd" placeholder="Password (min 8 chars)">
+      <input type="password" id="create-pwd2" placeholder="Confirm password">
+      <button class="btn-primary" id="btn-create">Create Wallet</button>
+      <div id="create-mnemonic" class="mnemonic-box hidden">
+        <p class="warn">⚠ Write down your seed phrase and keep it safe. It will not be shown again.</p>
+        <div id="mnemonic-words" class="mnemonic-words"></div>
+        <button class="btn-primary" id="btn-mnemonic-done">I've saved my seed phrase →</button>
+      </div>
+      <div id="create-error" class="error-msg hidden"></div>
+    </div>
+
+    <!-- Import -->
+    <div id="setup-import" class="setup-panel hidden">
+      <label>Private key or 12/24-word seed phrase</label>
+      <textarea id="import-key" rows="3" placeholder="Paste private key (0x…) or seed phrase…"></textarea>
+      <label>New password to encrypt your keystore</label>
+      <input type="password" id="import-pwd" placeholder="Password (min 8 chars)">
+      <input type="password" id="import-pwd2" placeholder="Confirm password">
+      <button class="btn-primary" id="btn-import">Import Wallet</button>
+      <div id="import-error" class="error-msg hidden"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     UNLOCK SCREEN
+════════════════════════════════════════════════════════════════════════ -->
+<div id="screen-unlock" class="screen hidden">
+  <div class="setup-box unlock-box">
+    <img src="../build/icon.png" alt="Emberchain" width="56" height="56">
+    <h2>Emberchain Wallet</h2>
+    <p id="unlock-address" class="mono dim"></p>
+    <input type="password" id="unlock-pwd" placeholder="Enter password…" autofocus>
+    <button class="btn-primary" id="btn-unlock">Unlock</button>
+    <div id="unlock-error" class="error-msg hidden"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SETTINGS OVERLAY
+════════════════════════════════════════════════════════════════════════ -->
+<div id="overlay-settings" class="overlay hidden">
+  <div class="overlay-box">
+    <h3>Settings</h3>
+    <label>Emberchain Node URL</label>
+    <input id="settings-node-url" type="text" placeholder="https://emberchain.io/api">
+    <p class="hint">The URL of your Emberchain API server (no trailing slash).</p>
+    <div class="overlay-actions">
+      <button class="btn-primary" id="btn-settings-save">Save</button>
+      <button class="btn-secondary" id="btn-settings-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     MAIN WALLET
+════════════════════════════════════════════════════════════════════════ -->
+<div id="screen-wallet" class="screen hidden">
+  <div id="wallet-shell">
+
+    <!-- Sidebar -->
+    <nav id="sidebar">
+      <div id="sidebar-logo">
+        <img src="../build/icon.png" width="36" height="36" alt="">
+        <span>EMBR</span>
+      </div>
+      <div id="nav-links">
+        <a href="#" class="nav-link active" data-tab="overview">
+          <svg viewBox="0 0 20 20"><rect x="2" y="2" width="7" height="7" rx="1"/><rect x="11" y="2" width="7" height="7" rx="1"/><rect x="2" y="11" width="7" height="7" rx="1"/><rect x="11" y="11" width="7" height="7" rx="1"/></svg>
+          Overview
+        </a>
+        <a href="#" class="nav-link" data-tab="send">
+          <svg viewBox="0 0 20 20"><path d="M2 10h16M12 4l6 6-6 6"/></svg>
+          Send
+        </a>
+        <a href="#" class="nav-link" data-tab="receive">
+          <svg viewBox="0 0 20 20"><path d="M18 10H2M8 16l-6-6 6-6"/></svg>
+          Receive
+        </a>
+        <a href="#" class="nav-link" data-tab="transactions">
+          <svg viewBox="0 0 20 20"><path d="M3 5h14M3 10h14M3 15h9"/></svg>
+          Transactions
+        </a>
+        <div class="nav-divider">— SHIELDED —</div>
+        <a href="#" class="nav-link" data-tab="shield">
+          <svg viewBox="0 0 20 20"><path d="M10 2l7 3v5c0 4-3 7-7 8-4-1-7-4-7-8V5z"/></svg>
+          Shield Funds
+        </a>
+        <a href="#" class="nav-link" data-tab="private-send">
+          <svg viewBox="0 0 20 20"><path d="M10 2l7 3v5c0 4-3 7-7 8-4-1-7-4-7-8V5z"/><path d="M7 10l2 2 4-4"/></svg>
+          Private Send
+        </a>
+        <a href="#" class="nav-link" data-tab="unshield">
+          <svg viewBox="0 0 20 20"><path d="M10 18l-7-3V10c0-4 3-7 7-8 4 1 7 4 7 8v5z"/></svg>
+          Unshield
+        </a>
+      </div>
+    </nav>
+
+    <!-- Main area -->
+    <main id="main-area">
+
+      <!-- ── Overview ─────────────────────────────────────────────── -->
+      <div id="tab-overview" class="tab-panel active">
+        <div class="panel-header">
+          <h2>Overview</h2>
+          <button class="btn-icon" id="btn-refresh" title="Refresh">↻</button>
+        </div>
+        <div class="overview-grid">
+          <div class="balance-card">
+            <div class="balance-label">Available Balance</div>
+            <div class="balance-amount" id="balance-embr">— EMBR</div>
+            <div class="balance-address mono" id="overview-address"></div>
+          </div>
+          <div class="balance-card shielded-card">
+            <div class="balance-label">🔒 Shielded Balance</div>
+            <div class="balance-amount" id="balance-shielded">— EMBR</div>
+            <button class="btn-small" id="btn-refresh-shielded">Check</button>
+          </div>
+        </div>
+        <div class="section-title">Recent Transactions</div>
+        <div id="recent-txs" class="tx-list">
+          <div class="tx-placeholder">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Send ─────────────────────────────────────────────────── -->
+      <div id="tab-send" class="tab-panel hidden">
+        <div class="panel-header"><h2>Send EMBR</h2></div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Recipient Address</label>
+            <input id="send-to" class="mono" type="text" placeholder="0x…">
+          </div>
+          <div class="form-row">
+            <label>Amount (EMBR)</label>
+            <div class="input-row">
+              <input id="send-amount" type="number" min="0" step="0.000001" placeholder="0.0">
+              <span class="input-suffix">EMBR</span>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Gas Limit <span class="hint">(default 21 000 for simple transfer)</span></label>
+            <input id="send-gas" type="number" value="21000" min="21000">
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" id="btn-send">Send →</button>
+          </div>
+          <div id="send-result" class="result-box hidden"></div>
+        </div>
+      </div>
+
+      <!-- ── Receive ───────────────────────────────────────────────── -->
+      <div id="tab-receive" class="tab-panel hidden">
+        <div class="panel-header"><h2>Receive EMBR</h2></div>
+        <div class="receive-box">
+          <p class="hint">Share this address to receive EMBR on the Emberchain network.</p>
+          <div id="receive-qr" class="qr-placeholder">QR</div>
+          <div class="receive-address-wrap">
+            <span id="receive-address" class="mono receive-address"></span>
+            <button class="btn-small" id="btn-copy-address">Copy</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Transactions ──────────────────────────────────────────── -->
+      <div id="tab-transactions" class="tab-panel hidden">
+        <div class="panel-header">
+          <h2>Transactions</h2>
+          <button class="btn-icon" id="btn-refresh-txs" title="Refresh">↻</button>
+        </div>
+        <div id="tx-list-full" class="tx-list">
+          <div class="tx-placeholder">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Shield ───────────────────────────────────────────────── -->
+      <div id="tab-shield" class="tab-panel hidden">
+        <div class="panel-header"><h2>Shield Funds</h2></div>
+        <div class="privacy-explainer">
+          Move public EMBR into the shielded pool. Shielded funds are hidden using Pedersen commitments and ring signatures — amounts and sender are cryptographically hidden.
+        </div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Amount to Shield (EMBR)</label>
+            <div class="input-row">
+              <input id="shield-amount" type="number" min="0.000001" step="0.000001" placeholder="0.0">
+              <span class="input-suffix">EMBR</span>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" id="btn-shield">Shield →</button>
+          </div>
+          <div id="shield-result" class="result-box hidden"></div>
+        </div>
+      </div>
+
+      <!-- ── Private Send ──────────────────────────────────────────── -->
+      <div id="tab-private-send" class="tab-panel hidden">
+        <div class="panel-header"><h2>Private Send</h2></div>
+        <div class="privacy-explainer">
+          Send EMBR from your shielded balance to another address. The transaction is hidden — no public record of the amount or sender.
+        </div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Recipient Address</label>
+            <input id="psend-to" class="mono" type="text" placeholder="0x…">
+          </div>
+          <div class="form-row">
+            <label>Amount (EMBR)</label>
+            <div class="input-row">
+              <input id="psend-amount" type="number" min="0.000001" step="0.000001" placeholder="0.0">
+              <span class="input-suffix">EMBR</span>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" id="btn-psend">Send Private →</button>
+          </div>
+          <div id="psend-result" class="result-box hidden"></div>
+        </div>
+      </div>
+
+      <!-- ── Unshield ──────────────────────────────────────────────── -->
+      <div id="tab-unshield" class="tab-panel hidden">
+        <div class="panel-header"><h2>Unshield Funds</h2></div>
+        <div class="privacy-explainer">
+          Move funds from the shielded pool back to your public address.
+        </div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Amount to Unshield (EMBR)</label>
+            <div class="input-row">
+              <input id="unshield-amount" type="number" min="0.000001" step="0.000001" placeholder="0.0">
+              <span class="input-suffix">EMBR</span>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" id="btn-unshield">Unshield →</button>
+          </div>
+          <div id="unshield-result" class="result-box hidden"></div>
+        </div>
+      </div>
+
+    </main>
+  </div><!-- /wallet-shell -->
+
+  <!-- Status bar -->
+  <div id="status-bar">
+    <span id="status-conn">⬤ Connecting…</span>
+    <span id="status-block"></span>
+    <span id="status-address" class="mono"></span>
+    <button id="btn-lock-small">🔒 Lock</button>
+  </div>
+</div><!-- /screen-wallet -->
+
+<script src="app.js"></script>
+</body>
+</html>
