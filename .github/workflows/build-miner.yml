@@ -6,10 +6,14 @@ on:
       - 'miner-v*'
   workflow_dispatch:
     inputs:
+      tag_name:
+        description: 'Release tag to attach installers to (e.g. miner-v1.0.0)'
+        required: true
+        default: 'miner-v1.0.0'
       draft:
         description: 'Publish as draft release'
         required: false
-        default: 'true'
+        default: 'false'
 
 jobs:
   # ── Package for each platform ──────────────────────────────────────────────
@@ -61,16 +65,20 @@ jobs:
           path: lib/emberchain-miner-electron/dist/
           if-no-files-found: error
 
-  # ── Attach everything to a GitHub Release (tag builds only) ───────────────
+  # ── Attach everything to a GitHub Release ─────────────────────────────────
   release:
     name: Publish GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
 
     steps:
+      - name: Resolve release tag
+        id: tag
+        run: echo "name=${{ inputs.tag_name || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
       - name: Download all installers
         uses: actions/download-artifact@v4
         with:
@@ -81,18 +89,19 @@ jobs:
       - name: List release files
         run: find release-files -type f | sort
 
-      - name: Create GitHub Release
+      - name: Create / update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Emberchain Miner ${{ github.ref_name }}
-          draft: ${{ github.event.inputs.draft != 'false' }}
-          generate_release_notes: true
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: Emberchain Miner ${{ steps.tag.outputs.name }}
+          draft: ${{ inputs.draft != 'false' && !startsWith(github.ref, 'refs/tags/') }}
+          generate_release_notes: false
           files: |
             release-files/**/*.exe
             release-files/**/*.dmg
             release-files/**/*.AppImage
           body: |
-            ## Emberchain Miner ${{ github.ref_name }}
+            ## Emberchain Miner ${{ steps.tag.outputs.name }}
 
             Native desktop miner for the Emberchain network. Click Start Mining — UPnP, hashrate, shares, and block rewards update live.
 

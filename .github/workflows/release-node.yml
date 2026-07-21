@@ -11,6 +11,7 @@ on:
       tag:
         description: "Release tag to upload assets to (e.g. node-v1.3.0)"
         required: true
+        default: "node-v1.3.0"
 
 jobs:
   build:
@@ -64,20 +65,16 @@ jobs:
           echo '{"main":"emberchain-standalone.js","output":"sea-prep.blob","disableExperimentalSEAWarning":true}' > sea-config.json
           node --experimental-sea-config sea-config.json
 
-          # Copy the current platform's Node.js binary
           cp "$(which node)" "${{ matrix.binary }}"
           chmod +x "${{ matrix.binary }}"
 
-          # macOS: remove existing code signature before injection
           if [[ "${{ matrix.platform }}" == "macos" ]]; then
             codesign --remove-signature "${{ matrix.binary }}" || true
           fi
 
-          # Inject the SEA blob
           npx --yes postject "${{ matrix.binary }}" NODE_SEA_BLOB sea-prep.blob \
             --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
 
-          # macOS: re-sign (ad-hoc) so it runs without Gatekeeper blocking it
           if [[ "${{ matrix.platform }}" == "macos" ]]; then
             codesign --sign - "${{ matrix.binary }}" || true
           fi
@@ -87,7 +84,7 @@ jobs:
         shell: powershell
         run: |
           cd lib/emberchain-node/dist/downloads
-          '{"main":"emberchain-standalone.js","output":"sea-prep.blob","disableExperimentalSEAWarning":true}' | Out-File sea-config.json
+          '{"main":"emberchain-standalone.js","output":"sea-prep.blob","disableExperimentalSEAWarning":true}' | Out-File sea-config.json -Encoding utf8
           node --experimental-sea-config sea-config.json
           Copy-Item (Get-Command node).Source "${{ matrix.binary }}"
           npx --yes postject "${{ matrix.binary }}" NODE_SEA_BLOB sea-prep.blob `
