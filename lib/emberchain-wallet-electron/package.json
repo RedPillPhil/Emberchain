@@ -1,5 +1,5 @@
 {
-  "name": "@workspace/emberchain-wallet-electron",
+  "name": "emberchain-desktop",
   "version": "2.0.0",
   "description": "Emberchain desktop wallet",
   "main": "main.js",
@@ -44,6 +44,10 @@
       "mining-worker.js",
       "package.json",
       "node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "node-engine-bundle.cjs",
+      "mining-worker.js"
     ],
     "win": {
       "target": [{ "target": "nsis", "arch": ["x64"] }],
