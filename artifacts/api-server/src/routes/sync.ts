@@ -27,14 +27,21 @@ const router: IRouter = Router();
 
 /** Quick liveness / height check without pulling the full snapshot. */
 router.get("/sync/status", async (_req: Request, res: Response): Promise<void> => {
-  const status = await chain.getStatus();
-  res.status(200).json({
-    latestBlock:     status.height,
-    difficulty:      status.difficulty,
-    totalDifficulty: status.totalDifficulty,   // Nakamoto fork-choice weight
-    chainId:         7773,
-    network:         "emberchain",
-  });
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("timeout")), 8000));
+  try {
+    const status = await Promise.race([chain.getStatus(), timeout]);
+    res.status(200).json({
+      latestBlock:     status.height,
+      difficulty:      status.difficulty,
+      totalDifficulty: status.totalDifficulty,
+      chainId:         7773,
+      network:         "emberchain",
+    });
+  } catch {
+    // Node is still initialising or under heavy load — return what we can
+    res.status(503).json({ error: "Node starting up, try again shortly", chainId: 7773, network: "emberchain" });
+  }
 });
 
 /**
