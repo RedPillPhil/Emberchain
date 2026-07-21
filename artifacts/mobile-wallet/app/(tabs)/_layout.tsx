@@ -3,10 +3,24 @@ import { Platform, StyleSheet, useColorScheme, View } from 'react-native';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { Tabs } from 'expo-router';
-import { Icon, Label, NativeTabs } from 'expo-router/unstable-native-tabs';
 import { SymbolView } from 'expo-symbols';
+
+// NativeTabs / isLiquidGlassAvailable may not be available on all SDK versions
+let isLiquidGlassAvailable: (() => boolean) | undefined;
+let NativeTabs: any | undefined;
+let Icon: any | undefined;
+let Label: any | undefined;
+try {
+  const m = require('expo-router/unstable-native-tabs');
+  NativeTabs = m.NativeTabs;
+  Icon = m.Icon;
+  Label = m.Label;
+  const g = require('expo-glass-effect');
+  isLiquidGlassAvailable = g.isLiquidGlassAvailable;
+} catch {
+  isLiquidGlassAvailable = () => false;
+}
 
 function NativeTabLayout() {
   return (
@@ -19,9 +33,13 @@ function NativeTabLayout() {
         <Icon sf={{ default: 'arrow.up.circle', selected: 'arrow.up.circle.fill' }} />
         <Label>Send</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="activity">
-        <Icon sf={{ default: 'clock', selected: 'clock.fill' }} />
-        <Label>Activity</Label>
+      <NativeTabs.Trigger name="private">
+        <Icon sf={{ default: 'shield.lefthalf.filled', selected: 'shield.fill' }} />
+        <Label>Private</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="community">
+        <Icon sf={{ default: 'bubble.left.and.bubble.right', selected: 'bubble.left.and.bubble.right.fill' }} />
+        <Label>Community</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="settings">
         <Icon sf={{ default: 'gearshape', selected: 'gearshape.fill' }} />
@@ -33,7 +51,6 @@ function NativeTabLayout() {
 
 function ClassicTabLayout() {
   const colors = useColors();
-  const isDark = useColorScheme() === 'dark';
   const isIOS = Platform.OS === 'ios';
   const isWeb = Platform.OS === 'web';
 
@@ -49,7 +66,7 @@ function ClassicTabLayout() {
           borderTopWidth: 1,
           borderTopColor: colors.border,
           elevation: 0,
-          ...(isWeb ? { height: 84 } : {}),
+          height: isWeb ? 64 : undefined,
         },
         tabBarBackground: () =>
           isIOS ? (
@@ -57,6 +74,7 @@ function ClassicTabLayout() {
           ) : isWeb ? (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.card }]} />
           ) : null,
+        tabBarLabelStyle: { fontSize: 10 },
       }}
     >
       <Tabs.Screen
@@ -84,14 +102,26 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="activity"
+        name="private"
         options={{
-          title: 'Activity',
+          title: 'Private',
           tabBarIcon: ({ color, size }) =>
             isIOS ? (
-              <SymbolView name="clock" tintColor={color} size={size} />
+              <SymbolView name="shield.lefthalf.filled" tintColor={color} size={size} />
             ) : (
-              <Feather name="clock" size={size - 2} color={color} />
+              <Feather name="shield" size={size - 2} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="community"
+        options={{
+          title: 'Community',
+          tabBarIcon: ({ color, size }) =>
+            isIOS ? (
+              <SymbolView name="bubble.left.and.bubble.right" tintColor={color} size={size} />
+            ) : (
+              <Feather name="message-circle" size={size - 2} color={color} />
             ),
         }}
       />
@@ -107,11 +137,20 @@ function ClassicTabLayout() {
             ),
         }}
       />
+
+      {/* Activity is still a valid screen, just not in the tab bar — reached via router.push */}
+      <Tabs.Screen
+        name="activity"
+        options={{
+          href: null, // hidden from tab bar
+          title: 'Activity',
+        }}
+      />
     </Tabs>
   );
 }
 
 export default function TabLayout() {
-  if (isLiquidGlassAvailable()) return <NativeTabLayout />;
+  if (isLiquidGlassAvailable?.()) return <NativeTabLayout />;
   return <ClassicTabLayout />;
 }

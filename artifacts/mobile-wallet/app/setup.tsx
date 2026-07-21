@@ -17,6 +17,7 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColors } from '@/hooks/useColors';
 import { useWallet } from '@/context/WalletContext';
+import { FlameIcon } from '@/components/FlameIcon';
 
 type Mode = 'choose' | 'import';
 
@@ -85,7 +86,7 @@ export default function SetupScreen() {
             style={styles.glow}
           />
           <View style={[styles.emberIcon, { borderColor: `${colors.primary}40` }]}>
-            <Feather name="zap" size={40} color={colors.primary} />
+            <FlameIcon size={50} outerColor={colors.primary} innerColor={colors.accent} />
           </View>
           <Text style={[styles.brand, { color: colors.primary }]}>EMBERCHAIN</Text>
           <Text style={[styles.tagline, { color: colors.mutedForeground }]}>

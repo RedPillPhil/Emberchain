@@ -16,9 +16,10 @@ import * as Haptics from 'expo-haptics';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { useWallet } from '@/context/WalletContext';
+import { AddressBookModal } from '@/components/AddressBookModal';
 import { formatEMBR, isValidAddress, parseEMBR } from '@/lib/format';
 
-const FEE_ESTIMATE = '0.00001'; // rough estimate
+const FEE_ESTIMATE = '0.00001';
 
 export default function SendScreen() {
   const colors = useColors();
@@ -30,6 +31,7 @@ export default function SendScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [bookVisible, setBookVisible] = useState(false);
 
   const isOffline = nodeStatus === 'offline';
   const addrValid = isValidAddress(toAddr.trim());
@@ -39,22 +41,16 @@ export default function SendScreen() {
 
   const handlePaste = async () => {
     const text = await Clipboard.getStringAsync();
-    if (text) {
-      setToAddr(text.trim());
-      setError('');
-    }
+    if (text) { setToAddr(text.trim()); setError(''); }
   };
 
   const handleMax = () => {
-    const max = formatEMBR(balance, 8);
-    setAmount(max);
+    setAmount(formatEMBR(balance, 8));
     setError('');
   };
 
   const handleSend = async () => {
-    setError('');
-    setSuccess('');
-
+    setError(''); setSuccess('');
     if (!addrValid) { setError('Invalid recipient address (must be 0x + 40 hex chars).'); return; }
     if (amtNum <= 0) { setError('Enter an amount greater than 0.'); return; }
     if (amtNum > maxEMBR) { setError(`Insufficient balance. You have ${formatEMBR(balance)} EMBR.`); return; }
@@ -97,13 +93,11 @@ export default function SendScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Title */}
         <Text style={[styles.title, { color: colors.foreground }]}>Send EMBR</Text>
         <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
           Balance: {formattedBalance} EMBR
         </Text>
 
-        {/* Offline warning */}
         {isOffline && (
           <View style={[styles.offlineBanner, { backgroundColor: `${colors.destructive}15`, borderColor: `${colors.destructive}30` }]}>
             <Feather name="wifi-off" size={14} color={colors.destructive} />
@@ -129,7 +123,12 @@ export default function SendScreen() {
               autoCapitalize="none"
               autoCorrect={false}
             />
-            <Pressable onPress={handlePaste} hitSlop={8}>
+            {/* Address book picker */}
+            <Pressable onPress={() => setBookVisible(true)} hitSlop={8} style={styles.iconBtn}>
+              <Feather name="users" size={18} color={colors.mutedForeground} />
+            </Pressable>
+            {/* Clipboard paste */}
+            <Pressable onPress={handlePaste} hitSlop={8} style={styles.iconBtn}>
               <Feather name="clipboard" size={18} color={colors.mutedForeground} />
             </Pressable>
           </View>
@@ -165,7 +164,6 @@ export default function SendScreen() {
           <Text style={[styles.feeAmount, { color: colors.mutedForeground }]}>~{FEE_ESTIMATE} EMBR</Text>
         </View>
 
-        {/* Error / Success */}
         {error ? <Text style={[styles.statusText, { color: colors.destructive }]}>{error}</Text> : null}
         {success ? <Text style={[styles.statusText, { color: colors.success }]}>{success}</Text> : null}
 
@@ -192,7 +190,26 @@ export default function SendScreen() {
             </>
           )}
         </Pressable>
+
+        {/* Private send hint */}
+        <View style={[styles.privateHint, { backgroundColor: `${colors.primary}08`, borderColor: `${colors.primary}20` }]}>
+          <Feather name="shield" size={13} color={colors.primary} />
+          <Text style={[styles.privateHintText, { color: colors.mutedForeground }]}>
+            Need privacy?{' '}
+            <Text style={{ color: colors.primary }} onPress={() => {}}>
+              Use the Private tab
+            </Text>{' '}
+            for ring-signature shielded transfers.
+          </Text>
+        </View>
       </ScrollView>
+
+      {/* Address book modal */}
+      <AddressBookModal
+        visible={bookVisible}
+        onClose={() => setBookVisible(false)}
+        onSelect={(addr) => { setToAddr(addr); setError(''); }}
+      />
     </View>
   );
 }
@@ -212,9 +229,10 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: 'row', alignItems: 'center',
     borderWidth: 1, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: Platform.OS === 'ios' ? 14 : 4, gap: 8,
+    paddingHorizontal: 14, paddingVertical: Platform.OS === 'ios' ? 14 : 4, gap: 4,
   },
   input: { fontSize: 16, fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace' },
+  iconBtn: { padding: 4 },
   fieldError: { fontSize: 12 },
   maxBtn: { borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6 },
   maxText: { fontSize: 12, fontWeight: '700' },
@@ -230,4 +248,9 @@ const styles = StyleSheet.create({
     gap: 10, padding: 18, borderRadius: 12, marginTop: 4,
   },
   sendBtnText: { fontSize: 17, fontWeight: '700' },
+  privateHint: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    padding: 12, borderRadius: 10, borderWidth: 1,
+  },
+  privateHintText: { flex: 1, fontSize: 13, lineHeight: 18 },
 });
