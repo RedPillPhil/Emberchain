@@ -700,6 +700,22 @@ importers:
         specifier: ^0.31.10
         version: 0.31.10
 
+  lib/emberchain-node:
+    dependencies:
+      '@workspace/chain-core':
+        specifier: workspace:*
+        version: link:../chain-core
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.9.5
+      tsx:
+        specifier: 'catalog:'
+        version: 4.23.0
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
   scripts:
     devDependencies:
       '@types/node':

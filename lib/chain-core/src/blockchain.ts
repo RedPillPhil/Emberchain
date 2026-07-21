@@ -603,7 +603,7 @@ export class Blockchain {
   /** Returns the deployed bytecode for a contract address, or "0x" if not a contract. */
   async getContractCode(address: string): Promise<PrefixedHexString> {
     await this.whenReady();
-    const key = address.toLowerCase();
+    const key = address.toLowerCase() as PrefixedHexString;
     const bytes = this.stateManager.codeStack[0].get(key);
     return bytes && bytes.length > 0 ? bytesToHex(bytes) : "0x";
   }
@@ -665,6 +665,45 @@ export class Blockchain {
       .map((h) => this.transactions.get(h))
       .filter((tx): tx is StoredTransaction => Boolean(tx));
     return { ...block, transactions };
+  }
+
+  /** Returns up to `limit` blocks (with their transactions) starting from `fromNumber`, in ascending order. */
+  async getBlocksFrom(fromNumber: number, limit = 500) {
+    await this.whenReady();
+    const cap = Math.min(limit, 1000);
+    const slice = this.blocks
+      .filter((b) => b.number >= fromNumber)
+      .sort((a, b) => a.number - b.number)
+      .slice(0, cap);
+    return slice.map((block) => ({
+      ...block,
+      transactions: block.transactionHashes
+        .map((h) => this.transactions.get(h))
+        .filter((tx): tx is StoredTransaction => Boolean(tx)),
+    }));
+  }
+
+  /**
+   * Exports the full chain snapshot for peer sync.
+   * Includes all blocks, transactions, wallet index, and EVM state.
+   * Intended to be sent as a large JSON blob to a bootstrapping standalone node.
+   */
+  exportSnapshot(): PersistedChain {
+    return {
+      version: 3,
+      difficulty: this.difficulty.toString(),
+      blocks: this.blocks,
+      transactions: [...this.transactions.values()],
+      wallets: [...this.wallets.entries()],
+      state: dumpState(this.stateManager),
+      privateNotes: [...this.privateNotes.values()],
+      shieldedTxs: this.shieldedTxs,
+      exchangeListings: [...this.exchangeListings.values()],
+      usedPaymentProofs: [...this.usedPaymentProofs],
+      recentMiners: [...this.recentMiners.entries()],
+      currentRoundShares: [...this.currentRoundShares.entries()],
+      submittedShareNonces: [...this.submittedShareNonces],
+    };
   }
 
   // ---------- Mining ----------
