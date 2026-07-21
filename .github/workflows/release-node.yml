@@ -11,6 +11,9 @@ on:
         required: true
         default: "node-v1.3.0"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -86,5 +89,6 @@ jobs:
           tag_name: ${{ inputs.tag || github.ref_name }}
           files: lib/emberchain-node/dist/downloads/${{ matrix.binary }}
           fail_on_unmatched_files: true
+          overwrite: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
