@@ -6,6 +6,7 @@ import { ensureCommunityTables } from "./lib/community-db";
 import { ensureBridgeTables } from "./lib/bridge-db";
 import { startBridgeRelayer, stopBridgeRelayer } from "./lib/bridge-relayer";
 import { startChainScanner, stopChainScanner } from "./lib/chain-scanner";
+import { startSyncLoop, stopSyncLoop } from "./lib/sync-loop";
 import { WebSocketServer } from "ws";
 import { setupCommunityWS } from "./routes/community";
 
@@ -50,6 +51,10 @@ server.listen(port, (err?: Error) => {
   // Loops are no-ops when contract addresses / RPC URLs are not yet configured.
   startBridgeRelayer();
   startChainScanner();
+
+  // Autonomous peer-sync loop — pulls new blocks from known peers every 30 s
+  // and does peer exchange every 5 min so the mesh grows without a central server.
+  startSyncLoop();
 });
 
 // Clean shutdown — stop relayer loops before the process exits.
@@ -57,5 +62,6 @@ process.on("SIGTERM", () => {
   logger.info("SIGTERM received — shutting down bridge relayer");
   stopBridgeRelayer();
   stopChainScanner();
+  stopSyncLoop();
   server.close(() => process.exit(0));
 });

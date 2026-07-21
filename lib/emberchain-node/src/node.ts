@@ -2,26 +2,26 @@
 /**
  * emberchain-node — standalone Emberchain full node launcher
  *
- * This script is bundled together with server.mjs into a downloadable package.
- * It handles first-run snapshot download, then starts the bundled server.
+ * Bootstraps a new node from any reachable peer (or from saved local data),
+ * then starts the bundled API server. If the original bootstrap server goes
+ * offline, nodes that already know each other keep the network running.
  *
  * Usage:
  *   node emberchain-node.js [options]
  *
  * Options:
- *   --peer   <url>   Bootstrap peer to sync from  (default: https://emberchain.org)
+ *   --peer   <url>   Bootstrap peer to sync from (default: https://emberchain.org)
+ *                    Multiple --peer flags are accepted; they are tried in order.
  *   --port   <port>  Local port to listen on       (default: 8545)
  *   --data   <dir>   Data directory for chain file (default: ./emberchain-data)
+ *   --url    <url>   This node's own public URL — registers with peers so you
+ *                    receive block gossip in real time (optional but recommended)
  *   --resync         Force re-download snapshot even if local data exists
- *
- * After startup, connect MetaMask:
- *   Network name : Emberchain
- *   RPC URL      : http://localhost:8545/api/rpc
- *   Chain ID     : 7773
- *   Currency     : EMBR
  */
 
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import {
+  existsSync, mkdirSync, writeFileSync, readFileSync,
+} from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -32,78 +32,204 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function arg(name: string, fallback: string): string {
   const idx = process.argv.indexOf(`--${name}`);
-  return idx !== -1 && process.argv[idx + 1] ? process.argv[idx + 1] : fallback;
+  return idx !== -1 && process.argv[idx + 1] ? process.argv[idx + 1]! : fallback;
 }
 
-const PEER_URL   = arg("peer", "https://emberchain.org").replace(/\/$/, "");
+/** Collect all values for a repeated flag (e.g. --peer a --peer b). */
+function args(name: string): string[] {
+  const result: string[] = [];
+  for (let i = 0; i < process.argv.length; i++) {
+    if (process.argv[i] === `--${name}` && process.argv[i + 1]) {
+      result.push(process.argv[i + 1]!);
+    }
+  }
+  return result;
+}
+
 const PORT       = arg("port", "8545");
 const DATA_DIR   = path.resolve(arg("data", "./emberchain-data"));
-const MY_URL     = arg("url", "").replace(/\/$/, "");   // e.g. https://my-server.com
+const MY_URL     = arg("url", "").replace(/\/$/, "");
 const FORCE_SYNC = process.argv.includes("--resync");
 const SNAPSHOT   = path.join(DATA_DIR, "chain.json");
+const PEER_LIST_FILE = path.join(DATA_DIR, "peers.json");
 
-// ── helpers ───────────────────────────────────────────────────────────────────
+/**
+ * Bootstrap peers — tried in this order until one works:
+ *   1. Peers from saved peers.json (nodes this machine has talked to before)
+ *   2. --peer flags from the command line
+ *   3. Hardcoded community fallbacks (so the network survives without emberchain.org)
+ */
+const HARDCODED_FALLBACKS = [
+  "https://emberchain.org",
+  // Community nodes — add yours here to help the network survive
+];
+
+function loadSavedPeers(): string[] {
+  try {
+    if (existsSync(PEER_LIST_FILE)) {
+      return (JSON.parse(readFileSync(PEER_LIST_FILE, "utf-8")) as string[])
+        .map((u) => u.replace(/\/$/, ""))
+        .filter(Boolean);
+    }
+  } catch { /* ignore */ }
+  return [];
+}
+
+function buildBootstrapList(): string[] {
+  const explicit   = args("peer").map((u) => u.replace(/\/$/, "")).filter(Boolean);
+  const saved      = loadSavedPeers();
+  const fallbacks  = HARDCODED_FALLBACKS.map((u) => u.replace(/\/$/, ""));
+
+  // Deduplicate while preserving priority: saved → explicit → fallbacks
+  const seen = new Set<string>();
+  const list: string[] = [];
+  for (const u of [...saved, ...explicit, ...fallbacks]) {
+    if (u && !seen.has(u)) { seen.add(u); list.push(u); }
+  }
+  return list;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function log(msg: string) {
   console.log(`[${new Date().toISOString().slice(11, 19)}] ${msg}`);
 }
 
-function printBanner() {
+function printBanner(bootstrapPeers: string[]) {
   console.log(`
 ╔══════════════════════════════════════════════════════╗
 ║              🔥  Emberchain Node  🔥                 ║
 ╚══════════════════════════════════════════════════════╝
-  Peer   : ${PEER_URL}
+  Bootstrap peers : ${bootstrapPeers.slice(0, 3).join(", ")}${bootstrapPeers.length > 3 ? ` (+${bootstrapPeers.length - 3} more)` : ""}
   Port   : ${PORT}
   Data   : ${DATA_DIR}
-  My URL : ${MY_URL || "(not set — use --url https://your-public-url.com to join the network)"}
+  My URL : ${MY_URL || "(not set — pass --url https://your-public-url.com to join the gossip network)"}
 `);
 }
 
-async function downloadSnapshot(): Promise<void> {
-  log(`📥  Downloading chain snapshot from peer …`);
-  log(`    This includes the full block history + EVM state.`);
-  log(`    May take a minute on a slow connection.`);
+/**
+ * Try to download the chain snapshot from each peer in order.
+ * Returns the peer URL that succeeded, or throws if all fail.
+ */
+async function downloadSnapshotFromAnyPeer(peers: string[]): Promise<string> {
+  const errors: string[] = [];
 
-  const res = await fetch(`${PEER_URL}/api/sync/snapshot`, {
-    headers: { Accept: "application/json" },
-  });
+  for (const peer of peers) {
+    log(`📥  Trying ${peer} …`);
+    try {
+      const res = await fetch(`${peer}/api/sync/snapshot`, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!res.ok) {
+        errors.push(`${peer}: HTTP ${res.status}`);
+        continue;
+      }
+      const height = res.headers.get("X-Block-Height");
+      const body   = await res.text();
 
-  if (!res.ok) {
-    throw new Error(`Snapshot download failed: HTTP ${res.status} — is ${PEER_URL} reachable?`);
+      mkdirSync(DATA_DIR, { recursive: true });
+      writeFileSync(SNAPSHOT, body, "utf-8");
+
+      log(`✅  Snapshot saved (${(body.length / 1024 / 1024).toFixed(1)} MB, block ${height ?? "?"})`);
+      return peer; // success — return the URL we used
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`${peer}: ${msg}`);
+      log(`⚠️   ${peer} unreachable (${msg}) — trying next peer …`);
+    }
   }
 
-  const height = res.headers.get("X-Block-Height");
-  const body = await res.text();
+  throw new Error(
+    `Could not download snapshot from any peer:\n${errors.map((e) => `  • ${e}`).join("\n")}\n\n` +
+    `Ensure at least one peer is reachable, or run without --resync to use local data.`,
+  );
+}
 
-  mkdirSync(DATA_DIR, { recursive: true });
-  writeFileSync(SNAPSHOT, body, "utf-8");
+/**
+ * After the server is running, register this node with every known peer.
+ * Each peer will then gossip new blocks to us in real time.
+ */
+async function registerWithPeers(peers: string[]): Promise<void> {
+  if (!MY_URL) return;
 
-  log(`✅  Snapshot saved (${(body.length / 1024 / 1024).toFixed(1)} MB, block ${height ?? "?"})`);
+  const results = await Promise.allSettled(
+    peers.map(async (peer) => {
+      const r = await fetch(`${peer}/api/sync/peers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: MY_URL }),
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return peer;
+    }),
+  );
+
+  const ok  = results.filter((r) => r.status === "fulfilled").length;
+  const bad = results.filter((r) => r.status === "rejected").length;
+  if (ok > 0)  log(`🔗  Registered with ${ok} peer(s) — block gossip enabled`);
+  if (bad > 0) log(`⚠️   ${bad} peer(s) unreachable — will still sync via polling`);
+}
+
+/**
+ * Ask every bootstrap peer for their peer list and save the union to disk.
+ * This builds the local peer mesh so future restarts work without the main server.
+ */
+async function bootstrapPeerExchange(peers: string[]): Promise<void> {
+  const discovered = new Set<string>(peers);
+  discovered.delete(MY_URL);
+
+  await Promise.allSettled(
+    peers.map(async (peer) => {
+      try {
+        const r = await fetch(`${peer}/api/sync/peers`, {
+          signal: AbortSignal.timeout(6_000),
+        });
+        if (!r.ok) return;
+        const data = (await r.json()) as { peers?: string[] };
+        for (const p of data.peers ?? []) {
+          const clean = p.replace(/\/$/, "");
+          if (clean && clean !== MY_URL) discovered.add(clean);
+        }
+      } catch { /* peer offline */ }
+    }),
+  );
+
+  if (discovered.size > 0) {
+    try {
+      mkdirSync(DATA_DIR, { recursive: true });
+      writeFileSync(PEER_LIST_FILE, JSON.stringify([...discovered], null, 2), "utf-8");
+      log(`💾  Saved ${discovered.size} peer(s) to ${PEER_LIST_FILE}`);
+    } catch { /* ignore */ }
+  }
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  printBanner();
+  mkdirSync(DATA_DIR, { recursive: true });
+
+  const bootstrapPeers = buildBootstrapList();
+  printBanner(bootstrapPeers);
 
   // ── 1. Snapshot ─────────────────────────────────────────────────────────────
   if (!existsSync(SNAPSHOT) || FORCE_SYNC) {
-    await downloadSnapshot();
+    log(`📥  No local chain data — downloading snapshot …`);
+    log(`    Will try ${bootstrapPeers.length} peer(s) in order.`);
+    await downloadSnapshotFromAnyPeer(bootstrapPeers);
   } else {
     try {
       const meta = JSON.parse(readFileSync(SNAPSHOT, "utf-8")) as { blocks?: unknown[] };
-      log(`📂  Using existing snapshot (${meta.blocks?.length ?? "?"} blocks)`);
+      log(`📂  Using local snapshot (${meta.blocks?.length ?? "?"} blocks)`);
     } catch {
-      log(`📂  Using existing snapshot`);
+      log(`📂  Using local snapshot`);
     }
-    log(`    Run with --resync to force a fresh download from the peer.`);
+    log(`    Run with --resync to force a fresh download.`);
   }
 
   // ── 2. Find the bundled server ───────────────────────────────────────────────
-  // In the downloadable package, server.mjs lives alongside this file.
   const serverMjs = path.join(__dirname, "server.mjs");
-
   if (!existsSync(serverMjs)) {
     console.error(`\n❌  server.mjs not found at: ${serverMjs}`);
     console.error(`    Make sure you downloaded the full node package (not just this file).`);
@@ -120,11 +246,11 @@ async function main() {
       ...process.env,
       PORT:            PORT,
       CHAIN_DATA_FILE: SNAPSHOT,
-      DATABASE_URL:    "",          // no Postgres — file-only mode
+      PEER_LIST_FILE:  PEER_LIST_FILE,             // server saves/loads its peer list here
+      SEED_PEERS:      bootstrapPeers.join(","),   // all known peers at boot time
+      DATABASE_URL:    "",                         // no Postgres — file-only mode
       NODE_ENV:        "production",
-      // P2P: let the server know its own public URL and where the seed peer is
       NODE_URL:        MY_URL,
-      SEED_PEERS:      PEER_URL,
     },
   });
 
@@ -135,44 +261,37 @@ async function main() {
 
   child.on("exit", (code) => process.exit(code ?? 0));
 
-  // After the server is up, register this node with the bootstrap peer so it
-  // broadcasts new blocks to us — and we to it.
+  // ── 4. Post-startup: register + peer exchange ────────────────────────────────
   setTimeout(async () => {
-    if (MY_URL) {
-      try {
-        const r = await fetch(`${PEER_URL}/api/sync/peers`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: MY_URL }),
-        });
-        if (r.ok) {
-          log(`🔗  Registered with peer ${PEER_URL} (we will receive block gossip)`);
-        }
-      } catch {
-        log(`⚠️   Could not register with peer ${PEER_URL} — will still sync via polling`);
-      }
-    }
+    // Register with all known peers so they broadcast blocks to us
+    await registerWithPeers(bootstrapPeers);
 
-    const walletUrl  = MY_URL ? `${MY_URL}/api` : `http://localhost:${PORT}/api`;
+    // Discover more peers by asking all bootstraps for their lists
+    await bootstrapPeerExchange(bootstrapPeers);
+
+    const walletUrl   = MY_URL ? `${MY_URL}/api` : `http://localhost:${PORT}/api`;
     const explorerUrl = MY_URL || `http://localhost:${PORT}`;
     console.log(`
-  ┌──────────────────────────────────────────────────────────────┐
-  │  🔥 Emberchain Node is running!                              │
-  │                                                              │
-  │  Desktop Wallet → Settings → Node URL:                       │
-  │    ${walletUrl.padEnd(54)}│
-  │                                                              │
-  │  MetaMask → Add Network:                                     │
-  │    Network name : Emberchain                                 │
-  │    RPC URL      : ${(walletUrl + "/rpc").padEnd(39)}│
-  │    Chain ID     : 7773                                       │
-  │    Currency     : EMBR                                       │
-  │                                                              │
-  │  Block explorer : ${explorerUrl.padEnd(39)}│
-  │  Press Ctrl+C to stop.                                       │
-  └──────────────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  🔥 Emberchain Node is running!                                  │
+  │                                                                  │
+  │  Desktop Wallet → Settings → Node URL:                           │
+  │    ${walletUrl.padEnd(58)}│
+  │                                                                  │
+  │  MetaMask → Add Network:                                         │
+  │    Network name : Emberchain                                     │
+  │    RPC URL      : ${(walletUrl + "/rpc").padEnd(43)}│
+  │    Chain ID     : 7773                                           │
+  │    Currency     : EMBR                                           │
+  │                                                                  │
+  │  Block explorer : ${explorerUrl.padEnd(43)}│
+  │  Press Ctrl+C to stop.                                           │
+  └──────────────────────────────────────────────────────────────────┘
+  ${MY_URL
+    ? "✅  Public URL set — you are a full P2P participant."
+    : "ℹ️   No --url set. You sync via polling. Pass --url to join the gossip network."}
 `);
-  }, 5000);
+  }, 5_000);
 
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
     process.on(sig, () => { child.kill(sig); });
