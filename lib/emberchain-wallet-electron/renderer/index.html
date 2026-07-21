@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
   <title>Emberchain Wallet</title>
   <link rel="stylesheet" href="app.css">
 </head>
@@ -15,7 +15,11 @@
 <div id="screen-setup" class="screen">
   <div class="setup-box">
     <div class="setup-logo">
-      <img src="../build/icon.png" alt="Emberchain" width="64" height="64">
+      <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Emberchain">
+        <circle cx="32" cy="32" r="32" fill="#1a1a1a"/>
+        <path d="M32 8C32 8 20 22 20 34c0 6.627 5.373 12 12 12s12-5.373 12-12c0-4-2-7-2-7s-1 4-4 6c0 0 2-6-6-16z" fill="#f37021"/>
+        <path d="M32 28c0 0-6 6-6 12a6 6 0 0012 0c0-3-1.5-5-1.5-5s-.5 3-2.5 4c0 0 1-4-2-11z" fill="#ffd580"/>
+      </svg>
       <h1>Emberchain Wallet</h1>
       <p class="setup-sub">Secure · Private · Decentralised</p>
     </div>
@@ -56,7 +60,11 @@
 ════════════════════════════════════════════════════════════════════════ -->
 <div id="screen-unlock" class="screen hidden">
   <div class="setup-box unlock-box">
-    <img src="../build/icon.png" alt="Emberchain" width="56" height="56">
+    <svg width="56" height="56" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="32" cy="32" r="32" fill="#1a1a1a"/>
+      <path d="M32 8C32 8 20 22 20 34c0 6.627 5.373 12 12 12s12-5.373 12-12c0-4-2-7-2-7s-1 4-4 6c0 0 2-6-6-16z" fill="#f37021"/>
+      <path d="M32 28c0 0-6 6-6 12a6 6 0 0012 0c0-3-1.5-5-1.5-5s-.5 3-2.5 4c0 0 1-4-2-11z" fill="#ffd580"/>
+    </svg>
     <h2>Emberchain Wallet</h2>
     <p id="unlock-address" class="mono dim"></p>
     <input type="password" id="unlock-pwd" placeholder="Enter password…" autofocus>
@@ -72,8 +80,8 @@
   <div class="overlay-box">
     <h3>Settings</h3>
     <label>Emberchain Node URL</label>
-    <input id="settings-node-url" type="text" placeholder="https://emberchain.io/api">
-    <p class="hint">The URL of your Emberchain API server (no trailing slash).</p>
+    <input id="settings-node-url" type="text" placeholder="https://your-node.replit.app/api-server/api">
+    <p class="hint">The URL of your deployed Emberchain API server (no trailing slash). Required — the wallet cannot connect without this.</p>
     <div class="overlay-actions">
       <button class="btn-primary" id="btn-settings-save">Save</button>
       <button class="btn-secondary" id="btn-settings-cancel">Cancel</button>
@@ -90,7 +98,11 @@
     <!-- Sidebar -->
     <nav id="sidebar">
       <div id="sidebar-logo">
-        <img src="../build/icon.png" width="36" height="36" alt="">
+        <svg width="36" height="36" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="32" cy="32" r="32" fill="#2a2a2a"/>
+          <path d="M32 8C32 8 20 22 20 34c0 6.627 5.373 12 12 12s12-5.373 12-12c0-4-2-7-2-7s-1 4-4 6c0 0 2-6-6-16z" fill="#f37021"/>
+          <path d="M32 28c0 0-6 6-6 12a6 6 0 0012 0c0-3-1.5-5-1.5-5s-.5 3-2.5 4c0 0 1-4-2-11z" fill="#ffd580"/>
+        </svg>
         <span>EMBR</span>
       </div>
       <div id="nav-links">
