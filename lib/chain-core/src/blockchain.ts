@@ -372,8 +372,10 @@ export class Blockchain {
       }
     }
 
+    const ETH_ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
     const result = [];
     for (const addr of seen) {
+      if (!ETH_ADDR_RE.test(addr)) continue; // skip malformed addresses from block data
       const balance = await getBalance(this.stateManager, addr);
       if (balance === 0n) continue; // skip zero-balance addresses
       const nonce = await getNonce(this.stateManager, addr);
