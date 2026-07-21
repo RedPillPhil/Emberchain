@@ -37,6 +37,7 @@ minimumReleaseAgeExclude:
 packages:
   - artifacts/*
   - lib/*
+  - '!lib/emberchain-wallet-electron'
   - lib/integrations/*
   - scripts
 
