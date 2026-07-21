@@ -15,5 +15,3 @@ pinoHttp.startTime   = Symbol("startTime");
 pinoHttp.logger      = null;
 
 export default pinoHttp;
-module.exports        = pinoHttp;
-module.exports.default = pinoHttp;
