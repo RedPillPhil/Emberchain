@@ -4,6 +4,10 @@
   "description": "Emberchain desktop wallet — full node + wallet UI in one app",
   "main": "main.js",
   "private": true,
+  "author": {
+    "name": "Emberchain",
+    "email": "hello@emberchain.org"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/RedPillPhil/Emberchain.git"
@@ -58,10 +62,9 @@
     },
     "linux": {
       "target": [
-        { "target": "AppImage", "arch": ["x64"] },
-        { "target": "deb",      "arch": ["x64"] }
+        { "target": "AppImage", "arch": ["x64"] }
       ],
-      "icon": "build",
+      "icon": "build/icon.png",
       "category": "Office"
     },
     "nsis": {
