@@ -13,6 +13,8 @@
   --gold:      #f5c542;
   --green:     #4ecb71;
   --red:       #e05555;
+  --warn:      #f5c542;
+  --caution:   #ff9f43;
   --text:      #e0e0e0;
   --text-dim:  #777;
   --text-mid:  #aaa;
@@ -101,7 +103,9 @@ input[type=text]:focus { border-color: var(--accent); }
   display: flex; align-items: center; gap: 8px;
 }
 .slider-cap { font-size: 10px; color: var(--text-dim); white-space: nowrap; }
-.intensity-desc { font-size: 10px; color: var(--text-dim); margin-top: -2px; }
+.intensity-desc { font-size: 10px; color: var(--text-dim); margin-top: -2px; transition: color .2s; }
+.intensity-desc.caution { color: var(--caution); }
+.intensity-desc.warn    { color: var(--warn); font-weight: 600; }
 
 input[type=range] {
   flex: 1; accent-color: var(--accent);
@@ -145,9 +149,10 @@ input[type=range] {
   text-align: center; min-height: 16px;
   transition: color .2s;
 }
-.status-line.ok    { color: var(--green); }
-.status-line.error { color: var(--red); }
-.status-line.info  { color: var(--accent); }
+.status-line.ok     { color: var(--green); }
+.status-line.error  { color: var(--red); }
+.status-line.info   { color: var(--accent); }
+.status-line.mining { color: var(--green); font-weight: 600; }
 
 /* ── Content ─────────────────────────────────────────────────────────────── */
 .content {
@@ -233,7 +238,26 @@ input[type=range] {
   font-size: 11px; font-weight: 600;
   text-transform: uppercase; letter-spacing: .06em;
   color: var(--text-dim);
+  flex-shrink: 0;
 }
+.log-header-left {
+  display: flex; align-items: center; gap: 6px;
+}
+.log-count {
+  color: var(--text-dim); font-size: 10px; font-weight: 400;
+  text-transform: none; letter-spacing: 0;
+}
+.btn-collapse {
+  background: none; border: 1px solid var(--border);
+  color: var(--text-mid); cursor: pointer;
+  width: 20px; height: 20px; border-radius: 4px;
+  font-size: 11px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color .15s, color .15s, background .15s;
+  flex-shrink: 0;
+}
+.btn-collapse:hover { border-color: var(--accent); color: var(--accent); }
+
 .btn-clear {
   background: none; border: 1px solid var(--border);
   color: var(--text-dim); cursor: pointer; padding: 2px 8px;
@@ -241,6 +265,18 @@ input[type=range] {
   transition: border-color .15s, color .15s;
 }
 .btn-clear:hover { border-color: var(--border2); color: var(--text); }
+
+.log-wrap {
+  flex: 1; overflow: hidden;
+  display: flex; flex-direction: column;
+  min-height: 0;
+  transition: flex .25s ease, opacity .2s ease;
+}
+.log-wrap.collapsed {
+  flex: 0 0 0px;
+  opacity: 0;
+  pointer-events: none;
+}
 
 .log {
   flex: 1; overflow-y: auto;
@@ -260,19 +296,20 @@ input[type=range] {
   display: flex; gap: 8px; align-items: baseline;
   padding: 2px 0;
   border-bottom: 1px solid rgba(255,255,255,.03);
-  animation: fadeIn .25s ease;
+  animation: fadeIn .15s ease;
 }
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-3px); }
+  from { opacity: 0; transform: translateY(-2px); }
   to   { opacity: 1; transform: none; }
 }
-.log-time { color: var(--text-dim); flex-shrink: 0; font-size: 10.5px; }
-.log-msg  { color: var(--text-mid); }
+.log-time   { color: var(--text-dim); flex-shrink: 0; font-size: 10.5px; }
+.log-msg    { color: var(--text-mid); }
 .log-share  { color: var(--accent); }
 .log-block  { color: var(--gold); font-weight: 700; }
 .log-error  { color: var(--red); }
+.log-warn   { color: var(--warn); }
 .log-info   { color: var(--text-mid); }
 .log-status { color: var(--green); }
 
-/* ── Mining animation (ore particles) ───────────────────────────────────── */
+/* ── Mining animation ────────────────────────────────────────────────────── */
 .btn-mine-icon { font-style: normal; }

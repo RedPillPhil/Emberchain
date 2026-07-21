@@ -12,10 +12,17 @@
 <!-- ── Title bar ─────────────────────────────────────────────────────────── -->
 <div class="titlebar">
   <div class="titlebar-logo">
+    <!-- Flame + pickaxe icon -->
     <svg width="18" height="18" viewBox="0 0 64 64" fill="none">
       <circle cx="32" cy="32" r="32" fill="#1a1a1a"/>
       <path d="M32 8C32 8 20 22 20 34c0 6.627 5.373 12 12 12s12-5.373 12-12c0-4-2-7-2-7s-1 4-4 6c0 0 2-6-6-16z" fill="#f37021"/>
       <path d="M32 28c0 0-6 6-6 12a6 6 0 0012 0c0-3-1.5-5-1.5-5s-.5 3-2.5 4c0 0 1-4-2-11z" fill="#ffd580"/>
+      <!-- Pickaxe badge -->
+      <g transform="translate(47,47)">
+        <rect x="-2" y="-9" width="3.5" height="10" rx="1" fill="#fff" transform="rotate(-45)"/>
+        <path d="M-8,-4 Q-4,-9 0,-8 L0,-5 Q-3,-6 -6,-2 Z" fill="#f37021"/>
+        <path d="M0,-8 Q4,-9 5,-5 L3,-4 Q2,-7 0,-5 Z" fill="#f37021"/>
+      </g>
     </svg>
     <span>Emberchain Miner</span>
   </div>
@@ -49,8 +56,8 @@
         </label>
         <div class="slider-row">
           <span class="slider-cap">Eco</span>
-          <input id="inp-intensity" type="range" min="1" max="5" value="3" step="1">
-          <span class="slider-cap">Max</span>
+          <input id="inp-intensity" type="range" min="1" max="10" value="3" step="1">
+          <span class="slider-cap">☠</span>
         </div>
         <div class="intensity-desc" id="intensity-desc">~6,000 hashes per batch</div>
       </div>
@@ -110,10 +117,16 @@
 
     <!-- Event log -->
     <div class="log-header">
-      <span>⛏ Mining Log</span>
+      <div class="log-header-left">
+        <button id="btn-collapse-log" class="btn-collapse" title="Collapse log">▾</button>
+        <span>⛏ Mining Log</span>
+        <span id="log-count" class="log-count"></span>
+      </div>
       <button id="btn-clear-log" class="btn-clear">Clear</button>
     </div>
-    <div id="log" class="log"></div>
+    <div id="log-wrap" class="log-wrap">
+      <div id="log" class="log"></div>
+    </div>
 
   </main>
 

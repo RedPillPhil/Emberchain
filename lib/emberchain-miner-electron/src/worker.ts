@@ -1,7 +1,6 @@
 /**
  * Mining worker — runs in a worker_threads Worker.
- * Bundled by scripts/bundle.mjs → renderer/worker-bundle.js so the Electron
- * app has zero JS runtime dependencies beyond Electron itself.
+ * Bundled by scripts/bundle.mjs → worker-bundle.js
  */
 import { keccak256 } from "ethereum-cryptography/keccak.js";
 import { workerData, parentPort } from "worker_threads";
@@ -10,9 +9,20 @@ const { nodeUrl, address, intensity } = workerData as {
   nodeUrl: string; address: string; intensity: number;
 };
 
-const BATCH_SIZES: Record<number, number> = { 1: 300, 2: 1500, 3: 6000, 4: 20000, 5: 60000 };
-const BATCH_SIZE  = BATCH_SIZES[intensity] ?? 6000;
-const MAX_PER_TPL = 2_000_000;
+const BATCH_SIZES: Record<number, number> = {
+  1:  300,
+  2:  1_500,
+  3:  6_000,
+  4:  20_000,
+  5:  60_000,
+  6:  120_000,
+  7:  300_000,
+  8:  600_000,
+  9:  1_200_000,
+  10: 2_000_000,
+};
+const BATCH_SIZE  = BATCH_SIZES[intensity] ?? 6_000;
+const MAX_PER_TPL = 10_000_000;
 
 const enc = new TextEncoder();
 
@@ -87,15 +97,22 @@ async function mine() {
   if (status) parentPort!.postMessage({ type: "network", data: status });
 
   let lastStatusFetch = Date.now();
+  let miningStarted   = false;
 
   while (running) {
     let template: { header: Header; target: string; shareTarget: string };
     try {
       template = await fetchTemplate();
     } catch (err) {
-      parentPort!.postMessage({ type: "error", msg: (err as Error).message });
+      // Use "warn" so the UI logs it without clobbering the status line
+      parentPort!.postMessage({ type: "warn", msg: (err as Error).message });
       await new Promise(r => setTimeout(r, 5000));
       continue;
+    }
+
+    if (!miningStarted) {
+      miningStarted = true;
+      parentPort!.postMessage({ type: "mining_started" });
     }
 
     const { header, target, shareTarget } = template;
