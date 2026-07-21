@@ -204,6 +204,36 @@ async function bootstrapPeerExchange(myUrl: string, peers: string[]): Promise<vo
   }
 }
 
+// ── External IP fallback ──────────────────────────────────────────────────────
+// Used when UPnP discovery fails but the user has a manual port forward.
+// Tries several well-known "what is my IP" endpoints in parallel.
+
+async function fetchExternalIp(): Promise<string | null> {
+  const endpoints = [
+    "https://api.ipify.org",
+    "https://checkip.amazonaws.com",
+    "https://icanhazip.com",
+  ];
+  const results = await Promise.allSettled(
+    endpoints.map(async (url) => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 5_000);
+      try {
+        const res = await fetch(url, { signal: ctrl.signal });
+        const text = (await res.text()).trim();
+        if (/^\d{1,3}(\.\d{1,3}){3}$/.test(text)) return text;
+        throw new Error("unexpected response");
+      } finally {
+        clearTimeout(timer);
+      }
+    }),
+  );
+  for (const r of results) {
+    if (r.status === "fulfilled") return r.value;
+  }
+  return null;
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -221,7 +251,7 @@ async function main(): Promise<void> {
 
   const bootstrapPeers = loadBootstrapPeers();
 
-  // ── 1. UPnP — try to become publicly reachable automatically ────────────────
+  // ── 1. UPnP / external-IP detection ─────────────────────────────────────────
   let myUrl = MANUAL_URL;
 
   if (!myUrl && !NO_UPNP) {
@@ -232,8 +262,17 @@ async function main(): Promise<void> {
       log(`✅  UPnP success — this node is publicly reachable at ${myUrl}`);
     } else {
       log(`ℹ️   UPnP unavailable (${upnp.reason})`);
-      log(`    Node will sync via outbound connections only.`);
-      log(`    To become publicly reachable: enable UPnP in your router, or pass --url http://YOUR_IP:${PORT}`);
+      log(`    Trying to detect external IP via public lookup …`);
+      const extIp = await fetchExternalIp();
+      if (extIp) {
+        myUrl = `http://${extIp}:${PORT}`;
+        log(`✅  External IP detected: ${extIp}`);
+        log(`    Advertising ${myUrl} to peers.`);
+        log(`    ⚠️  Make sure port ${PORT} is forwarded on your router to this machine.`);
+      } else {
+        log(`    Could not detect external IP. Running in outbound-only mode.`);
+        log(`    To advertise yourself: pass --url http://YOUR_PUBLIC_IP:${PORT}`);
+      }
     }
   } else if (myUrl) {
     log(`🌐  Public URL set manually: ${myUrl}`);
