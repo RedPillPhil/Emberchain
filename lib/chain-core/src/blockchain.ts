@@ -354,14 +354,30 @@ export class Blockchain {
   async listWallets() {
     await this.whenReady();
     const seen = new Set<string>();
-    const result = [];
+
+    // 1. Registered wallets (have private keys stored)
     for (const address of this.wallets.keys()) {
-      const key = address.toLowerCase();
-      if (seen.has(key)) continue; // skip duplicates from legacy mixed-case entries
-      seen.add(key);
-      const balance = await getBalance(this.stateManager, address);
-      const nonce = await getNonce(this.stateManager, address);
-      result.push({ address: key, balance: balance.toString(), nonce });
+      seen.add(address.toLowerCase());
+    }
+
+    // 2. Every miner who ever mined a block — they receive block rewards so they
+    //    definitely have a non-zero balance even if they never called registerWallet.
+    for (const block of this.blocks) {
+      if (block.miner) seen.add(block.miner.toLowerCase());
+      // 3. Per-miner payout map (share-based proportional rewards)
+      if (block.payouts) {
+        for (const addr of Object.keys(block.payouts)) {
+          seen.add(addr.toLowerCase());
+        }
+      }
+    }
+
+    const result = [];
+    for (const addr of seen) {
+      const balance = await getBalance(this.stateManager, addr);
+      if (balance === 0n) continue; // skip zero-balance addresses
+      const nonce = await getNonce(this.stateManager, addr);
+      result.push({ address: addr, balance: balance.toString(), nonce });
     }
     return result;
   }

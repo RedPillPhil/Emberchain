@@ -1,6 +1,7 @@
 import { Download, Terminal, Cpu, HardDrive, Zap, CheckCircle2, Copy } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { Shell } from "@/components/layout/shell";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -65,7 +66,8 @@ function CopyButton({ text }: { text: string }) {
 
 export default function Downloads() {
   return (
-    <div className="p-6 md:p-10 max-w-4xl mx-auto space-y-10">
+    <Shell requireWallet={false}>
+    <div className="max-w-4xl mx-auto space-y-10">
 
       {/* Header */}
       <div className="border-b border-border pb-8">
@@ -236,5 +238,6 @@ export default function Downloads() {
       </div>
 
     </div>
+    </Shell>
   );
 }
