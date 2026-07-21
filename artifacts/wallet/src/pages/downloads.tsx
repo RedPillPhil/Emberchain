@@ -1,4 +1,4 @@
-import { Download, Terminal, Cpu, HardDrive, Zap, CheckCircle2, Copy } from "lucide-react";
+import { Download, Terminal, Cpu, HardDrive, Zap, CheckCircle2, Copy, Monitor, Apple, Tv2 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Shell } from "@/components/layout/shell";
@@ -78,6 +78,99 @@ export default function Downloads() {
         <p className="text-muted-foreground font-sans text-sm uppercase tracking-widest font-bold">
           Run the miner or a full node on your own computer
         </p>
+      </div>
+
+      {/* ── Desktop Wallet App ── */}
+      <div className="border border-primary/50 bg-primary/5 rounded-sm p-6 space-y-5 relative overflow-hidden">
+        {/* glow accent */}
+        <div className="absolute -top-10 -right-10 w-48 h-48 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <Monitor className="w-6 h-6 text-primary mt-0.5 shrink-0" />
+            <div>
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <span className="font-display font-bold text-foreground uppercase tracking-wide text-lg">
+                  Emberchain Wallet
+                </span>
+                <span className="text-xs text-primary font-mono bg-primary/10 border border-primary/30 px-2 py-0.5 rounded uppercase tracking-wide">
+                  Desktop App
+                </span>
+              </div>
+              <p className="text-muted-foreground font-sans text-sm leading-relaxed max-w-xl">
+                Full wallet + embedded Emberchain node in one installer. No MetaMask, no Node.js, no command line.
+                Just download, install, and your wallet opens immediately.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Platform buttons */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[
+            {
+              label: "Windows",
+              sub: "64-bit installer (.exe)",
+              Icon: Monitor,
+              color: "text-blue-400",
+              border: "border-blue-400/40 hover:border-blue-400/80 hover:bg-blue-400/5",
+              href: "https://github.com/YOUR_ORG/YOUR_REPO/releases/latest/download/Emberchain-Wallet-Setup.exe",
+              filename: "Emberchain-Wallet-Setup.exe",
+            },
+            {
+              label: "macOS",
+              sub: "Intel + Apple Silicon (.dmg)",
+              Icon: Apple,
+              color: "text-gray-300",
+              border: "border-gray-400/40 hover:border-gray-300/80 hover:bg-gray-400/5",
+              href: "https://github.com/YOUR_ORG/YOUR_REPO/releases/latest",
+              filename: null,
+            },
+            {
+              label: "Linux",
+              sub: "AppImage / .deb",
+              Icon: Tv2,
+              color: "text-orange-300",
+              border: "border-orange-300/40 hover:border-orange-300/80 hover:bg-orange-300/5",
+              href: "https://github.com/YOUR_ORG/YOUR_REPO/releases/latest",
+              filename: null,
+            },
+          ].map(({ label, sub, Icon, color, border, href, filename }) => (
+            <a
+              key={label}
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              {...(filename ? { download: filename } : {})}
+              className={`flex items-center gap-3 border rounded-sm px-4 py-3 transition-colors ${border}`}
+            >
+              <Icon className={`w-5 h-5 shrink-0 ${color}`} />
+              <div className="min-w-0">
+                <div className="font-display font-bold text-foreground uppercase tracking-wide text-sm flex items-center gap-1.5">
+                  <Download className="w-3.5 h-3.5" />
+                  {label}
+                </div>
+                <div className="text-muted-foreground text-xs font-sans truncate">{sub}</div>
+              </div>
+            </a>
+          ))}
+        </div>
+
+        <p className="text-xs text-muted-foreground font-sans pl-1">
+          ✓ No Node.js required &nbsp;·&nbsp; ✓ Runs a full embedded node &nbsp;·&nbsp; ✓ Chain data stored locally &nbsp;·&nbsp;
+          Builds posted to{" "}
+          <a href="https://github.com/YOUR_ORG/YOUR_REPO/releases" target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
+            GitHub Releases
+          </a>{" "}
+          on each tagged version.
+        </p>
+      </div>
+
+      {/* Divider */}
+      <div className="flex items-center gap-3 text-muted-foreground">
+        <div className="flex-1 border-t border-border" />
+        <span className="text-xs uppercase tracking-widest font-sans">Command-line tools</span>
+        <div className="flex-1 border-t border-border" />
       </div>
 
       {/* Requirement callout */}

@@ -1,0 +1,78 @@
+{
+  "name": "@workspace/emberchain-wallet-electron",
+  "version": "1.0.0",
+  "description": "Emberchain desktop wallet — full node + wallet UI in one app",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build": "node scripts/build.mjs",
+    "dist": "node scripts/build.mjs && electron-builder",
+    "dist:win": "node scripts/build.mjs && electron-builder --win",
+    "dist:mac": "node scripts/build.mjs && electron-builder --mac",
+    "dist:linux": "node scripts/build.mjs && electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "org.emberchain.wallet",
+    "productName": "Emberchain Wallet",
+    "copyright": "Copyright © 2025 Emberchain",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "_resources/server.mjs",
+        "to": "server.mjs"
+      },
+      {
+        "from": "_resources/wallet-ui",
+        "to": "wallet-ui"
+      }
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] }
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.finance"
+    },
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb",      "arch": ["x64"] }
+      ],
+      "icon": "build",
+      "category": "Office"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "deleteAppDataOnUninstall": false
+    },
+    "dmg": {
+      "background": "build/dmg-background.png",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    }
+  }
+}
