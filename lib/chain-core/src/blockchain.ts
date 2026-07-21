@@ -321,15 +321,16 @@ export class Blockchain {
 
   /** Registers (or backfills) a wallet's public stealth meta-address whenever we see its private key. */
   private registerWallet(address: PrefixedHexString, privateKeyHex: string): void {
+    const key = address.toLowerCase() as PrefixedHexString;
     const meta = getStealthMetaAddress(privateKeyHex);
-    const existing = this.wallets.get(address);
+    const existing = this.wallets.get(key);
     if (existing) {
       if (!existing.spendPublicKey) {
         existing.spendPublicKey = meta.spendPublicKey;
         existing.viewPublicKey = meta.viewPublicKey;
       }
     } else {
-      this.wallets.set(address, {
+      this.wallets.set(key, {
         createdAt: new Date().toISOString(),
         spendPublicKey: meta.spendPublicKey,
         viewPublicKey: meta.viewPublicKey,
@@ -352,11 +353,15 @@ export class Blockchain {
 
   async listWallets() {
     await this.whenReady();
+    const seen = new Set<string>();
     const result = [];
     for (const address of this.wallets.keys()) {
+      const key = address.toLowerCase();
+      if (seen.has(key)) continue; // skip duplicates from legacy mixed-case entries
+      seen.add(key);
       const balance = await getBalance(this.stateManager, address);
       const nonce = await getNonce(this.stateManager, address);
-      result.push({ address, balance: balance.toString(), nonce });
+      result.push({ address: key, balance: balance.toString(), nonce });
     }
     return result;
   }
@@ -715,8 +720,8 @@ export class Blockchain {
     this.mining.minerAddress = minerAddress as PrefixedHexString;
     this.mining.blocksMinedThisSession = 0;
     this.mining.intensity = clampedIntensity;
-    if (!this.wallets.has(minerAddress as PrefixedHexString)) {
-      this.wallets.set(minerAddress as PrefixedHexString, { createdAt: new Date().toISOString() });
+    if (!this.wallets.has(minerAddress.toLowerCase() as PrefixedHexString)) {
+      this.wallets.set(minerAddress.toLowerCase() as PrefixedHexString, { createdAt: new Date().toISOString() });
     }
     this.mining.loop = this.runMiningLoop();
     return this.getMiningStatus();
@@ -750,8 +755,8 @@ export class Blockchain {
   }> {
     await this.whenReady();
     if (!ADDRESS_RE.test(minerAddress)) throw new Error("Invalid miner address");
-    if (!this.wallets.has(minerAddress as PrefixedHexString)) {
-      this.wallets.set(minerAddress as PrefixedHexString, { createdAt: new Date().toISOString() });
+    if (!this.wallets.has(minerAddress.toLowerCase() as PrefixedHexString)) {
+      this.wallets.set(minerAddress.toLowerCase() as PrefixedHexString, { createdAt: new Date().toISOString() });
       this.persist();
     }
     // Track as an active browser miner (last seen now)
@@ -1091,8 +1096,8 @@ export class Blockchain {
       stored.blockNumber = header.number;
 
       // Register recipient so listWallets() picks up new addresses that receive EMBR
-      if (tx.to && !this.wallets.has(tx.to as PrefixedHexString)) {
-        this.wallets.set(tx.to as PrefixedHexString, { createdAt: new Date().toISOString() });
+      if (tx.to && !this.wallets.has(tx.to.toLowerCase() as PrefixedHexString)) {
+        this.wallets.set(tx.to.toLowerCase() as PrefixedHexString, { createdAt: new Date().toISOString() });
       }
     }
 
@@ -1793,8 +1798,8 @@ export class Blockchain {
     const proofKey = this.listingProofKeys.get(id) ?? `${listing.currency}:${paymentTxHash.toLowerCase()}`;
     await credit(this.stateManager, buyerAddress as PrefixedHexString, BigInt(listing.amountEmbr));
     // Register buyer so listWallets() includes the new address
-    if (!this.wallets.has(buyerAddress as PrefixedHexString)) {
-      this.wallets.set(buyerAddress as PrefixedHexString, { createdAt: new Date().toISOString() });
+    if (!this.wallets.has(buyerAddress.toLowerCase() as PrefixedHexString)) {
+      this.wallets.set(buyerAddress.toLowerCase() as PrefixedHexString, { createdAt: new Date().toISOString() });
     }
     listing.status = "fulfilled";
     listing.buyerAddress = buyerAddress;
