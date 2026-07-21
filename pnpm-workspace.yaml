@@ -38,6 +38,7 @@ packages:
   - artifacts/*
   - lib/*
   - '!lib/emberchain-wallet-electron'
+  - '!lib/emberchain-desktop'
   - lib/integrations/*
   - scripts
 
