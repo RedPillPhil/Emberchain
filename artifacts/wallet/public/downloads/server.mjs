@@ -68174,18 +68174,57 @@ function createChainPersistenceHooks() {
 }
 
 // src/lib/peers.ts
+import { readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "node:fs";
 var peers = /* @__PURE__ */ new Set();
 var MY_URL = (process.env.NODE_URL ?? "").replace(/\/$/, "");
+var PEER_LIST_FILE = (process.env.PEER_LIST_FILE ?? "").trim();
+if (PEER_LIST_FILE) {
+  try {
+    const saved = JSON.parse(readFileSync2(PEER_LIST_FILE, "utf-8"));
+    for (const u of saved) {
+      const clean3 = u.replace(/\/$/, "");
+      if (clean3 && clean3 !== MY_URL) peers.add(clean3);
+    }
+  } catch {
+  }
+}
 var SEED = process.env.SEED_PEERS ?? "";
 for (const u of SEED.split(",").map((s) => s.trim()).filter(Boolean)) {
-  peers.add(u.replace(/\/$/, ""));
+  const clean3 = u.replace(/\/$/, "");
+  if (clean3 && clean3 !== MY_URL) peers.add(clean3);
+}
+function savePeers() {
+  if (!PEER_LIST_FILE) return;
+  try {
+    writeFileSync2(PEER_LIST_FILE, JSON.stringify([...peers], null, 2), "utf-8");
+  } catch {
+  }
 }
 function addPeer(url) {
   const clean3 = url.replace(/\/$/, "");
-  if (clean3 && clean3 !== MY_URL) peers.add(clean3);
+  if (!clean3 || clean3 === MY_URL) return;
+  const sizeBefore = peers.size;
+  peers.add(clean3);
+  if (peers.size !== sizeBefore) savePeers();
 }
 function getPeers() {
   return [...peers];
+}
+async function exchangePeers() {
+  const current = getPeers();
+  await Promise.allSettled(
+    current.map(async (peer) => {
+      try {
+        const r = await fetch(`${peer}/api/sync/peers`, {
+          signal: AbortSignal.timeout(6e3)
+        });
+        if (!r.ok) return;
+        const data4 = await r.json();
+        for (const p of data4.peers ?? []) addPeer(p);
+      } catch {
+      }
+    })
+  );
 }
 async function broadcastBlock(block, transactions, excludeUrl) {
   const targets = getPeers().filter((p) => p !== excludeUrl);
@@ -97088,6 +97127,66 @@ function stopBridgeRelayer() {
   _handle?.stop();
 }
 
+// src/lib/sync-loop.ts
+var SYNC_INTERVAL_MS = 3e4;
+var PEX_INTERVAL_MS = 5 * 6e4;
+var syncTimer = null;
+var pexTimer = null;
+async function syncOnce() {
+  const peers2 = getPeers();
+  if (peers2.length === 0) return;
+  const peer = peers2[Math.floor(Math.random() * peers2.length)];
+  let ourHeight;
+  try {
+    const status = await chain.getStatus();
+    ourHeight = status.height;
+  } catch {
+    return;
+  }
+  try {
+    const r = await fetch(
+      `${peer}/api/sync/blocks?from=${ourHeight + 1}&limit=200`,
+      { signal: AbortSignal.timeout(15e3) }
+    );
+    if (!r.ok) return;
+    const data4 = await r.json();
+    if (!Array.isArray(data4.blocks) || data4.blocks.length === 0) return;
+    for (const blockData of data4.blocks) {
+      const { transactions, ...block } = blockData;
+      try {
+        await chain.importBlock(block, transactions ?? []);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("does not extend") || msg.includes("too far ahead")) break;
+        console.warn(`[sync-loop] importBlock #${block.number}: ${msg}`);
+      }
+    }
+  } catch {
+  }
+}
+function startSyncLoop() {
+  if (syncTimer) return;
+  void syncOnce();
+  syncTimer = setInterval(() => {
+    void syncOnce();
+  }, SYNC_INTERVAL_MS);
+  void exchangePeers();
+  pexTimer = setInterval(() => {
+    void exchangePeers();
+  }, PEX_INTERVAL_MS);
+  console.log("[sync-loop] Started \u2014 syncing from peers every 30 s, PEX every 5 min");
+}
+function stopSyncLoop() {
+  if (syncTimer) {
+    clearInterval(syncTimer);
+    syncTimer = null;
+  }
+  if (pexTimer) {
+    clearInterval(pexTimer);
+    pexTimer = null;
+  }
+}
+
 // ../../node_modules/.pnpm/ws@8.21.1/node_modules/ws/wrapper.mjs
 var import_stream2 = __toESM(require_stream3(), 1);
 var import_extension4 = __toESM(require_extension2(), 1);
@@ -97127,11 +97226,13 @@ server.listen(port, (err) => {
   logger.info({ port }, "Server listening");
   startBridgeRelayer();
   startChainScanner();
+  startSyncLoop();
 });
 process.on("SIGTERM", () => {
   logger.info("SIGTERM received \u2014 shutting down bridge relayer");
   stopBridgeRelayer();
   stopChainScanner();
+  stopSyncLoop();
   server.close(() => process.exit(0));
 });
 /*! Bundled license information:
