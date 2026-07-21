@@ -131,6 +131,13 @@ let _timer: ReturnType<typeof setInterval> | null = null;
 export function startChainScanner(): void {
   if (_timer) return;
 
+  // In standalone / file-only mode DATABASE_URL is empty — no DB to write to.
+  // Skip the scanner entirely so it doesn't spam error logs every 30 s.
+  if (!process.env.DATABASE_URL) {
+    logger.info("[scanner] no database configured — contract registry disabled");
+    return;
+  }
+
   // Ensure the registry table exists before we start writing
   ensureContractTable()
     .then(() => scanOnce())
