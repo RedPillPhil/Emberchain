@@ -1,0 +1,54 @@
+(node:12696) Warning: Currently the require() provided to the main script embedded into single-executable applications only supports loading built-in modules.
+To load a module from disk after the single executable application is launched, use require("module").createRequire().
+Support for bundled module loading or virtual file systems are under discussions in https://github.com/nodejs/single-executable
+(Use `emberchain-node-win (7) --trace-warnings ...` to show where the warning was created)
+
+╔══════════════════════════════════════════════════════╗
+║              🔥  Emberchain Node  🔥                 ║
+╚══════════════════════════════════════════════════════╝
+  Port   : 8545
+  Data   : C:\Users\robth\Downloads\emberchain-data
+  Log    : C:\Users\robth\Downloads\emberchain-data\emberchain-node.log
+
+[19:01:53] 🔍  Trying UPnP to open port automatically …
+[db] Could not load chain state from database:
+[chain] State loaded from local file.
+[contract-registry] Schema error:
+[db] Could not load proof keys from database:
+[db] Could not save chain state to database:
+[chain] Initial state seeded to database.
+[19:01:59] ✅  UPnP success — this node is publicly reachable at http://24.35.117.153:8545
+[19:01:59] 📂  Using local chain data (48628 blocks) — use --resync to refresh
+[19:01:59] 🚀  Starting Emberchain API server on port 8545 …
+[community-db] Could not ensure community tables:
+[db] Could not ensure used_payment_proofs table:
+[bridge-db] Could not ensure bridge tables:
+[19:01:59.901] INFO  Emberchain API server listening {"port":8545}
+[19:01:59.902] WARN  [relayer] EMBR→Base loop DISABLED — missing BASE_RPC_URL, BRIDGE_RELAYER_PRIVATE_KEY, or EMBERCHAIN_BRIDGE_ADDRESS
+[19:01:59.903] WARN  [relayer] Base→EMBR loop DISABLED — missing BASE_RPC_URL, BRIDGE_RELAYER_PRIVATE_KEY, EMBR_RPC_URL, EMBERCHAIN_BRIDGE_ADDRESS, or EMBER_BRIDGE_ADDRESS
+[sync-loop] Started — syncing every 30 s (fork-choice enabled), PEX every 5 min
+[19:01:59] ✅  Server is running.
+[contract-registry] Schema error:
+[19:01:59.929] WARN  [scanner] initial scan error {"err":""}
+[19:02:07] ⚠️   1 peer(s) offline — will sync via 30 s polling
+[19:02:13] 💾  Saved 1 peer(s) for next startup
+
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  🔥 Emberchain Node is running!                                  │
+  │                                                                  │
+  │  MetaMask → Add Network:                                         │
+  │    Network name : Emberchain                                     │
+  │    RPC URL      : http://24.35.117.153:8545/api/rpc          │
+  │    Chain ID     : 7773                                           │
+  │    Currency     : EMBR                                           │
+  │                                                                  │
+  │  Block explorer : http://24.35.117.153:8545                  │
+  │  Press Ctrl+C to stop.                                           │
+  └──────────────────────────────────────────────────────────────────┘
+  ✅  PUBLIC NODE — you are helping keep the Emberchain network alive.
+     Other nodes will connect to you and sync from you.
+
+[19:02:29.907] WARN  [scanner] periodic scan error {"err":""}
+[19:02:59.919] WARN  [scanner] periodic scan error {"err":""}
+[19:03:29.930] WARN  [scanner] periodic scan error {"err":""}
+[19:03:59.934] WARN  [scanner] periodic scan error {"err":""}
