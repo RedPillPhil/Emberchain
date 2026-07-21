@@ -44,20 +44,8 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
 
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "dir=$(pnpm store path)" >> $GITHUB_OUTPUT
-        shell: bash
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.dir }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
-
       - name: Install workspace dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --no-frozen-lockfile --force
 
       - name: Build wallet UI + API server
         run: node lib/emberchain-wallet-electron/scripts/build.mjs
