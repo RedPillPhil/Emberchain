@@ -61,7 +61,10 @@ async function syncOnce(): Promise<void> {
         latestBlock?: number;
         totalDifficulty?: string;
       };
-      if (ps.latestBlock != null)   peerHeight = ps.latestBlock;
+      if (ps.latestBlock != null) {
+        peerHeight = ps.latestBlock;
+        if (peerHeight > _bestPeerHeight) _bestPeerHeight = peerHeight;
+      }
       if (ps.totalDifficulty)       peerTD     = BigInt(ps.totalDifficulty);
     }
   } catch {
@@ -137,6 +140,10 @@ async function syncOnce(): Promise<void> {
 export function triggerSync(): void {
   void syncOnce();
 }
+
+// Best known peer height — lets the UI show a sync progress bar
+let _bestPeerHeight = 0;
+export function getBestPeerHeight(): number { return _bestPeerHeight; }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 

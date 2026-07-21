@@ -1,6 +1,6 @@
 {
   "name": "@workspace/emberchain-wallet-electron",
-  "version": "1.0.4",
+  "version": "2.0.0",
   "description": "Emberchain desktop wallet",
   "main": "main.js",
   "private": true,
@@ -18,17 +18,19 @@
   },
   "devDependencies": {
     "electron": "^33.3.1",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "esbuild": "*"
   },
   "scripts": {
     "start": "electron .",
-    "dist:win": "electron-builder --win --publish never",
-    "dist:mac": "electron-builder --mac --publish never",
-    "dist:linux": "electron-builder --linux --publish never"
+    "bundle-engine": "node scripts/bundle-node-engine.mjs",
+    "dist:win": "node scripts/bundle-node-engine.mjs && electron-builder --win --publish never",
+    "dist:mac": "node scripts/bundle-node-engine.mjs && electron-builder --mac --publish never",
+    "dist:linux": "node scripts/bundle-node-engine.mjs && electron-builder --linux --publish never"
   },
   "build": {
-    "appId": "org.emberchain.wallet",
-    "productName": "Emberchain Wallet",
+    "appId": "org.emberchain.desktop",
+    "productName": "EmberChain Desktop",
     "copyright": "Copyright © 2025 Emberchain",
     "directories": {
       "output": "dist",
@@ -38,6 +40,8 @@
       "main.js",
       "preload.js",
       "renderer/**/*",
+      "node-engine-bundle.cjs",
+      "mining-worker.js",
       "package.json",
       "node_modules/**/*"
     ],
