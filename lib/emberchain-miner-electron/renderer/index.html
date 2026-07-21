@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+  <title>Emberchain Miner</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- ── Title bar ─────────────────────────────────────────────────────────── -->
+<div class="titlebar">
+  <div class="titlebar-logo">
+    <svg width="18" height="18" viewBox="0 0 64 64" fill="none">
+      <circle cx="32" cy="32" r="32" fill="#1a1a1a"/>
+      <path d="M32 8C32 8 20 22 20 34c0 6.627 5.373 12 12 12s12-5.373 12-12c0-4-2-7-2-7s-1 4-4 6c0 0 2-6-6-16z" fill="#f37021"/>
+      <path d="M32 28c0 0-6 6-6 12a6 6 0 0012 0c0-3-1.5-5-1.5-5s-.5 3-2.5 4c0 0 1-4-2-11z" fill="#ffd580"/>
+    </svg>
+    <span>Emberchain Miner</span>
+  </div>
+  <div class="titlebar-drag"></div>
+  <div class="titlebar-controls">
+    <button id="btn-minimize" title="Minimize">&#x2212;</button>
+    <button id="btn-close"    title="Close">&#x2715;</button>
+  </div>
+</div>
+
+<!-- ── Main layout ───────────────────────────────────────────────────────── -->
+<div class="layout">
+
+  <!-- LEFT: settings + controls -->
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <div class="field-group">
+        <label>Wallet Address</label>
+        <input id="inp-address" type="text" placeholder="0x…" spellcheck="false">
+      </div>
+
+      <div class="field-group">
+        <label>Node URL</label>
+        <input id="inp-node" type="text" value="https://emberchain.org" spellcheck="false">
+      </div>
+
+      <div class="field-group">
+        <label>Mining Intensity
+          <span class="intensity-label" id="intensity-label">3 — Balanced</span>
+        </label>
+        <div class="slider-row">
+          <span class="slider-cap">Eco</span>
+          <input id="inp-intensity" type="range" min="1" max="5" value="3" step="1">
+          <span class="slider-cap">Max</span>
+        </div>
+        <div class="intensity-desc" id="intensity-desc">~6,000 hashes per batch</div>
+      </div>
+
+      <button id="btn-mine" class="btn-mine" disabled>
+        <span id="btn-mine-icon">▶</span>
+        <span id="btn-mine-label">START MINING</span>
+      </button>
+
+      <div id="status-line" class="status-line">Enter your address to begin</div>
+
+    </div>
+  </aside>
+
+  <!-- RIGHT: stats + log -->
+  <main class="content">
+
+    <!-- Stats grid -->
+    <div class="stats-grid">
+      <div class="stat-card stat-big">
+        <div class="stat-value" id="stat-hashrate">— H/s</div>
+        <div class="stat-label">Your Hashrate</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value accent" id="stat-shares">0</div>
+        <div class="stat-label">Shares Submitted</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value gold" id="stat-blocks">0</div>
+        <div class="stat-label">Blocks Found</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-net-hashrate">— H/s</div>
+        <div class="stat-label">Network Hashrate</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-difficulty">—</div>
+        <div class="stat-label">Difficulty</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-block-num">—</div>
+        <div class="stat-label">Current Block</div>
+      </div>
+    </div>
+
+    <!-- Hashrate bar -->
+    <div class="hashbar-wrap">
+      <div class="hashbar-label">
+        <span>Mining Power</span>
+        <span id="hashbar-pct">0%</span>
+      </div>
+      <div class="hashbar-track">
+        <div class="hashbar-fill" id="hashbar-fill"></div>
+        <div class="hashbar-glow" id="hashbar-glow"></div>
+      </div>
+    </div>
+
+    <!-- Event log -->
+    <div class="log-header">
+      <span>⛏ Mining Log</span>
+      <button id="btn-clear-log" class="btn-clear">Clear</button>
+    </div>
+    <div id="log" class="log"></div>
+
+  </main>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+{
+  "name": "@workspace/emberchain-miner-electron",
+  "version": "1.0.0",
+  "description": "Emberchain desktop miner",
+  "main": "main.js",
+  "private": true,
+  "author": {
+    "name": "Emberchain",
+    "email": "hello@emberchain.org"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RedPillPhil/Emberchain.git"
+  },
+  "dependencies": {
+    "ethereum-cryptography": "^3.2.0"
+  },
+  "devDependencies": {
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8"
+  },
+  "scripts": {
+    "bundle-worker": "node scripts/bundle.mjs",
+    "start": "electron .",
+    "dist:win": "node scripts/bundle.mjs && electron-builder --win --publish never",
+    "dist:mac": "node scripts/bundle.mjs && electron-builder --mac --publish never",
+    "dist:linux": "node scripts/bundle.mjs && electron-builder --linux --publish never"
+  },
+  "build": {
+    "appId": "org.emberchain.miner",
+    "productName": "Emberchain Miner",
+    "copyright": "Copyright © 2025 Emberchain",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "worker-bundle.js",
+      "renderer/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.utilities"
+    },
+    "linux": {
+      "target": [{ "target": "AppImage", "arch": ["x64"] }],
+      "icon": "build/icon.png",
+      "category": "Utility"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

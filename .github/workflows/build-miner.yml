@@ -1,0 +1,108 @@
+name: Build Emberchain Miner
+
+on:
+  push:
+    tags:
+      - 'miner-v*'
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: 'Publish as draft release'
+        required: false
+        default: 'true'
+
+jobs:
+  # ── Package for each platform ──────────────────────────────────────────────
+  build:
+    name: Package — ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+          - os: macos-latest
+            label: macOS
+          - os: ubuntu-latest
+            label: Linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Electron app dependencies
+        working-directory: lib/emberchain-miner-electron
+        run: npm install
+
+      - name: Build installers (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: lib/emberchain-miner-electron
+        run: npx electron-builder --win --publish never
+
+      - name: Build installers (macOS)
+        if: matrix.os == 'macos-latest'
+        working-directory: lib/emberchain-miner-electron
+        run: npx electron-builder --mac --publish never
+
+      - name: Build installers (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: lib/emberchain-miner-electron
+        run: npx electron-builder --linux --publish never
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.label }}
+          path: lib/emberchain-miner-electron/dist/
+          if-no-files-found: error
+
+  # ── Attach everything to a GitHub Release (tag builds only) ───────────────
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: release-files
+          merge-multiple: true
+
+      - name: List release files
+        run: find release-files -type f | sort
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Emberchain Miner ${{ github.ref_name }}
+          draft: ${{ github.event.inputs.draft != 'false' }}
+          generate_release_notes: true
+          files: |
+            release-files/**/*.exe
+            release-files/**/*.dmg
+            release-files/**/*.AppImage
+          body: |
+            ## Emberchain Miner ${{ github.ref_name }}
+
+            Native desktop miner for the Emberchain network. Click Start Mining — UPnP, hashrate, shares, and block rewards update live.
+
+            | Platform | Download | Notes |
+            |----------|----------|-------|
+            | 🪟 Windows | `*-Setup.exe` | Run installer, launch from Start Menu |
+            | 🍎 macOS Intel | `*-x64.dmg` | Open DMG, drag to Applications |
+            | 🍎 macOS Apple Silicon | `*-arm64.dmg` | Open DMG, drag to Applications |
+            | 🐧 Linux | `*.AppImage` | `chmod +x *.AppImage` then run |
+
+            **Quick start:** Paste your Emberchain wallet address, adjust the intensity slider, hit **START MINING**.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -39,6 +39,7 @@ packages:
   - lib/*
   - '!lib/emberchain-wallet-electron'
   - '!lib/emberchain-desktop'
+  - '!lib/emberchain-miner-electron'
   - lib/integrations/*
   - scripts
 
