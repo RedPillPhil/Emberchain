@@ -1,7 +1,5 @@
 name: Build Emberchain Wallet
 
-# Trigger: push a tag like  git tag wallet-v1.0.0 && git push --tags
-# Or run manually from the Actions tab.
 on:
   push:
     tags:
@@ -14,38 +12,21 @@ on:
         default: 'true'
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            label: Windows
-            artifact_glob: 'lib/emberchain-wallet-electron/dist/*.exe'
-          - os: macos-latest
-            label: macOS
-            artifact_glob: 'lib/emberchain-wallet-electron/dist/*.dmg'
-          - os: ubuntu-latest
-            label: Linux
-            artifact_glob: 'lib/emberchain-wallet-electron/dist/*.{AppImage,deb}'
-
-    runs-on: ${{ matrix.os }}
-    name: Build — ${{ matrix.label }}
-
+  # ── Step 1: build the wallet UI + API server bundle once on Linux ──────────
+  build-assets:
+    name: Build wallet UI + server
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v4
 
       - name: Install workspace dependencies
-        run: pnpm install --no-frozen-lockfile --force
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build wallet UI + API server
         run: node lib/emberchain-wallet-electron/scripts/build.mjs
@@ -53,56 +34,76 @@ jobs:
           BASE_PATH: /
           NODE_ENV: production
 
+      - name: Upload built resources
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-resources
+          path: lib/emberchain-wallet-electron/_resources/
+          if-no-files-found: error
+
+  # ── Step 2: package for each platform using the pre-built assets ───────────
+  build:
+    name: Package — ${{ matrix.label }}
+    needs: build-assets
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+          - os: macos-latest
+            label: macOS
+          - os: ubuntu-latest
+            label: Linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Download pre-built resources
+        uses: actions/download-artifact@v4
+        with:
+          name: electron-resources
+          path: lib/emberchain-wallet-electron/_resources/
+
       - name: Install Electron app dependencies
         working-directory: lib/emberchain-wallet-electron
         run: npm install
 
-      # macOS code signing (optional — set secrets in repo settings)
-      - name: Import macOS certificate
-        if: matrix.os == 'macos-latest' && env.APPLE_CERTIFICATE != ''
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          security create-keychain -p actions build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p actions build.keychain
-          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain
-          rm -f certificate.p12
-
       - name: Build installers (Windows)
         if: matrix.os == 'windows-latest'
         working-directory: lib/emberchain-wallet-electron
-        run: npm run dist:win
+        run: npx electron-builder --win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build installers (macOS)
         if: matrix.os == 'macos-latest'
         working-directory: lib/emberchain-wallet-electron
-        run: npm run dist:mac
+        run: npx electron-builder --mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Build installers (Linux)
         if: matrix.os == 'ubuntu-latest'
         working-directory: lib/emberchain-wallet-electron
-        run: npm run dist:linux
+        run: npx electron-builder --linux
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload build artifacts
+      - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
-          name: wallet-${{ matrix.label }}
+          name: installer-${{ matrix.label }}
           path: lib/emberchain-wallet-electron/dist/
           if-no-files-found: error
 
+  # ── Step 3: attach everything to a GitHub Release (tag builds only) ────────
   release:
     name: Publish GitHub Release
     needs: build
@@ -112,9 +113,10 @@ jobs:
       contents: write
 
     steps:
-      - name: Download all build artifacts
+      - name: Download all installers
         uses: actions/download-artifact@v4
         with:
+          pattern: installer-*
           path: release-files
           merge-multiple: true
 
@@ -131,22 +133,16 @@ jobs:
             release-files/**/*.exe
             release-files/**/*.dmg
             release-files/**/*.AppImage
-            release-files/**/*.deb
           body: |
             ## Emberchain Wallet ${{ github.ref_name }}
 
-            A full Emberchain node + wallet — no MetaMask, no Node.js required.
+            Full Emberchain node + wallet — no MetaMask, no Node.js required.
 
-            ### Downloads
             | Platform | File | Notes |
             |----------|------|-------|
-            | 🪟 Windows | `*-Setup-*.exe` | Run installer, then launch from Start Menu |
+            | 🪟 Windows | `*-Setup.exe` | Run installer, launch from Start Menu |
             | 🍎 macOS Intel | `*-x64.dmg` | Open DMG, drag to Applications |
             | 🍎 macOS Apple Silicon | `*-arm64.dmg` | Open DMG, drag to Applications |
-            | 🐧 Linux | `*.AppImage` | `chmod +x` then run; or install `.deb` |
-
-            ### First launch
-            The app downloads the current chain state (~a few MB) on first run, then opens your wallet.
-            Chain data is stored in your OS user-data folder and persists across updates.
+            | 🐧 Linux | `*.AppImage` | `chmod +x` then run |
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
