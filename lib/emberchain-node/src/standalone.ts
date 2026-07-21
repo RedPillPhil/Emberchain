@@ -26,7 +26,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, appendFileSync } fr
 import path     from "node:path";
 import { URL }  from "node:url";
 
-import { tryUPnP }    from "./upnp";
+import { tryUPnP, getLocalIp } from "./upnp";
 import { startServer } from "../../../artifacts/api-server/src/server";
 
 // ── Crash-safe logging ────────────────────────────────────────────────────────
@@ -320,21 +320,33 @@ async function main(): Promise<void> {
   await bootstrapPeerExchange(myUrl, bootstrapPeers);
 
   // ── 6. Banner ────────────────────────────────────────────────────────────────
-  const rpcUrl      = myUrl ? `${myUrl}/api/rpc` : `http://localhost:${PORT}/api/rpc`;
+  const localRpc    = `http://localhost:${PORT}/api/rpc`;
+  const lanIp       = getLocalIp();
+  const lanRpc      = `http://${lanIp}:${PORT}/api/rpc`;
+  const extRpc      = myUrl ? `${myUrl}/api/rpc` : null;
   const explorerUrl = myUrl || `http://localhost:${PORT}`;
+
+  const pad = (s: string, n: number) => s.padEnd(n);
+  const W = 66; // inner width
+
   console.log(`
-  ┌──────────────────────────────────────────────────────────────────┐
-  │  🔥 Emberchain Node is running!                                  │
-  │                                                                  │
-  │  MetaMask → Add Network:                                         │
-  │    Network name : Emberchain                                     │
-  │    RPC URL      : ${rpcUrl.padEnd(43)}│
-  │    Chain ID     : 7773                                           │
-  │    Currency     : EMBR                                           │
-  │                                                                  │
-  │  Block explorer : ${explorerUrl.padEnd(43)}│
-  │  Press Ctrl+C to stop.                                           │
-  └──────────────────────────────────────────────────────────────────┘
+  ┌${"─".repeat(W)}┐
+  │  🔥 Emberchain Node is running!${" ".repeat(W - 32)}│
+  │${" ".repeat(W)}│
+  │  MetaMask → Add Network:${" ".repeat(W - 25)}│
+  │    Network name : Emberchain${" ".repeat(W - 29)}│
+  │    Chain ID     : 7773${" ".repeat(W - 23)}│
+  │    Currency     : EMBR${" ".repeat(W - 23)}│
+  │${" ".repeat(W)}│
+  │  ── RPC URLs ──────────────────────────────────────────────────${" ".repeat(W - 63)}│
+  │  Same PC   →  ${pad(localRpc, W - 17)}│
+  │  Local net →  ${pad(lanRpc, W - 17)}│${extRpc ? `
+  │  Internet  →  ${pad(extRpc, W - 17)}│` : `
+  │  Internet  →  ${pad("(add a Windows Firewall inbound rule for port " + PORT + ")", W - 17)}│`}
+  │${" ".repeat(W)}│
+  │  Block explorer : ${pad(explorerUrl, W - 20)}│
+  │  Press Ctrl+C to stop.${" ".repeat(W - 23)}│
+  └${"─".repeat(W)}┘
   ${myUrl
     ? `✅  PUBLIC NODE — you are helping keep the Emberchain network alive.\n     Other nodes will connect to you and sync from you.`
     : `⚠️   OUTBOUND-ONLY — you are syncing but not publicly reachable.\n     Enable UPnP in your router settings for full participation.`}

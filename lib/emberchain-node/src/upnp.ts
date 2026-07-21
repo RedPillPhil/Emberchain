@@ -214,7 +214,7 @@ async function getExternalIp(result: ControlUrlResult): Promise<string> {
   return m[1]!.trim();
 }
 
-function getLocalIp(): string {
+export function getLocalIp(): string {
   for (const ifaces of Object.values(os.networkInterfaces())) {
     for (const iface of ifaces ?? []) {
       if (iface.family === "IPv4" && !iface.internal) return iface.address;
