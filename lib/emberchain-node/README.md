@@ -2,114 +2,164 @@
 
 Standalone tools for running your own Emberchain node and/or mining EMBR from any computer.
 
+When you run a node, it:
+- Downloads the full chain history from a peer on first start
+- Accepts wallet connections (Desktop Wallet, MetaMask)
+- Mines blocks and broadcasts them to the network
+- Keeps the network alive even if the main server (emberchain.org) goes offline
+
 ---
 
 ## Prerequisites
 
 - **Node.js 20+** (`node --version`)
-- **pnpm** (`npm install -g pnpm`)
-- Clone the repo: `git clone https://github.com/your-org/emberchain && cd emberchain`
-- Install deps: `pnpm install`
+
+No other dependencies — just Node.js and the three files in the download package.
 
 ---
 
-## 1. Standalone Miner
+## 1. Full Node
 
-Mine EMBR from any computer — no database or special setup needed.
-Connects to the production network (or any local node) and submits proof-of-work.
+Run your own Emberchain node. First startup downloads the full chain.
+Other users can point their Desktop Wallet or MetaMask at your node's URL.
 
 ```bash
-pnpm --filter @workspace/emberchain-node run miner -- \
-  --node      https://emberchain.org \
-  --address   0xYourWalletAddress \
-  --intensity 3
+node emberchain-node.js
 ```
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--node` | Emberchain node URL to mine against | `https://emberchain.org` |
-| `--address` | Your EMBR wallet address (receives rewards) | required |
-| `--intensity` | CPU intensity 1–5 (1=eco, 3=balanced, 5=max) | `3` |
-| `--shares` | Submit shares for proportional rewards | `true` |
-
-**Intensity guide:**
-| Level | Hashes/batch | CPU use |
-|-------|-------------|---------|
-| 1 | 500 | ~10% |
-| 2 | 2,000 | ~25% |
-| 3 | 8,000 | ~50% |
-| 4 | 25,000 | ~75% |
-| 5 | 80,000 | ~100% |
-
-The miner automatically fetches fresh block templates and retries on stale blocks (409).
-Rewards are paid proportionally based on shares submitted.
-
----
-
-## 2. Full Node
-
-Runs a complete Emberchain node locally.
-Downloads the full chain state from a peer, then starts a local JSON-RPC server
-that MetaMask and other wallets can connect to.
-
+**With a public URL** (recommended — joins the gossip network):
 ```bash
-pnpm --filter @workspace/emberchain-node run node -- \
-  --peer  https://emberchain.org \
-  --port  8545 \
-  --data  ./node-data
+node emberchain-node.js --url https://your-server.example.com
 ```
 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--peer` | Bootstrap node to sync from | `https://emberchain.org` |
 | `--port` | Local HTTP port | `8545` |
-| `--data` | Directory to store chain data | `./node-data` |
-| `--resync` | Force re-download of snapshot (flag, no value) | off |
+| `--data` | Directory to store chain data | `./emberchain-data` |
+| `--url`  | Your node's public URL (registers you with the network so you receive block gossip and other nodes can sync from you) | *(none)* |
+| `--resync` | Force re-download of snapshot | off |
 
-After startup, add to MetaMask:
+**Connect your Desktop Wallet** — Settings → Node URL:
 ```
-Network name : Emberchain (local)
+http://localhost:8545/api         (if running locally)
+https://your-server.example.com/api  (if you have a public URL)
+```
+
+**Connect MetaMask:**
+```
+Network name : Emberchain
 RPC URL      : http://localhost:8545/api/rpc
 Chain ID     : 7773
 Currency     : EMBR
 ```
 
-**Notes:**
-- The first startup downloads the full chain snapshot (~several MB).
-  Subsequent startups use the cached snapshot — add `--resync` to refresh it.
-- No Postgres required — the node runs in file-only mode.
-- The node stays in sync by polling the peer for new blocks every 30 seconds.
+### How it stays in sync
+
+Your node uses two mechanisms to stay current:
+
+1. **Block gossip** — when any node mines a block it pushes it immediately to all known peers via `POST /api/sync/submit-block`. If you provide `--url`, your node registers with the bootstrap peer and receives blocks in real time.
+
+2. **Incremental polling** — every 30 s your node polls `GET /api/sync/blocks?from=N` from its peer to catch any blocks it missed. This works even without `--url`, so you stay in sync even behind NAT.
+
+### Running without the main server
+
+If `emberchain.org` goes offline, nodes that know about each other keep the network running:
+- They continue mining blocks between themselves
+- Users can point their wallets at any reachable node
+- When the main server comes back it syncs from the peer network
+
+**First run:** sync from `--peer` (bootstrap). After that your node has the full chain locally and can serve as a peer itself.
 
 ---
 
-## 3. How it works
+## 2. Standalone Miner
 
-### Mining protocol
-
-1. `GET /api/mining/template?minerAddress=0x…` — fetch current block template
-2. Hash `keccak256(JSON.stringify({ number, parentHash, timestamp, miner, difficulty, transactionsRoot, nonce }))` 
-3. Compare hash value to `target` (block) and `shareTarget` (share = target × 64)
-4. `POST /api/mining/share` — submit any nonce ≤ shareTarget for proportional credit
-5. `POST /api/mining/submit` — submit nonce ≤ target to close the block and earn the reward
-
-### Sync protocol
-
-- `GET /api/sync/status` — quick check (block height, difficulty)
-- `GET /api/sync/snapshot` — full chain export including EVM state (download once)
-- `GET /api/sync/blocks?from=N&limit=500` — incremental block batch since block N
-
----
-
-## 4. Running as a background service (Linux/macOS)
+Mine EMBR from any computer — connects to any node (local or remote).
 
 ```bash
-# With pm2
+node emberchain-miner.js --address 0xYourWalletAddress
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--address` | Your EMBR wallet address (required) | — |
+| `--node` | Node to mine against | `https://emberchain.org` |
+| `--intensity` | CPU usage 1–5 (1=eco, 3=balanced, 5=max) | `3` |
+
+Point your miner at your own node:
+```bash
+node emberchain-miner.js --address 0xYour --node http://localhost:8545
+```
+
+**Intensity guide:**
+| Level | Hashes/batch | Approx CPU |
+|-------|-------------|------------|
+| 1 | 500 | ~10% |
+| 2 | 2 000 | ~25% |
+| 3 | 8 000 | ~50% |
+| 4 | 25 000 | ~75% |
+| 5 | 80 000 | ~100% |
+
+---
+
+## 3. P2P Network — How It Works
+
+```
+  [You]  node --url https://your-node.com
+    │
+    ├── on start: GET  https://emberchain.org/api/sync/snapshot   (download chain)
+    ├── on start: POST https://emberchain.org/api/sync/peers      (register yourself)
+    │
+    ├── mine a block locally →
+    │     POST https://emberchain.org/api/sync/submit-block       (gossip to peer)
+    │     POST https://other-node.com/api/sync/submit-block       (gossip to all peers)
+    │
+    └── receive a block from a peer →
+          validate PoW → import → gossip to other peers
+```
+
+Each node that provides `--url`:
+1. Registers itself with the bootstrap peer on startup
+2. Broadcasts every newly mined block to all known peers
+3. Accepts incoming blocks from peers, validates PoW, and re-gossips
+
+Nodes without `--url` (behind NAT, local-only) still stay in sync via the 30-second poll.
+
+---
+
+## 4. Running as a Background Service
+
+```bash
+# With pm2 (Linux/macOS/Windows)
 npm install -g pm2
-pm2 start "pnpm --filter @workspace/emberchain-node run miner -- --node https://emberchain.org --address 0xYour" --name embr-miner
+pm2 start "node emberchain-node.js --url https://your-node.com" --name embr-node
+pm2 start "node emberchain-miner.js --address 0xYour"           --name embr-miner
 pm2 startup && pm2 save
 
-# Or with screen
-screen -S embr-miner
-pnpm --filter @workspace/emberchain-node run miner -- --node https://emberchain.org --address 0xYour
+# With screen (Linux/macOS)
+screen -S embr-node
+node emberchain-node.js --url https://your-node.com
 # Ctrl+A, D to detach
 ```
+
+---
+
+## 5. Sync Protocol Reference
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/sync/status` | GET | Block height + difficulty (quick check) |
+| `/api/sync/snapshot` | GET | Full chain export (download once on first boot) |
+| `/api/sync/blocks?from=N` | GET | Incremental blocks since block N |
+| `/api/sync/peers` | GET | List of known peer URLs |
+| `/api/sync/peers` | POST | Register a peer URL |
+| `/api/sync/submit-block` | POST | Push a mined block to a peer |
+
+---
+
+## Links
+
+- Website  : https://emberchain.org
+- Explorer : https://emberchain.org/ledger
+- GitHub   : https://github.com/RedPillPhil/Emberchain

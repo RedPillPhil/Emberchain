@@ -98,6 +98,13 @@ export class Blockchain {
   private exchangeListings: Map<string, ExchangeListing> = new Map();
   /** In-memory only — reset on restart is intentional; open lock lets buyers retry. */
   private verifyingListings = new Set<string>();
+
+  /**
+   * Optional callback fired after every block is appended to the chain
+   * (local mining, share promotion, or peer import via importBlock).
+   * Used by the API server to broadcast new blocks to known peers.
+   */
+  public onBlock?: (block: StoredBlock, transactions: StoredTransaction[]) => void;
   /**
    * Persisted set of already-committed payment proofs keyed by
    * `${currency}:${txHash}` (lowercase).  Prevents the same external tx from
@@ -1220,7 +1227,163 @@ export class Blockchain {
     };
     this.blocks.push(block);
     this.persist();
+
+    // Notify listeners (e.g. API server broadcasting to peers)
+    if (this.onBlock) {
+      const txs = block.transactionHashes
+        .map((h) => this.transactions.get(h))
+        .filter((t): t is StoredTransaction => Boolean(t));
+      queueMicrotask(() => this.onBlock!(block, txs));
+    }
     }); // end withEvmLock
+  }
+
+  /**
+   * Imports a fully-mined block received from a peer node.
+   *
+   * - Validates the block extends the current chain tip.
+   * - Verifies the proof-of-work hash meets the declared difficulty.
+   * - Re-executes all included transactions against the local EVM state.
+   * - Credits block rewards using the payouts map from the incoming block
+   *   (deterministic: every node applies the same distribution).
+   * - Adjusts difficulty and persists exactly like a locally mined block.
+   *
+   * Throws on stale blocks, PoW failures, or hash mismatches.
+   * Returns silently (with the existing block) if we already have this block.
+   */
+  async importBlock(block: StoredBlock, transactions: StoredTransaction[]): Promise<StoredBlock> {
+    await this.whenReady();
+
+    const parent = this.blocks[this.blocks.length - 1];
+    if (!parent) throw new Error("Chain not initialised");
+
+    // Already have this exact block — idempotent
+    if (block.number <= parent.number) {
+      const existing = this.blocks.find((b) => b.hash === block.hash);
+      if (existing) return existing;
+      throw new Error(
+        `Block ${block.number} does not extend current tip (height ${parent.number})`,
+      );
+    }
+    if (block.number !== parent.number + 1) {
+      throw new Error(
+        `Block ${block.number} is too far ahead (tip: ${parent.number}) — sync incrementally first`,
+      );
+    }
+    if (block.parentHash !== parent.hash) {
+      throw new Error("Block parentHash mismatch — this block is on a different fork");
+    }
+
+    // Reconstruct the header the miner committed to
+    const minableHeader: MinableHeader = {
+      number: block.number,
+      parentHash: block.parentHash as PrefixedHexString,
+      timestamp: new Date(block.timestamp).getTime(),
+      miner: block.miner as PrefixedHexString,
+      difficulty: BigInt(block.difficulty),
+      transactionsRoot: transactionsRootOf(block.transactionHashes),
+    };
+
+    // Verify proof-of-work
+    const nonce = BigInt(block.nonce);
+    const { hashHex, hashValue } = hashHeader(minableHeader, nonce);
+    const target = targetForDifficulty(BigInt(block.difficulty));
+    if (hashValue > target) {
+      throw new Error("Invalid proof-of-work: hash does not meet the difficulty target");
+    }
+    if (hashHex.toLowerCase() !== block.hash.toLowerCase()) {
+      throw new Error(`Block hash mismatch: expected ${block.hash}, got ${hashHex}`);
+    }
+
+    return this.withEvmLock(async () => {
+      // Register transactions locally and build PendingTx list for EVM replay
+      const pendingTxs: PendingTx[] = [];
+      for (const tx of transactions) {
+        if (!this.transactions.has(tx.hash as PrefixedHexString)) {
+          this.transactions.set(tx.hash as PrefixedHexString, {
+            ...tx,
+            status: "pending",
+            blockNumber: null,
+          });
+        }
+        this.mempool = this.mempool.filter((m) => m.hash !== tx.hash);
+        pendingTxs.push({
+          hash: tx.hash as PrefixedHexString,
+          from: tx.from as PrefixedHexString,
+          to: tx.to as PrefixedHexString | null,
+          value: BigInt(tx.value),
+          data: (tx.data ?? "0x") as PrefixedHexString,
+          gasLimit: BigInt(tx.gasLimit),
+        });
+      }
+
+      // Re-execute transactions against local EVM state
+      for (const tx of pendingTxs) {
+        const stored = this.transactions.get(tx.hash);
+        if (!stored) continue;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (this.stateManager as any).originalStorageCache?.clear?.();
+        try {
+          const result = await this.evm.runCall({
+            caller: new Address(hexToBytes(tx.from)),
+            to: tx.to ? new Address(hexToBytes(tx.to)) : undefined,
+            value: tx.value,
+            data: hexToBytes(tx.data),
+            gasLimit: tx.gasLimit,
+          });
+          stored.status = result.execResult.exceptionError ? "failed" : "success";
+          stored.gasUsed = result.execResult.executionGasUsed.toString();
+          stored.error = result.execResult.exceptionError
+            ? result.execResult.exceptionError.error
+            : null;
+          stored.contractAddress = result.createdAddress
+            ? (result.createdAddress.toString() as PrefixedHexString)
+            : null;
+          stored.returnData = bytesToHex(result.execResult.returnValue);
+        } catch (err) {
+          stored.status = "failed";
+          stored.gasUsed = stored.gasLimit;
+          stored.error = err instanceof Error ? err.message : "Execution failed";
+        }
+        const gasUsed = BigInt(stored.gasUsed ?? stored.gasLimit);
+        const fee = gasUsed * GAS_PRICE;
+        try { await debit(this.stateManager, tx.from, fee); } catch { /* ignore */ }
+        stored.blockNumber = block.number;
+        if (tx.to && !this.wallets.has(tx.to.toLowerCase() as PrefixedHexString)) {
+          this.wallets.set(tx.to.toLowerCase() as PrefixedHexString, {
+            createdAt: new Date().toISOString(),
+          });
+        }
+      }
+
+      // Apply payouts exactly as computed by the originating miner (deterministic)
+      const payouts = block.payouts ?? { [block.miner.toLowerCase()]: block.reward };
+      for (const [addr, amount] of Object.entries(payouts)) {
+        if (BigInt(amount) > 0n) {
+          await credit(this.stateManager, addr as PrefixedHexString, BigInt(amount));
+        }
+      }
+
+      // Reset round — new round begins after this block
+      this.currentRoundShares = new Map();
+      this.submittedShareNonces = new Set();
+
+      // Commit block
+      this.blocks.push(block);
+      this.persist();
+
+      // Adjust difficulty
+      const parentTimestampMs = new Date(parent.timestamp).getTime();
+      const blockTimestampMs  = new Date(block.timestamp).getTime();
+      const actualBlockTimeSec = (blockTimestampMs - parentTimestampMs) / 1000;
+      this.difficulty = retargetDifficulty(
+        this.difficulty,
+        actualBlockTimeSec > 0 ? actualBlockTimeSec : EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+        EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+      );
+
+      return this.blocks[this.blocks.length - 1]!;
+    });
   }
 
   // ---------- Shielded pool (private transactions) ----------

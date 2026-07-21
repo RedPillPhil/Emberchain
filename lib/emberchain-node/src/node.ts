@@ -38,6 +38,7 @@ function arg(name: string, fallback: string): string {
 const PEER_URL   = arg("peer", "https://emberchain.org").replace(/\/$/, "");
 const PORT       = arg("port", "8545");
 const DATA_DIR   = path.resolve(arg("data", "./emberchain-data"));
+const MY_URL     = arg("url", "").replace(/\/$/, "");   // e.g. https://my-server.com
 const FORCE_SYNC = process.argv.includes("--resync");
 const SNAPSHOT   = path.join(DATA_DIR, "chain.json");
 
@@ -55,6 +56,7 @@ function printBanner() {
   Peer   : ${PEER_URL}
   Port   : ${PORT}
   Data   : ${DATA_DIR}
+  My URL : ${MY_URL || "(not set — use --url https://your-public-url.com to join the network)"}
 `);
 }
 
@@ -116,10 +118,13 @@ async function main() {
     stdio: "inherit",
     env: {
       ...process.env,
-      PORT: PORT,
+      PORT:            PORT,
       CHAIN_DATA_FILE: SNAPSHOT,
-      DATABASE_URL: "",          // no Postgres — file-only mode
-      NODE_ENV: "production",
+      DATABASE_URL:    "",          // no Postgres — file-only mode
+      NODE_ENV:        "production",
+      // P2P: let the server know its own public URL and where the seed peer is
+      NODE_URL:        MY_URL,
+      SEED_PEERS:      PEER_URL,
     },
   });
 
@@ -130,23 +135,44 @@ async function main() {
 
   child.on("exit", (code) => process.exit(code ?? 0));
 
-  // Print MetaMask instructions after a short delay
-  setTimeout(() => {
+  // After the server is up, register this node with the bootstrap peer so it
+  // broadcasts new blocks to us — and we to it.
+  setTimeout(async () => {
+    if (MY_URL) {
+      try {
+        const r = await fetch(`${PEER_URL}/api/sync/peers`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: MY_URL }),
+        });
+        if (r.ok) {
+          log(`🔗  Registered with peer ${PEER_URL} (we will receive block gossip)`);
+        }
+      } catch {
+        log(`⚠️   Could not register with peer ${PEER_URL} — will still sync via polling`);
+      }
+    }
+
+    const walletUrl  = MY_URL ? `${MY_URL}/api` : `http://localhost:${PORT}/api`;
+    const explorerUrl = MY_URL || `http://localhost:${PORT}`;
     console.log(`
-  ┌─────────────────────────────────────────────────────────┐
-  │  Node is running! Connect your wallet:                  │
-  │                                                         │
-  │  MetaMask → Add Network:                                │
-  │    Network name : Emberchain                            │
-  │    RPC URL      : http://localhost:${PORT}/api/rpc           │
-  │    Chain ID     : 7773                                  │
-  │    Currency     : EMBR                                  │
-  │                                                         │
-  │  Block explorer : http://localhost:${PORT}                   │
-  │  Press Ctrl+C to stop.                                  │
-  └─────────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────────────┐
+  │  🔥 Emberchain Node is running!                              │
+  │                                                              │
+  │  Desktop Wallet → Settings → Node URL:                       │
+  │    ${walletUrl.padEnd(54)}│
+  │                                                              │
+  │  MetaMask → Add Network:                                     │
+  │    Network name : Emberchain                                 │
+  │    RPC URL      : ${(walletUrl + "/rpc").padEnd(39)}│
+  │    Chain ID     : 7773                                       │
+  │    Currency     : EMBR                                       │
+  │                                                              │
+  │  Block explorer : ${explorerUrl.padEnd(39)}│
+  │  Press Ctrl+C to stop.                                       │
+  └──────────────────────────────────────────────────────────────┘
 `);
-  }, 4000);
+  }, 5000);
 
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
     process.on(sig, () => { child.kill(sig); });
