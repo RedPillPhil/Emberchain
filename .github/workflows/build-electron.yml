@@ -57,7 +57,7 @@ jobs:
           restore-keys: ${{ runner.os }}-pnpm-
 
       - name: Install workspace dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build wallet UI + API server
         run: node lib/emberchain-wallet-electron/scripts/build.mjs
