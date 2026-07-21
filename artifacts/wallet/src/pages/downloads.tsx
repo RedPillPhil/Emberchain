@@ -114,8 +114,8 @@ export default function Downloads() {
               Icon: Monitor,
               color: "text-blue-400",
               border: "border-blue-400/40 hover:border-blue-400/80 hover:bg-blue-400/5",
-              href: "https://github.com/RedPillPhil/Emberchain/releases/latest/download/Emberchain-Wallet-Setup.exe",
-              filename: "Emberchain-Wallet-Setup.exe",
+              href: "https://github.com/RedPillPhil/Emberchain/releases",
+              filename: null,
             },
             {
               label: "macOS",
@@ -123,7 +123,7 @@ export default function Downloads() {
               Icon: Apple,
               color: "text-gray-300",
               border: "border-gray-400/40 hover:border-gray-300/80 hover:bg-gray-400/5",
-              href: "https://github.com/RedPillPhil/Emberchain/releases/latest",
+              href: "https://github.com/RedPillPhil/Emberchain/releases",
               filename: null,
             },
             {
@@ -132,7 +132,7 @@ export default function Downloads() {
               Icon: Tv2,
               color: "text-orange-300",
               border: "border-orange-300/40 hover:border-orange-300/80 hover:bg-orange-300/5",
-              href: "https://github.com/RedPillPhil/Emberchain/releases/latest",
+              href: "https://github.com/RedPillPhil/Emberchain/releases",
               filename: null,
             },
           ].map(({ label, sub, Icon, color, border, href, filename }) => (
