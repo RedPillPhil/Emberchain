@@ -22,12 +22,55 @@
  *   emberchain-node --resync           # force re-download of chain
  */
 
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, appendFileSync } from "node:fs";
 import path     from "node:path";
 import { URL }  from "node:url";
 
 import { tryUPnP }    from "./upnp";
 import { startServer } from "../../../artifacts/api-server/src/server";
+
+// ── Crash-safe logging ────────────────────────────────────────────────────────
+// Write every log line to a file AND stdout so the user can always read errors
+// even after the console window closes (Windows double-click behaviour).
+
+const LOG_FILE = path.join(
+  path.resolve(
+    process.argv.includes("--data")
+      ? process.argv[process.argv.indexOf("--data") + 1] ?? "./emberchain-data"
+      : "./emberchain-data",
+  ),
+  "emberchain-node.log",
+);
+
+function safeLog(msg: string): void {
+  const line = `[${new Date().toISOString()}] ${msg}\n`;
+  try { appendFileSync(LOG_FILE, line); } catch { /* ignore if dir not ready yet */ }
+}
+
+// Intercept console.log / console.error so everything goes to the log file too
+const _origLog   = console.log.bind(console);
+const _origError = console.error.bind(console);
+console.log   = (...args: unknown[]) => { _origLog(...args);   safeLog(args.join(" ")); };
+console.error = (...args: unknown[]) => { _origError(...args); safeLog("ERROR " + args.join(" ")); };
+
+// Unhandled rejections / exceptions also go to log + keep console open
+process.on("uncaughtException",  (err) => fatal(err));
+process.on("unhandledRejection", (err) => fatal(err));
+
+async function fatal(err: unknown): Promise<void> {
+  const msg = err instanceof Error
+    ? `${err.message}\n${err.stack ?? ""}`
+    : String(err);
+  console.error("\n❌  Fatal error:", msg);
+  console.error(`\n📄  Full log saved to: ${LOG_FILE}`);
+
+  if (process.platform === "win32") {
+    // Keep the console window open so the user can read the error
+    console.error("\nPress Ctrl+C or wait 60 s to close…");
+    await new Promise(r => setTimeout(r, 60_000));
+  }
+  process.exit(1);
+}
 
 // ── CLI args ──────────────────────────────────────────────────────────────────
 
@@ -164,15 +207,18 @@ async function bootstrapPeerExchange(myUrl: string, peers: string[]): Promise<vo
 // ── main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  // Create data dir first so the log file is writable immediately
+  mkdirSync(DATA_DIR, { recursive: true });
+
   console.log(`
 ╔══════════════════════════════════════════════════════╗
 ║              🔥  Emberchain Node  🔥                 ║
 ╚══════════════════════════════════════════════════════╝
   Port   : ${PORT}
   Data   : ${DATA_DIR}
+  Log    : ${LOG_FILE}
 `);
 
-  mkdirSync(DATA_DIR, { recursive: true });
   const bootstrapPeers = loadBootstrapPeers();
 
   // ── 1. UPnP — try to become publicly reachable automatically ────────────────
