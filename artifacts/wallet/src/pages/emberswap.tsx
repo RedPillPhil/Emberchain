@@ -46,43 +46,17 @@ import { keccak256 } from "ethereum-cryptography/keccak.js";
 
 // ── Base RPC helper (read-only, no wallet required) ──────────────────────────
 
-// Multiple public Base RPC endpoints — tried in order, next used on rate-limit
-const BASE_RPCS = [
-  "https://base-rpc.publicnode.com",
-  "https://base.llamarpc.com",
-  "https://mainnet.base.org",
-  "https://1rpc.io/base",
-];
+const BASE_RPC_URL = "https://mainnet.base.org";
 
 async function baseEthCall(to: string, data: string): Promise<string> {
-  let lastErr: Error = new Error("No RPC available");
-  for (const rpc of BASE_RPCS) {
-    try {
-      const res = await fetch(rpc, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
-      });
-      const d = await res.json();
-      // Rate-limit responses come back as errors or HTTP 429 — skip to next RPC
-      if (d.error) {
-        const msg: string = d.error.message ?? JSON.stringify(d.error);
-        if (/rate.limit|too many|429|limit exceeded/i.test(msg)) {
-          lastErr = new Error(msg);
-          continue;
-        }
-        throw new Error(msg);
-      }
-      return d.result as string;
-    } catch (e) {
-      if (e instanceof Error && /rate.limit|too many|429|limit exceeded/i.test(e.message)) {
-        lastErr = e;
-        continue;
-      }
-      throw e;
-    }
-  }
-  throw lastErr;
+  const res = await fetch(BASE_RPC_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
+  });
+  const d = await res.json();
+  if (d.error) throw new Error(d.error.message ?? JSON.stringify(d.error));
+  return d.result as string;
 }
 
 // ── Contract addresses (set via VITE_ env vars after deployment) ─────────────
@@ -1978,26 +1952,9 @@ function usePoolState(userAddress: string | null) {
   }, [userAddress]);
 
   useEffect(() => {
-    let retryId: ReturnType<typeof setTimeout> | null = null;
-
-    const tryLoad = async () => {
-      await load();
-      // If the load failed (error set, pairAddress still null), retry once
-      // after 3 s — handles transient rate-limit on first paint.
-      setState((s) => {
-        if (s.error && !s.pairAddress) {
-          retryId = setTimeout(load, 3_000);
-        }
-        return s;
-      });
-    };
-
-    tryLoad();
+    load();
     const id = setInterval(load, 15_000);
-    return () => {
-      clearInterval(id);
-      if (retryId) clearTimeout(retryId);
-    };
+    return () => clearInterval(id);
   }, [load]);
 
   return { ...state, refresh: load };
@@ -2200,15 +2157,11 @@ function LiquidityTab() {
             </button>
           </div>
 
-          {pool.error && !pool.loading && !pool.pairAddress && (
+          {pool.error && (
             <div className="text-xs text-red-400 mb-3">{pool.error}</div>
           )}
 
-          {pool.loading && !pool.pairAddress ? (
-            <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
-              <RefreshCcw className="w-3 h-3 animate-spin" /> Loading pool data…
-            </div>
-          ) : !pool.pairAddress ? (
+          {!pool.pairAddress && !pool.loading ? (
             <div className="text-center py-4 text-sm text-muted-foreground italic">
               Pool not yet created — add liquidity to create it.
             </div>
@@ -2324,7 +2277,7 @@ function LiquidityTab() {
                 className="font-mono text-lg bg-secondary/50 border-border"
               />
             </div>
-            {!pool.pairAddress && !pool.loading && (
+            {!pool.pairAddress && (
               <div className="flex items-center gap-2 text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/30 rounded-sm px-3 py-2">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                 No pool yet — your deposit sets the initial price. Enter both amounts manually.
@@ -2354,13 +2307,9 @@ function LiquidityTab() {
       {mode === "remove" && (
         <Card className="border-border bg-card/80 rounded-sm">
           <CardContent className="p-6 space-y-4">
-            {!pool.pairAddress && !pool.loading ? (
+            {!pool.pairAddress ? (
               <div className="text-center py-4 text-sm text-muted-foreground italic">
                 No pool exists yet.
-              </div>
-            ) : pool.loading && !pool.pairAddress ? (
-              <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
-                <RefreshCcw className="w-3 h-3 animate-spin" /> Loading pool data…
               </div>
             ) : (
               <>
