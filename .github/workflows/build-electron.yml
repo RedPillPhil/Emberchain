@@ -6,6 +6,10 @@ on:
       - 'wallet-v*'
   workflow_dispatch:
     inputs:
+      version:
+        description: 'Release name / version (e.g. wallet-v2.0.0)'
+        required: false
+        default: 'wallet-v2.0.0'
       draft:
         description: 'Publish as draft release'
         required: false
@@ -65,16 +69,24 @@ jobs:
           path: lib/emberchain-wallet-electron/dist/
           if-no-files-found: error
 
-  # ── Attach everything to a GitHub Release (tag builds only) ──────────────
+  # ── Attach everything to a GitHub Release ────────────────────────────────
   release:
     name: Publish GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
 
     steps:
+      - name: Determine release name
+        id: rel
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${{ github.event.inputs.version || 'wallet-v2.0.0' }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Download all installers
         uses: actions/download-artifact@v4
         with:
@@ -88,7 +100,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Emberchain Wallet ${{ github.ref_name }}
+          tag_name: ${{ steps.rel.outputs.name }}
+          name: EmberChain Desktop ${{ steps.rel.outputs.name }}
           draft: ${{ github.event.inputs.draft != 'false' }}
           generate_release_notes: true
           files: |
@@ -96,9 +109,9 @@ jobs:
             release-files/**/*.dmg
             release-files/**/*.AppImage
           body: |
-            ## Emberchain Wallet ${{ github.ref_name }}
+            ## EmberChain Desktop ${{ steps.rel.outputs.name }}
 
-            Native desktop wallet for the Emberchain network. No browser, no MetaMask — your keys stay on your machine.
+            A full node, wallet, and miner in one app. No separate downloads needed.
 
             | Platform | Download | Notes |
             |----------|----------|-------|
@@ -107,6 +120,6 @@ jobs:
             | 🍎 macOS Apple Silicon | `*-arm64.dmg` | Open DMG, drag to Applications |
             | 🐧 Linux | `*.AppImage` | `chmod +x *.AppImage` then run |
 
-            **First run:** create or import your wallet, then set your Emberchain node URL in Settings → Network.
+            **What's new in v2.0.0:** The node starts automatically on launch. Use the **Node** tab to monitor sync and get the local RPC URL. Use the **Mine** tab to start mining with one click — no separate miner app needed.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
