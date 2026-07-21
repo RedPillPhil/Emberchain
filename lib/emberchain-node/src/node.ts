@@ -1,132 +1,159 @@
 #!/usr/bin/env node
 /**
- * emberchain-node setup & launcher
+ * emberchain-node — standalone Emberchain full node launcher
  *
- * Downloads the chain snapshot from a production peer and starts a local
- * Emberchain node (the full api-server) pointing at that snapshot.
+ * This script is bundled together with server.mjs into a downloadable package.
+ * It handles first-run snapshot download, then starts the bundled server.
  *
  * Usage:
- *   pnpm --filter @workspace/emberchain-node run node -- \
- *     --peer  https://emberchain.org \
- *     --port  8545 \
- *     --data  ./node-data
+ *   node emberchain-node.js [options]
  *
- * What this does:
- *   1. Downloads the full chain snapshot from <peer>/api/sync/snapshot
- *   2. Saves it to <data>/chain.json
- *   3. Starts the api-server process with CHAIN_DATA_FILE pointing at that file
- *      and DATABASE_URL="" (file-only mode — no Postgres required)
+ * Options:
+ *   --peer   <url>   Bootstrap peer to sync from  (default: https://emberchain.org)
+ *   --port   <port>  Local port to listen on       (default: 8545)
+ *   --data   <dir>   Data directory for chain file (default: ./emberchain-data)
+ *   --resync         Force re-download snapshot even if local data exists
  *
- * After startup, add to MetaMask:
- *   Network name : Emberchain (local)
- *   RPC URL      : http://localhost:<port>/api/rpc
+ * After startup, connect MetaMask:
+ *   Network name : Emberchain
+ *   RPC URL      : http://localhost:8545/api/rpc
  *   Chain ID     : 7773
  *   Currency     : EMBR
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WORKSPACE_ROOT = path.resolve(__dirname, "..", "..", "..");
+
+// ── CLI args ──────────────────────────────────────────────────────────────────
 
 function arg(name: string, fallback: string): string {
   const idx = process.argv.indexOf(`--${name}`);
   return idx !== -1 && process.argv[idx + 1] ? process.argv[idx + 1] : fallback;
 }
 
-const PEER_URL   = arg("peer",  "https://emberchain.org").replace(/\/$/, "");
-const PORT       = arg("port",  "8545");
-const DATA_DIR   = path.resolve(arg("data",  "./node-data"));
-const SNAPSHOT   = path.join(DATA_DIR, "chain.json");
+const PEER_URL   = arg("peer", "https://emberchain.org").replace(/\/$/, "");
+const PORT       = arg("port", "8545");
+const DATA_DIR   = path.resolve(arg("data", "./emberchain-data"));
 const FORCE_SYNC = process.argv.includes("--resync");
+const SNAPSHOT   = path.join(DATA_DIR, "chain.json");
+
+// ── helpers ───────────────────────────────────────────────────────────────────
 
 function log(msg: string) {
   console.log(`[${new Date().toISOString().slice(11, 19)}] ${msg}`);
 }
 
-async function downloadSnapshot(): Promise<void> {
-  log(`📥  Downloading snapshot from ${PEER_URL}/api/sync/snapshot …`);
-  log(`    (Includes full block history + EVM state — may take a moment)`);
+function printBanner() {
+  console.log(`
+╔══════════════════════════════════════════════════════╗
+║              🔥  Emberchain Node  🔥                 ║
+╚══════════════════════════════════════════════════════╝
+  Peer   : ${PEER_URL}
+  Port   : ${PORT}
+  Data   : ${DATA_DIR}
+`);
+}
 
-  const res = await fetch(`${PEER_URL}/api/sync/snapshot`);
+async function downloadSnapshot(): Promise<void> {
+  log(`📥  Downloading chain snapshot from peer …`);
+  log(`    This includes the full block history + EVM state.`);
+  log(`    May take a minute on a slow connection.`);
+
+  const res = await fetch(`${PEER_URL}/api/sync/snapshot`, {
+    headers: { Accept: "application/json" },
+  });
+
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+    throw new Error(`Snapshot download failed: HTTP ${res.status} — is ${PEER_URL} reachable?`);
   }
 
   const height = res.headers.get("X-Block-Height");
-  if (height) log(`    Peer is at block ${height}`);
-
   const body = await res.text();
+
   mkdirSync(DATA_DIR, { recursive: true });
   writeFileSync(SNAPSHOT, body, "utf-8");
-  log(`✅  Snapshot saved → ${SNAPSHOT}`);
+
+  log(`✅  Snapshot saved (${(body.length / 1024 / 1024).toFixed(1)} MB, block ${height ?? "?"})`);
 }
 
+// ── main ──────────────────────────────────────────────────────────────────────
+
 async function main() {
-  console.log("\n🔥  Emberchain Node");
-  console.log(`    Peer   : ${PEER_URL}`);
-  console.log(`    Port   : ${PORT}`);
-  console.log(`    Data   : ${DATA_DIR}\n`);
+  printBanner();
 
   // ── 1. Snapshot ─────────────────────────────────────────────────────────────
   if (!existsSync(SNAPSHOT) || FORCE_SYNC) {
     await downloadSnapshot();
   } else {
-    log(`📂  Using existing snapshot at ${SNAPSHOT}`);
-    log(`    Run with --resync to force a fresh download`);
+    try {
+      const meta = JSON.parse(readFileSync(SNAPSHOT, "utf-8")) as { blocks?: unknown[] };
+      log(`📂  Using existing snapshot (${meta.blocks?.length ?? "?"} blocks)`);
+    } catch {
+      log(`📂  Using existing snapshot`);
+    }
+    log(`    Run with --resync to force a fresh download from the peer.`);
   }
 
-  // ── 2. Start api-server ──────────────────────────────────────────────────────
-  log("🚀  Starting api-server …");
+  // ── 2. Find the bundled server ───────────────────────────────────────────────
+  // In the downloadable package, server.mjs lives alongside this file.
+  const serverMjs = path.join(__dirname, "server.mjs");
 
-  const apiServerDir = path.join(WORKSPACE_ROOT, "artifacts", "api-server");
+  if (!existsSync(serverMjs)) {
+    console.error(`\n❌  server.mjs not found at: ${serverMjs}`);
+    console.error(`    Make sure you downloaded the full node package (not just this file).`);
+    console.error(`    See https://emberchain.org/downloads for the complete package.\n`);
+    process.exit(1);
+  }
 
-  const child = spawn(
-    "pnpm",
-    ["--filter", "@workspace/api-server", "run", "dev"],
-    {
-      cwd: WORKSPACE_ROOT,
-      stdio: "inherit",
-      env: {
-        ...process.env,
-        PORT: PORT,
-        CHAIN_DATA_FILE: SNAPSHOT,
-        DATABASE_URL: "",   // file-only mode — no Postgres required
-      },
+  // ── 3. Launch server ─────────────────────────────────────────────────────────
+  log(`🚀  Starting server on port ${PORT} …`);
+
+  const child = spawn(process.execPath, ["--enable-source-maps", serverMjs], {
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      PORT: PORT,
+      CHAIN_DATA_FILE: SNAPSHOT,
+      DATABASE_URL: "",          // no Postgres — file-only mode
+      NODE_ENV: "production",
     },
-  );
+  });
 
   child.on("error", (err) => {
-    console.error(`\n❌  Failed to start api-server: ${err.message}`);
-    console.error(`    Make sure you've run 'pnpm install' from the repo root.`);
+    console.error(`\n❌  Failed to start server: ${err.message}`);
     process.exit(1);
   });
 
-  child.on("exit", (code) => {
-    if (code !== 0) process.exit(code ?? 1);
-  });
+  child.on("exit", (code) => process.exit(code ?? 0));
 
-  // Print MetaMask setup instructions after 3 seconds (let server start first)
+  // Print MetaMask instructions after a short delay
   setTimeout(() => {
-    console.log(`\n  ┌──────────────────────────────────────────────────────┐`);
-    console.log(`  │  Add to MetaMask:                                    │`);
-    console.log(`  │    Network name : Emberchain (local)                 │`);
-    console.log(`  │    RPC URL      : http://localhost:${PORT}/api/rpc        │`);
-    console.log(`  │    Chain ID     : 7773                               │`);
-    console.log(`  │    Currency     : EMBR                               │`);
-    console.log(`  └──────────────────────────────────────────────────────┘\n`);
-  }, 3000);
+    console.log(`
+  ┌─────────────────────────────────────────────────────────┐
+  │  Node is running! Connect your wallet:                  │
+  │                                                         │
+  │  MetaMask → Add Network:                                │
+  │    Network name : Emberchain                            │
+  │    RPC URL      : http://localhost:${PORT}/api/rpc           │
+  │    Chain ID     : 7773                                  │
+  │    Currency     : EMBR                                  │
+  │                                                         │
+  │  Block explorer : http://localhost:${PORT}                   │
+  │  Press Ctrl+C to stop.                                  │
+  └─────────────────────────────────────────────────────────┘
+`);
+  }, 4000);
 
-  // Forward signals so the child process shuts down cleanly
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
-    process.on(sig, () => child.kill(sig));
+    process.on(sig, () => { child.kill(sig); });
   }
 }
 
 main().catch((err) => {
-  console.error("Fatal:", err);
+  console.error("\n❌  Fatal error:", err.message);
   process.exit(1);
 });

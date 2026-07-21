@@ -335,8 +335,8 @@ export const SubmitBlockBody = zod.object({
   minerAddress: zod.string(),
   header: MiningTemplateHeader,
   nonce: zod.string(),
-  blockHash: zod.string(),
-  pendingTxHashes: zod.array(zod.string()),
+  blockHash: zod.string().optional(),         // server recomputes & verifies — optional for compat
+  pendingTxHashes: zod.array(zod.string()).optional().default([]),
 });
 
 // ── P2P Exchange ────────────────────────────────────────────────────────────

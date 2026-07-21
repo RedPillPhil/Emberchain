@@ -705,10 +705,19 @@ importers:
       '@workspace/chain-core':
         specifier: workspace:*
         version: link:../chain-core
+      ethereum-cryptography:
+        specifier: ^3.2.0
+        version: 3.2.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
         version: 25.9.5
+      esbuild:
+        specifier: 0.27.3
+        version: 0.27.3
+      esbuild-plugin-pino:
+        specifier: ^2.3.3
+        version: 2.3.3(esbuild@0.27.3)(pino-pretty@13.1.3)(pino@9.14.0)(thread-stream@3.1.0)
       tsx:
         specifier: 'catalog:'
         version: 4.23.0

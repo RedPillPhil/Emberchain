@@ -8,15 +8,18 @@
     "emberchain-miner": "./dist/miner.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node build.mjs",
     "node": "tsx src/node.ts",
     "miner": "tsx src/miner.ts"
   },
   "dependencies": {
-    "@workspace/chain-core": "workspace:*"
+    "@workspace/chain-core": "workspace:*",
+    "ethereum-cryptography": "^3.2.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "esbuild": "0.27.3",
+    "esbuild-plugin-pino": "^2.3.3",
     "tsx": "catalog:",
     "typescript": "^5.8.3"
   }

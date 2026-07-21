@@ -837,8 +837,8 @@ export class Blockchain {
       transactionsRoot: string;
     };
     nonce: string;
-    blockHash: string;
-    pendingTxHashes: string[];
+    blockHash?: string;       // optional — server always recomputes and verifies
+    pendingTxHashes?: string[];
   }): Promise<StoredBlock> {
     await this.whenReady();
     const parent = this.blocks[this.blocks.length - 1];
@@ -859,11 +859,11 @@ export class Blockchain {
     if (hashValue > target) {
       throw new Error("Invalid proof-of-work: hash does not meet the difficulty target");
     }
-    if (hashHex.toLowerCase() !== params.blockHash.toLowerCase()) {
+    if (params.blockHash && hashHex.toLowerCase() !== params.blockHash.toLowerCase()) {
       throw new Error("Block hash mismatch: submitted hash does not match computed hash");
     }
     // Pull the specific txs from the mempool; silently drop any already removed.
-    const wantSet = new Set(params.pendingTxHashes);
+    const wantSet = new Set(params.pendingTxHashes ?? []);
     const included: PendingTx[] = [];
     this.mempool = this.mempool.filter((tx) => {
       if (wantSet.has(tx.hash)) { included.push(tx); return false; }

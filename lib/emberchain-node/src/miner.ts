@@ -112,7 +112,7 @@ async function submitBlock(header: Header, nonce: string, blockHash: string) {
   const res = await fetch(`${NODE_URL}/api/mining/submit`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ header, nonce, blockHash }),
+    body: JSON.stringify({ minerAddress: MINER_ADDRESS, header, nonce, blockHash, pendingTxHashes: [] }),
   });
   if (res.status === 409) return { stale: true };
   if (!res.ok) {

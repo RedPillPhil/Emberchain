@@ -19,6 +19,7 @@ import {
   MessageSquare,
   Zap,
   Coins,
+  Download,
 } from "lucide-react";
 
 const navItems = [
@@ -36,6 +37,7 @@ const navItems = [
   { href: "/blocks", label: "BLOCKS", icon: Blocks },
   { href: "/transactions", label: "TRANSACTIONS", icon: ArrowLeftRight },
   { href: "/contracts", label: "CONTRACTS", icon: Terminal },
+  { href: "/downloads", label: "DOWNLOADS", icon: Download },
 ];
 
 export function Sidebar() {
