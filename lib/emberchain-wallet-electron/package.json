@@ -13,7 +13,8 @@
     "url": "https://github.com/RedPillPhil/Emberchain.git"
   },
   "dependencies": {
-    "ethers": "^6.13.4"
+    "ethers": "^6.13.4",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "electron": "^33.3.1",

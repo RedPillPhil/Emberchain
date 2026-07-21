@@ -224,10 +224,9 @@ textarea { resize: vertical; font-family: var(--mono); font-size: 12px; }
 
 /* ── Receive ─────────────────────────────────────────────────────────── */
 .receive-box { display: flex; flex-direction: column; gap: 16px; max-width: 420px; }
-.qr-placeholder {
-  width: 160px; height: 160px; background: var(--bg2); border: 1px solid var(--border);
-  border-radius: 4px; display: flex; align-items: center; justify-content: center;
-  color: var(--text-dim); font-size: 11px; letter-spacing: 1px;
+.qr-code {
+  width: 220px; height: 220px; border-radius: 6px;
+  border: 6px solid #fff; display: block; background: #fff;
 }
 .receive-address-wrap { display: flex; align-items: center; gap: 10px; }
 .receive-address { font-size: 11px; word-break: break-all; color: var(--accent2); }
