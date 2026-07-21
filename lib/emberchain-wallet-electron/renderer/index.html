@@ -78,10 +78,17 @@
 ════════════════════════════════════════════════════════════════════════ -->
 <div id="overlay-settings" class="overlay hidden">
   <div class="overlay-box">
-    <h3>Settings</h3>
-    <label>Preferred Node URL</label>
-    <input id="settings-node-url" type="text" placeholder="https://emberchain.org/api">
-    <p class="hint">Any Emberchain node URL. If this node is unreachable, the wallet automatically tries backup nodes from the built-in list.</p>
+    <h3>Settings — Node Connection</h3>
+    <label>Node URL</label>
+    <input id="settings-node-url" type="text" placeholder="http://localhost:8545/api">
+    <p class="hint" style="margin-top:6px;">
+      Running a local node? Use <code style="background:#2a2a2a;padding:1px 4px;border-radius:3px;">http://localhost:8545/api</code><br>
+      For another PC on your network, replace <code style="background:#2a2a2a;padding:1px 4px;border-radius:3px;">localhost</code> with that machine's local IP (shown in the node window on startup).
+    </p>
+    <div style="margin:10px 0;">
+      <button class="btn-secondary" id="btn-settings-test" style="width:100%;">Test Connection</button>
+      <p id="settings-test-result" class="hint" style="margin-top:6px;min-height:18px;"></p>
+    </div>
     <p id="settings-active-node" class="hint" style="color:#f37021;margin-top:4px;"></p>
     <div class="overlay-actions">
       <button class="btn-primary" id="btn-settings-save">Save</button>
