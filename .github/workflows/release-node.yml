@@ -1,7 +1,5 @@
 name: Build & Release Node Executables
 
-# Fires automatically when a tag matching node-v* is pushed.
-# Manually trigger via the Actions tab → "Run workflow" with a tag name.
 on:
   push:
     tags:
@@ -21,47 +19,32 @@ jobs:
         include:
           - os: ubuntu-22.04
             platform: linux
-            arch: x64
             binary: emberchain-node-linux
           - os: windows-2022
             platform: win
-            arch: x64
             binary: emberchain-node-win.exe
           - os: macos-14
             platform: macos
-            arch: arm64
             binary: emberchain-node-macos-arm64
           - os: macos-13
             platform: macos
-            arch: x64
             binary: emberchain-node-macos-x64
 
     runs-on: ${{ matrix.os }}
-    name: Build (${{ matrix.platform }}-${{ matrix.arch }})
+    name: Build (${{ matrix.platform }})
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build standalone JS bundle
-        run: pnpm --filter @workspace/api-server run build && node lib/emberchain-node/build-bundle.mjs
-
-      - name: Build native executable (Linux / macOS)
+      - name: Build SEA executable (Linux / macOS)
         if: matrix.platform != 'win'
         shell: bash
+        working-directory: lib/emberchain-node/dist/downloads
         run: |
-          cd lib/emberchain-node/dist/downloads
           echo '{"main":"emberchain-standalone.js","output":"sea-prep.blob","disableExperimentalSEAWarning":true}' > sea-config.json
           node --experimental-sea-config sea-config.json
 
@@ -79,18 +62,18 @@ jobs:
             codesign --sign - "${{ matrix.binary }}" || true
           fi
 
-      - name: Build native executable (Windows)
+      - name: Build SEA executable (Windows)
         if: matrix.platform == 'win'
         shell: powershell
+        working-directory: lib/emberchain-node/dist/downloads
         run: |
-          cd lib/emberchain-node/dist/downloads
           '{"main":"emberchain-standalone.js","output":"sea-prep.blob","disableExperimentalSEAWarning":true}' | Out-File sea-config.json -Encoding utf8
           node --experimental-sea-config sea-config.json
           Copy-Item (Get-Command node).Source "${{ matrix.binary }}"
           npx --yes postject "${{ matrix.binary }}" NODE_SEA_BLOB sea-prep.blob `
             --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
 
-      - name: Upload executable to release
+      - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
