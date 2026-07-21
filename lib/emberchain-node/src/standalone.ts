@@ -326,6 +326,9 @@ async function main(): Promise<void> {
   const extRpc      = myUrl ? `${myUrl}/api/rpc` : null;
   const explorerUrl = myUrl || `http://localhost:${PORT}`;
 
+  const localWallet = `http://localhost:${PORT}/api`;
+  const lanWallet   = `http://${lanIp}:${PORT}/api`;
+
   const pad = (s: string, n: number) => s.padEnd(n);
   const W = 66; // inner width
 
@@ -338,11 +341,15 @@ async function main(): Promise<void> {
   │    Chain ID     : 7773${" ".repeat(W - 23)}│
   │    Currency     : EMBR${" ".repeat(W - 23)}│
   │${" ".repeat(W)}│
-  │  ── RPC URLs ──────────────────────────────────────────────────${" ".repeat(W - 63)}│
+  │  ── MetaMask RPC URL (paste into MetaMask) ────────────────────${" ".repeat(W - 63)}│
   │  Same PC   →  ${pad(localRpc, W - 17)}│
   │  Local net →  ${pad(lanRpc, W - 17)}│${extRpc ? `
   │  Internet  →  ${pad(extRpc, W - 17)}│` : `
-  │  Internet  →  ${pad("(add a Windows Firewall inbound rule for port " + PORT + ")", W - 17)}│`}
+  │  Internet  →  ${pad("(port-forward " + PORT + " + add Windows Firewall inbound rule)", W - 17)}│`}
+  │${" ".repeat(W)}│
+  │  ── Wallet / Miner Node URL (paste into the desktop apps) ─────${" ".repeat(W - 63)}│
+  │  Same PC   →  ${pad(localWallet, W - 17)}│
+  │  Local net →  ${pad(lanWallet, W - 17)}│
   │${" ".repeat(W)}│
   │  Block explorer : ${pad(explorerUrl, W - 20)}│
   │  Press Ctrl+C to stop.${" ".repeat(W - 23)}│
