@@ -4,6 +4,10 @@
   "description": "Emberchain desktop wallet — full node + wallet UI in one app",
   "main": "main.js",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RedPillPhil/Emberchain.git"
+  },
   "scripts": {
     "start": "electron .",
     "build": "node scripts/build.mjs",
