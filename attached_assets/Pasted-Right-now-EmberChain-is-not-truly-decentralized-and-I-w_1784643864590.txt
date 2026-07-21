@@ -1,0 +1,45 @@
+Right now EmberChain is not truly decentralized, and I want to change the architecture so it behaves like a real Layer 1 blockchain.
+
+At the moment, the Replit server is effectively the "master node." If the Replit instance goes offline, the blockchain is essentially offline because every wallet, miner, and node ultimately depends on that server.
+
+That is not the design I want.
+
+My goal is:
+
+Every user should be able to download and run a full EmberChain node on their own computer.
+Every node should maintain a complete copy of the blockchain.
+Every node should validate blocks and transactions independently.
+Every node should accept incoming peer connections and communicate directly with other nodes.
+Every node should be capable of serving blockchain data to new peers.
+Mining should work against any available node, not just the Replit server.
+The desktop wallet should be able to connect to any node, not only the web wallet or Replit.
+
+Ultimately, I want EmberChain to operate like Bitcoin, Ethereum, Litecoin, Monero, etc., where there is no central server. If one node disappears—even if it's the original Replit node—the blockchain should continue operating normally because the remaining nodes continue sharing blocks and transactions with each other.
+
+What I think is happening now
+
+It appears the current implementation is still treating the Replit node as the canonical source of truth.
+
+Even though I can start another node locally, it behaves more like a client that syncs from Replit than an equal peer in a decentralized network.
+
+I want every node to be a first-class peer.
+
+What I want instead
+
+I want a true peer-to-peer architecture:
+
+No master node.
+No required central API.
+No required Replit server.
+Automatic peer discovery.
+Nodes gossip blocks and transactions to each other.
+Nodes exchange peer lists.
+Consensus comes from validating the longest valid chain, not from trusting one server.
+If the Replit node shuts down permanently, the rest of the network should continue without interruption.
+My question
+
+Is the current implementation actually decentralized, and am I simply missing the networking configuration (port forwarding, public IP, bootstrap peers, etc.)?
+
+Or is the networking architecture still fundamentally centralized around the Replit server?
+
+If it's still centralized, I want to redesign it into a true decentralized P2P node network where any node can become the bootstrap source and no single server is required for the blockchain to survive.
