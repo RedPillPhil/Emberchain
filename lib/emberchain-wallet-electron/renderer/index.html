@@ -314,15 +314,29 @@
             <code class="url-value">EMBR</code>
           </div>
           <div id="node-public-url-row" class="url-row hidden">
-            <span class="url-label">Your Public URL</span>
+            <span class="url-label">Your Public RPC</span>
             <code id="node-public-url" class="url-value"></code>
           </div>
         </div>
 
-        <p class="hint" style="margin-top:8px;" id="node-outbound-hint" class="hidden">
-          🔒 <strong>Outbound Only</strong> — your node syncs and validates but is not reachable for inbound connections.
-          Port-forward <strong>17545</strong> on your router to become a public participant.
-        </p>
+        <!-- Public IP config -->
+        <div class="node-public-config" style="margin-top:12px;">
+          <div class="section-title">Make Node Public</div>
+          <p class="hint" id="node-outbound-hint">
+            🔒 Port-forward <strong>17545</strong> is set up — now enter your public IP so peers can reach you.
+          </p>
+          <div class="form-row" style="margin-top:6px;">
+            <label>Your Public IP or Domain</label>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <input id="node-public-ip" class="mono" type="text"
+                placeholder="e.g. http://203.0.113.5:17545 or https://mynode.com"
+                style="flex:1;">
+              <button id="btn-save-public-url" class="btn-secondary btn-small">Save</button>
+              <button id="btn-clear-public-url" class="btn-secondary btn-small">Clear</button>
+            </div>
+            <p class="hint" id="node-public-ip-hint" style="margin-top:4px;"></p>
+          </div>
+        </div>
       </div>
 
       <!-- ── Mine ─────────────────────────────────────────────────── -->
