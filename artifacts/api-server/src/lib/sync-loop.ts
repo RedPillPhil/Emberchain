@@ -28,12 +28,15 @@ let pexTimer:  ReturnType<typeof setInterval> | null = null;
 
 // ── Block sync ────────────────────────────────────────────────────────────────
 
+function ts() { return new Date().toISOString().slice(11, 19); }
+
 async function syncOnce(): Promise<void> {
   const peers = getPeers();
   if (peers.length === 0) return;
 
   // Pick a random peer each round for load distribution
   const peer = peers[Math.floor(Math.random() * peers.length)]!;
+  const peerShort = peer.replace(/^https?:\/\//, "");
 
   // Get our current chain state
   let ourHeight: number;
@@ -68,7 +71,13 @@ async function syncOnce(): Promise<void> {
   }
 
   // Skip if the peer has no more work than us
-  if (peerTD <= ourTD && peerHeight <= ourHeight) return;
+  if (peerTD <= ourTD && peerHeight <= ourHeight) {
+    console.log(`[${ts()}] [sync] ✅ In sync with ${peerShort} (height ${ourHeight})`);
+    return;
+  }
+
+  const gap = peerHeight - ourHeight;
+  console.log(`[${ts()}] [sync] 📥 ${peerShort} is ${gap > 0 ? gap + " blocks" : "a fork"} ahead (us: ${ourHeight}, peer: ${peerHeight}) — fetching …`);
 
   // Determine fetch range:
   //   • Peer is simply ahead  → fetch from ourHeight + 1 (normal catch-up)
@@ -83,31 +92,50 @@ async function syncOnce(): Promise<void> {
       `${peer}/api/sync/blocks?from=${fromBlock}&limit=200`,
       { signal: AbortSignal.timeout(15_000) },
     );
-    if (!r.ok) return;
+    if (!r.ok) {
+      console.warn(`[${ts()}] [sync] ⚠️  ${peerShort} returned HTTP ${r.status} for blocks`);
+      return;
+    }
 
     const data = (await r.json()) as {
       blocks: Array<StoredBlock & { transactions: StoredTransaction[] }>;
     };
     if (!Array.isArray(data.blocks) || data.blocks.length === 0) return;
 
+    let imported = 0;
     for (const blockData of data.blocks) {
       const { transactions, ...block } = blockData;
       try {
         await chain.importBlock(block as StoredBlock, transactions ?? []);
+        imported++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         // Reorg failed — we don't have the full fork yet, sync loop will retry
         if (msg.includes("Reorg aborted")) {
-          console.warn(`[sync-loop] Reorg from ${peer} incomplete, will retry: ${msg}`);
+          console.warn(`[${ts()}] [sync] Reorg from ${peerShort} incomplete, will retry: ${msg}`);
           break;
         }
         // Any other unrecognised error: log and continue to next block
         if (!msg.includes("already") && !msg.includes("Reorg aborted")) {
-          console.warn(`[sync-loop] importBlock #${(block as StoredBlock).number}: ${msg}`);
+          console.warn(`[${ts()}] [sync] importBlock #${(block as StoredBlock).number}: ${msg}`);
         }
       }
     }
-  } catch { /* peer offline — next interval will try a different one */ }
+
+    if (imported > 0) {
+      const newStatus = await chain.getStatus().catch(() => null);
+      const nowHeight = newStatus?.height ?? ourHeight + imported;
+      console.log(`[${ts()}] [sync] ✅ Imported ${imported} block(s) — height now ${nowHeight}${nowHeight < peerHeight ? ` (${peerHeight - nowHeight} remaining)` : " 🎉 fully synced"}`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[${ts()}] [sync] ⚠️  ${peerShort} unreachable: ${msg}`);
+  }
+}
+
+/** Trigger an immediate sync pass — useful to call right after seeding peers. */
+export function triggerSync(): void {
+  void syncOnce();
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────

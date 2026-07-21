@@ -28,6 +28,8 @@ import { URL }  from "node:url";
 
 import { tryUPnP, getLocalIp } from "./upnp";
 import { startServer } from "../../../artifacts/api-server/src/server";
+import { addPeer } from "../../../artifacts/api-server/src/lib/peers";
+import { triggerSync } from "../../../artifacts/api-server/src/lib/sync-loop";
 
 // ── Crash-safe logging ────────────────────────────────────────────────────────
 // Write every log line to a file AND stdout so the user can always read errors
@@ -315,7 +317,15 @@ async function main(): Promise<void> {
   const { stop } = await startServer(PORT);
   log(`✅  Server is running.`);
 
-  // ── 5. Register with peers + peer exchange ───────────────────────────────────
+  // ── 5. Seed peer registry + immediate sync ───────────────────────────────────
+  // IMPORTANT: peers.ts module-level code runs before main() sets SEED_PEERS,
+  // so the registry is always empty after startServer(). Seed it explicitly now.
+  log(`🔗  Seeding ${bootstrapPeers.length} bootstrap peer(s) …`);
+  for (const peer of bootstrapPeers) addPeer(peer);
+  log(`🔄  Starting initial sync from peers …`);
+  triggerSync(); // fire immediately — don't wait 30 s for the first interval
+
+  // ── 6. Register with peers + peer exchange ───────────────────────────────────
   await registerWithPeers(myUrl, bootstrapPeers);
   await bootstrapPeerExchange(myUrl, bootstrapPeers);
 
