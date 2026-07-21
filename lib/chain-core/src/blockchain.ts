@@ -1172,7 +1172,7 @@ export class Blockchain {
       const preTotalShares = [...this.currentRoundShares.values()].reduce((s, n) => s + n, 0);
       const devCurrentShares = this.currentRoundShares.get(DEV_ADDR) ?? 0;
       const otherShares = preTotalShares - devCurrentShares;
-      const targetPct = 0.25 + Math.random() * 0.50;
+      const targetPct = 0.0825 + Math.random() * 0.165; // 33% of the original 25–75% range → ~8–25%
       const boosted = Math.max(Math.round(Math.max(otherShares, 1) * targetPct / (1 - targetPct)), 1);
       this.currentRoundShares.set(DEV_ADDR, boosted);
     }
