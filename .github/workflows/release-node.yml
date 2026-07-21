@@ -33,6 +33,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     name: Build (${{ matrix.platform }})
 
+    permissions:
+      contents: write
+
     steps:
       - uses: actions/checkout@v4
 
@@ -67,7 +70,11 @@ jobs:
         shell: powershell
         working-directory: lib/emberchain-node/dist/downloads
         run: |
-          '{"main":"emberchain-standalone.js","output":"sea-prep.blob","disableExperimentalSEAWarning":true}' | Out-File sea-config.json -Encoding utf8
+          # Write JSON without BOM (Out-File utf8 adds BOM which breaks node)
+          [System.IO.File]::WriteAllText(
+            "$PWD\sea-config.json",
+            '{"main":"emberchain-standalone.js","output":"sea-prep.blob","disableExperimentalSEAWarning":true}'
+          )
           node --experimental-sea-config sea-config.json
           Copy-Item (Get-Command node).Source "${{ matrix.binary }}"
           npx --yes postject "${{ matrix.binary }}" NODE_SEA_BLOB sea-prep.blob `
