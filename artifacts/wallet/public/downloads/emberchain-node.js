@@ -19,6 +19,7 @@ function arg(name, fallback) {
 var PEER_URL = arg("peer", "https://emberchain.org").replace(/\/$/, "");
 var PORT = arg("port", "8545");
 var DATA_DIR = path.resolve(arg("data", "./emberchain-data"));
+var MY_URL = arg("url", "").replace(/\/$/, "");
 var FORCE_SYNC = process.argv.includes("--resync");
 var SNAPSHOT = path.join(DATA_DIR, "chain.json");
 function log(msg) {
@@ -32,6 +33,7 @@ function printBanner() {
   Peer   : ${PEER_URL}
   Port   : ${PORT}
   Data   : ${DATA_DIR}
+  My URL : ${MY_URL || "(not set \u2014 use --url https://your-public-url.com to join the network)"}
 `);
 }
 async function downloadSnapshot() {
@@ -81,7 +83,10 @@ async function main() {
       CHAIN_DATA_FILE: SNAPSHOT,
       DATABASE_URL: "",
       // no Postgres — file-only mode
-      NODE_ENV: "production"
+      NODE_ENV: "production",
+      // P2P: let the server know its own public URL and where the seed peer is
+      NODE_URL: MY_URL,
+      SEED_PEERS: PEER_URL
     }
   });
   child.on("error", (err) => {
@@ -90,22 +95,41 @@ async function main() {
     process.exit(1);
   });
   child.on("exit", (code) => process.exit(code ?? 0));
-  setTimeout(() => {
+  setTimeout(async () => {
+    if (MY_URL) {
+      try {
+        const r = await fetch(`${PEER_URL}/api/sync/peers`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: MY_URL })
+        });
+        if (r.ok) {
+          log(`\u{1F517}  Registered with peer ${PEER_URL} (we will receive block gossip)`);
+        }
+      } catch {
+        log(`\u26A0\uFE0F   Could not register with peer ${PEER_URL} \u2014 will still sync via polling`);
+      }
+    }
+    const walletUrl = MY_URL ? `${MY_URL}/api` : `http://localhost:${PORT}/api`;
+    const explorerUrl = MY_URL || `http://localhost:${PORT}`;
     console.log(`
-  \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
-  \u2502  Node is running! Connect your wallet:                  \u2502
-  \u2502                                                         \u2502
-  \u2502  MetaMask \u2192 Add Network:                                \u2502
-  \u2502    Network name : Emberchain                            \u2502
-  \u2502    RPC URL      : http://localhost:${PORT}/api/rpc           \u2502
-  \u2502    Chain ID     : 7773                                  \u2502
-  \u2502    Currency     : EMBR                                  \u2502
-  \u2502                                                         \u2502
-  \u2502  Block explorer : http://localhost:${PORT}                   \u2502
-  \u2502  Press Ctrl+C to stop.                                  \u2502
-  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
+  \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+  \u2502  \u{1F525} Emberchain Node is running!                              \u2502
+  \u2502                                                              \u2502
+  \u2502  Desktop Wallet \u2192 Settings \u2192 Node URL:                       \u2502
+  \u2502    ${walletUrl.padEnd(54)}\u2502
+  \u2502                                                              \u2502
+  \u2502  MetaMask \u2192 Add Network:                                     \u2502
+  \u2502    Network name : Emberchain                                 \u2502
+  \u2502    RPC URL      : ${(walletUrl + "/rpc").padEnd(39)}\u2502
+  \u2502    Chain ID     : 7773                                       \u2502
+  \u2502    Currency     : EMBR                                       \u2502
+  \u2502                                                              \u2502
+  \u2502  Block explorer : ${explorerUrl.padEnd(39)}\u2502
+  \u2502  Press Ctrl+C to stop.                                       \u2502
+  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
 `);
-  }, 4e3);
+  }, 5e3);
   for (const sig of ["SIGINT", "SIGTERM"]) {
     process.on(sig, () => {
       child.kill(sig);

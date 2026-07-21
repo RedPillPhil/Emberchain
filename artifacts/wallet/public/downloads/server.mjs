@@ -15232,11 +15232,11 @@ var require_mime_types = __commonJS({
       }
       return exts[0];
     }
-    function lookup(path3) {
-      if (!path3 || typeof path3 !== "string") {
+    function lookup(path4) {
+      if (!path4 || typeof path4 !== "string") {
         return false;
       }
-      var extension4 = extname("x." + path3).toLowerCase().slice(1);
+      var extension4 = extname("x." + path4).toLowerCase().slice(1);
       if (!extension4) {
         return false;
       }
@@ -18778,13 +18778,13 @@ var require_view = __commonJS({
   "../../node_modules/.pnpm/express@5.2.1/node_modules/express/lib/view.js"(exports, module) {
     "use strict";
     var debug5 = require_src()("express:view");
-    var path3 = __require("node:path");
+    var path4 = __require("node:path");
     var fs = __require("node:fs");
-    var dirname = path3.dirname;
-    var basename = path3.basename;
-    var extname = path3.extname;
-    var join = path3.join;
-    var resolve = path3.resolve;
+    var dirname = path4.dirname;
+    var basename = path4.basename;
+    var extname = path4.extname;
+    var join = path4.join;
+    var resolve = path4.resolve;
     module.exports = View;
     function View(name, options) {
       var opts = options || {};
@@ -18813,17 +18813,17 @@ var require_view = __commonJS({
       this.path = this.lookup(fileName);
     }
     View.prototype.lookup = function lookup(name) {
-      var path4;
+      var path5;
       var roots = [].concat(this.root);
       debug5('lookup "%s"', name);
-      for (var i = 0; i < roots.length && !path4; i++) {
+      for (var i = 0; i < roots.length && !path5; i++) {
         var root = roots[i];
         var loc = resolve(root, name);
         var dir = dirname(loc);
         var file = basename(loc);
-        path4 = this.resolve(dir, file);
+        path5 = this.resolve(dir, file);
       }
-      return path4;
+      return path5;
     };
     View.prototype.render = function render(options, callback) {
       var sync = true;
@@ -18845,21 +18845,21 @@ var require_view = __commonJS({
     };
     View.prototype.resolve = function resolve2(dir, file) {
       var ext = this.ext;
-      var path4 = join(dir, file);
-      var stat = tryStat(path4);
+      var path5 = join(dir, file);
+      var stat = tryStat(path5);
       if (stat && stat.isFile()) {
-        return path4;
+        return path5;
       }
-      path4 = join(dir, basename(file, ext), "index" + ext);
-      stat = tryStat(path4);
+      path5 = join(dir, basename(file, ext), "index" + ext);
+      stat = tryStat(path5);
       if (stat && stat.isFile()) {
-        return path4;
+        return path5;
       }
     };
-    function tryStat(path4) {
-      debug5('stat "%s"', path4);
+    function tryStat(path5) {
+      debug5('stat "%s"', path5);
       try {
-        return fs.statSync(path4);
+        return fs.statSync(path5);
       } catch (e) {
         return void 0;
       }
@@ -20099,15 +20099,15 @@ var require_dist2 = __commonJS({
       let index = 0;
       function consumeUntil(end) {
         const output2 = [];
-        let path3 = "";
+        let path4 = "";
         function writePath() {
-          if (!path3)
+          if (!path4)
             return;
           output2.push({
             type: "text",
-            value: encodePath(path3)
+            value: encodePath(path4)
           });
-          path3 = "";
+          path4 = "";
         }
         while (index < chars.length) {
           const value = chars[index++];
@@ -20119,7 +20119,7 @@ var require_dist2 = __commonJS({
             if (index === chars.length) {
               throw new PathError(`Unexpected end after \\ at index ${index}`, str);
             }
-            path3 += chars[index++];
+            path4 += chars[index++];
             continue;
           }
           if (value === ":" || value === "*") {
@@ -20163,7 +20163,7 @@ var require_dist2 = __commonJS({
           if (value === "}" || value === "(" || value === ")" || value === "[" || value === "]" || value === "+" || value === "?" || value === "!") {
             throw new PathError(`Unexpected ${value} at index ${index - 1}`, str);
           }
-          path3 += value;
+          path4 += value;
         }
         if (end) {
           throw new PathError(`Unexpected end at index ${index}, expected ${end}`, str);
@@ -20173,17 +20173,17 @@ var require_dist2 = __commonJS({
       }
       return new TokenData(consumeUntil(""), str);
     }
-    function compile(path3, options = {}) {
+    function compile(path4, options = {}) {
       const { encode: encode2 = encodeURIComponent, delimiter = DEFAULT_DELIMITER } = options;
-      const data4 = typeof path3 === "object" ? path3 : parse(path3, options);
+      const data4 = typeof path4 === "object" ? path4 : parse(path4, options);
       const fn = tokensToFunction(data4.tokens, delimiter, encode2);
-      return function path4(params = {}) {
+      return function path5(params = {}) {
         const missing = [];
-        const path5 = fn(params, missing);
+        const path6 = fn(params, missing);
         if (missing.length) {
           throw new TypeError(`Missing parameters: ${missing.join(", ")}`);
         }
-        return path5;
+        return path6;
       };
     }
     function tokensToFunction(tokens, delimiter, encode2) {
@@ -20245,9 +20245,9 @@ var require_dist2 = __commonJS({
         return encodeValue(value);
       };
     }
-    function match(path3, options = {}) {
+    function match(path4, options = {}) {
       const { decode: decode3 = decodeURIComponent, delimiter = DEFAULT_DELIMITER } = options;
-      const { regexp, keys } = pathToRegexp(path3, options);
+      const { regexp, keys } = pathToRegexp(path4, options);
       const decoders = keys.map((key) => {
         if (decode3 === false)
           return NOOP_VALUE;
@@ -20259,7 +20259,7 @@ var require_dist2 = __commonJS({
         const m = regexp.exec(input);
         if (!m)
           return false;
-        const path4 = m[0];
+        const path5 = m[0];
         const params = /* @__PURE__ */ Object.create(null);
         for (let i = 1; i < m.length; i++) {
           if (m[i] === void 0)
@@ -20268,21 +20268,21 @@ var require_dist2 = __commonJS({
           const decoder = decoders[i - 1];
           params[key.name] = decoder(m[i]);
         }
-        return { path: path4, params };
+        return { path: path5, params };
       };
     }
-    function pathToRegexp(path3, options = {}) {
+    function pathToRegexp(path4, options = {}) {
       const { delimiter = DEFAULT_DELIMITER, end = true, sensitive = false, trailing = true } = options;
       const keys = [];
       let source = "";
       let combinations = 0;
-      function process2(path4) {
-        if (Array.isArray(path4)) {
-          for (const p of path4)
+      function process2(path5) {
+        if (Array.isArray(path5)) {
+          for (const p of path5)
             process2(p);
           return;
         }
-        const data4 = typeof path4 === "object" ? path4 : parse(path4, options);
+        const data4 = typeof path5 === "object" ? path5 : parse(path5, options);
         flatten2(data4.tokens, 0, [], (tokens) => {
           if (combinations >= 256) {
             throw new PathError("Too many path combinations", data4.originalPath);
@@ -20293,7 +20293,7 @@ var require_dist2 = __commonJS({
           combinations++;
         });
       }
-      process2(path3);
+      process2(path4);
       let pattern = `^(?:${source})`;
       if (trailing)
         pattern += "(?:" + escape2(delimiter) + "$)?";
@@ -20433,18 +20433,18 @@ var require_layer = __commonJS({
     var TRAILING_SLASH_REGEXP = /\/+$/;
     var MATCHING_GROUP_REGEXP = /\((?:\?<(.*?)>)?(?!\?)/g;
     module.exports = Layer;
-    function Layer(path3, options, fn) {
+    function Layer(path4, options, fn) {
       if (!(this instanceof Layer)) {
-        return new Layer(path3, options, fn);
+        return new Layer(path4, options, fn);
       }
-      debug5("new %o", path3);
+      debug5("new %o", path4);
       const opts = options || {};
       this.handle = fn;
       this.keys = [];
       this.name = fn.name || "<anonymous>";
       this.params = void 0;
       this.path = void 0;
-      this.slash = path3 === "/" && opts.end === false;
+      this.slash = path4 === "/" && opts.end === false;
       function matcher(_path) {
         if (_path instanceof RegExp) {
           const keys = [];
@@ -20483,7 +20483,7 @@ var require_layer = __commonJS({
           decode: decodeParam
         });
       }
-      this.matchers = Array.isArray(path3) ? path3.map(matcher) : [matcher(path3)];
+      this.matchers = Array.isArray(path4) ? path4.map(matcher) : [matcher(path4)];
     }
     Layer.prototype.handleError = function handleError(error, req, res, next) {
       const fn = this.handle;
@@ -20523,9 +20523,9 @@ var require_layer = __commonJS({
         next(err);
       }
     };
-    Layer.prototype.match = function match(path3) {
+    Layer.prototype.match = function match(path4) {
       let match2;
-      if (path3 != null) {
+      if (path4 != null) {
         if (this.slash) {
           this.params = {};
           this.path = "";
@@ -20533,7 +20533,7 @@ var require_layer = __commonJS({
         }
         let i = 0;
         while (!match2 && i < this.matchers.length) {
-          match2 = this.matchers[i](path3);
+          match2 = this.matchers[i](path4);
           i++;
         }
       }
@@ -20561,13 +20561,13 @@ var require_layer = __commonJS({
         throw err;
       }
     }
-    function loosen(path3) {
-      if (path3 instanceof RegExp || path3 === "/") {
-        return path3;
+    function loosen(path4) {
+      if (path4 instanceof RegExp || path4 === "/") {
+        return path4;
       }
-      return Array.isArray(path3) ? path3.map(function(p) {
+      return Array.isArray(path4) ? path4.map(function(p) {
         return loosen(p);
-      }) : String(path3).replace(TRAILING_SLASH_REGEXP, "");
+      }) : String(path4).replace(TRAILING_SLASH_REGEXP, "");
     }
   }
 });
@@ -20583,9 +20583,9 @@ var require_route = __commonJS({
     var flatten2 = Array.prototype.flat;
     var methods = METHODS.map((method) => method.toLowerCase());
     module.exports = Route;
-    function Route(path3) {
-      debug5("new %o", path3);
-      this.path = path3;
+    function Route(path4) {
+      debug5("new %o", path4);
+      this.path = path4;
       this.stack = [];
       this.methods = /* @__PURE__ */ Object.create(null);
     }
@@ -20793,8 +20793,8 @@ var require_router = __commonJS({
         if (++sync > 100) {
           return setImmediate(next, err);
         }
-        const path3 = getPathname(req);
-        if (path3 == null) {
+        const path4 = getPathname(req);
+        if (path4 == null) {
           return done(layerError);
         }
         let layer;
@@ -20802,7 +20802,7 @@ var require_router = __commonJS({
         let route;
         while (match !== true && idx < stack.length) {
           layer = stack[idx++];
-          match = matchLayer(layer, path3);
+          match = matchLayer(layer, path4);
           route = layer.route;
           if (typeof match !== "boolean") {
             layerError = layerError || match;
@@ -20840,18 +20840,18 @@ var require_router = __commonJS({
           } else if (route) {
             layer.handleRequest(req, res, next);
           } else {
-            trimPrefix(layer, layerError, layerPath, path3);
+            trimPrefix(layer, layerError, layerPath, path4);
           }
           sync = 0;
         });
       }
-      function trimPrefix(layer, layerError, layerPath, path3) {
+      function trimPrefix(layer, layerError, layerPath, path4) {
         if (layerPath.length !== 0) {
-          if (layerPath !== path3.substring(0, layerPath.length)) {
+          if (layerPath !== path4.substring(0, layerPath.length)) {
             next(layerError);
             return;
           }
-          const c = path3[layerPath.length];
+          const c = path4[layerPath.length];
           if (c && c !== "/") {
             next(layerError);
             return;
@@ -20875,7 +20875,7 @@ var require_router = __commonJS({
     };
     Router15.prototype.use = function use(handler) {
       let offset = 0;
-      let path3 = "/";
+      let path4 = "/";
       if (typeof handler !== "function") {
         let arg = handler;
         while (Array.isArray(arg) && arg.length !== 0) {
@@ -20883,7 +20883,7 @@ var require_router = __commonJS({
         }
         if (typeof arg !== "function") {
           offset = 1;
-          path3 = handler;
+          path4 = handler;
         }
       }
       const callbacks = flatten2.call(slice.call(arguments, offset), Infinity);
@@ -20895,8 +20895,8 @@ var require_router = __commonJS({
         if (typeof fn !== "function") {
           throw new TypeError("argument handler must be a function");
         }
-        debug5("use %o %s", path3, fn.name || "<anonymous>");
-        const layer = new Layer(path3, {
+        debug5("use %o %s", path4, fn.name || "<anonymous>");
+        const layer = new Layer(path4, {
           sensitive: this.caseSensitive,
           strict: false,
           end: false
@@ -20906,9 +20906,9 @@ var require_router = __commonJS({
       }
       return this;
     };
-    Router15.prototype.route = function route(path3) {
-      const route2 = new Route(path3);
-      const layer = new Layer(path3, {
+    Router15.prototype.route = function route(path4) {
+      const route2 = new Route(path4);
+      const layer = new Layer(path4, {
         sensitive: this.caseSensitive,
         strict: this.strict,
         end: true
@@ -20921,8 +20921,8 @@ var require_router = __commonJS({
       return route2;
     };
     methods.concat("all").forEach(function(method) {
-      Router15.prototype[method] = function(path3) {
-        const route = this.route(path3);
+      Router15.prototype[method] = function(path4) {
+        const route = this.route(path4);
         route[method].apply(route, slice.call(arguments, 1));
         return this;
       };
@@ -20951,9 +20951,9 @@ var require_router = __commonJS({
       const fqdnIndex = url.substring(0, pathLength).indexOf("://");
       return fqdnIndex !== -1 ? url.substring(0, url.indexOf("/", 3 + fqdnIndex)) : void 0;
     }
-    function matchLayer(layer, path3) {
+    function matchLayer(layer, path4) {
       try {
-        return layer.match(path3);
+        return layer.match(path4);
       } catch (err) {
         return err;
       }
@@ -21181,7 +21181,7 @@ var require_application = __commonJS({
     };
     app2.use = function use(fn) {
       var offset = 0;
-      var path3 = "/";
+      var path4 = "/";
       if (typeof fn !== "function") {
         var arg = fn;
         while (Array.isArray(arg) && arg.length !== 0) {
@@ -21189,7 +21189,7 @@ var require_application = __commonJS({
         }
         if (typeof arg !== "function") {
           offset = 1;
-          path3 = fn;
+          path4 = fn;
         }
       }
       var fns = flatten2.call(slice.call(arguments, offset), Infinity);
@@ -21199,12 +21199,12 @@ var require_application = __commonJS({
       var router15 = this.router;
       fns.forEach(function(fn2) {
         if (!fn2 || !fn2.handle || !fn2.set) {
-          return router15.use(path3, fn2);
+          return router15.use(path4, fn2);
         }
-        debug5(".use app under %s", path3);
-        fn2.mountpath = path3;
+        debug5(".use app under %s", path4);
+        fn2.mountpath = path4;
         fn2.parent = this;
-        router15.use(path3, function mounted_app(req, res, next) {
+        router15.use(path4, function mounted_app(req, res, next) {
           var orig = req.app;
           fn2.handle(req, res, function(err) {
             Object.setPrototypeOf(req, orig.request);
@@ -21216,8 +21216,8 @@ var require_application = __commonJS({
       }, this);
       return this;
     };
-    app2.route = function route(path3) {
-      return this.router.route(path3);
+    app2.route = function route(path4) {
+      return this.router.route(path4);
     };
     app2.engine = function engine(ext, fn) {
       if (typeof fn !== "function") {
@@ -21260,7 +21260,7 @@ var require_application = __commonJS({
       }
       return this;
     };
-    app2.path = function path3() {
+    app2.path = function path4() {
       return this.parent ? this.parent.path() + this.mountpath : "";
     };
     app2.enabled = function enabled(setting) {
@@ -21276,17 +21276,17 @@ var require_application = __commonJS({
       return this.set(setting, false);
     };
     methods.forEach(function(method) {
-      app2[method] = function(path3) {
+      app2[method] = function(path4) {
         if (method === "get" && arguments.length === 1) {
-          return this.set(path3);
+          return this.set(path4);
         }
-        var route = this.route(path3);
+        var route = this.route(path4);
         route[method].apply(route, slice.call(arguments, 1));
         return this;
       };
     });
-    app2.all = function all(path3) {
-      var route = this.route(path3);
+    app2.all = function all(path4) {
+      var route = this.route(path4);
       var args = slice.call(arguments, 1);
       for (var i = 0; i < methods.length; i++) {
         route[methods[i]].apply(route, args);
@@ -22208,7 +22208,7 @@ var require_request = __commonJS({
       var subdomains2 = !isIP(hostname) ? hostname.split(".").reverse() : [hostname];
       return subdomains2.slice(offset);
     });
-    defineGetter(req, "path", function path3() {
+    defineGetter(req, "path", function path4() {
       return parse(this).pathname;
     });
     defineGetter(req, "host", function host() {
@@ -22419,8 +22419,8 @@ var require_content_disposition = __commonJS({
       this.type = type;
       this.parameters = parameters;
     }
-    function basename(path3) {
-      const normalized = path3.replaceAll("\\", "/");
+    function basename(path4) {
+      const normalized = path4.replaceAll("\\", "/");
       let end = normalized.length;
       while (end > 0 && normalized[end - 1] === "/") {
         end--;
@@ -22666,27 +22666,27 @@ var require_send = __commonJS({
     var ms = require_ms();
     var onFinished = require_on_finished();
     var parseRange = require_range_parser();
-    var path3 = __require("path");
+    var path4 = __require("path");
     var statuses = require_statuses();
     var Stream = __require("stream");
     var util2 = __require("util");
-    var extname = path3.extname;
-    var join = path3.join;
-    var normalize = path3.normalize;
-    var resolve = path3.resolve;
-    var sep = path3.sep;
+    var extname = path4.extname;
+    var join = path4.join;
+    var normalize = path4.normalize;
+    var resolve = path4.resolve;
+    var sep = path4.sep;
     var BYTES_RANGE_REGEXP = /^ *bytes=/;
     var MAX_MAXAGE = 60 * 60 * 24 * 365 * 1e3;
     var UP_PATH_REGEXP = /(?:^|[\\/])\.\.(?:[\\/]|$)/;
     module.exports = send;
-    function send(req, path4, options) {
-      return new SendStream(req, path4, options);
+    function send(req, path5, options) {
+      return new SendStream(req, path5, options);
     }
-    function SendStream(req, path4, options) {
+    function SendStream(req, path5, options) {
       Stream.call(this);
       var opts = options || {};
       this.options = opts;
-      this.path = path4;
+      this.path = path5;
       this.req = req;
       this._acceptRanges = opts.acceptRanges !== void 0 ? Boolean(opts.acceptRanges) : true;
       this._cacheControl = opts.cacheControl !== void 0 ? Boolean(opts.cacheControl) : true;
@@ -22800,10 +22800,10 @@ var require_send = __commonJS({
       var lastModified = this.res.getHeader("Last-Modified");
       return parseHttpDate(lastModified) <= parseHttpDate(ifRange);
     };
-    SendStream.prototype.redirect = function redirect(path4) {
+    SendStream.prototype.redirect = function redirect(path5) {
       var res = this.res;
       if (hasListeners(this, "directory")) {
-        this.emit("directory", res, path4);
+        this.emit("directory", res, path5);
         return;
       }
       if (this.hasTrailingSlash()) {
@@ -22823,38 +22823,38 @@ var require_send = __commonJS({
     SendStream.prototype.pipe = function pipe(res) {
       var root = this._root;
       this.res = res;
-      var path4 = decode3(this.path);
-      if (path4 === -1) {
+      var path5 = decode3(this.path);
+      if (path5 === -1) {
         this.error(400);
         return res;
       }
-      if (~path4.indexOf("\0")) {
+      if (~path5.indexOf("\0")) {
         this.error(400);
         return res;
       }
       var parts;
       if (root !== null) {
-        if (path4) {
-          path4 = normalize("." + sep + path4);
+        if (path5) {
+          path5 = normalize("." + sep + path5);
         }
-        if (UP_PATH_REGEXP.test(path4)) {
-          debug5('malicious path "%s"', path4);
+        if (UP_PATH_REGEXP.test(path5)) {
+          debug5('malicious path "%s"', path5);
           this.error(403);
           return res;
         }
-        parts = path4.split(sep);
-        path4 = normalize(join(root, path4));
+        parts = path5.split(sep);
+        path5 = normalize(join(root, path5));
       } else {
-        if (UP_PATH_REGEXP.test(path4)) {
-          debug5('malicious path "%s"', path4);
+        if (UP_PATH_REGEXP.test(path5)) {
+          debug5('malicious path "%s"', path5);
           this.error(403);
           return res;
         }
-        parts = normalize(path4).split(sep);
-        path4 = resolve(path4);
+        parts = normalize(path5).split(sep);
+        path5 = resolve(path5);
       }
       if (containsDotFile(parts)) {
-        debug5('%s dotfile "%s"', this._dotfiles, path4);
+        debug5('%s dotfile "%s"', this._dotfiles, path5);
         switch (this._dotfiles) {
           case "allow":
             break;
@@ -22868,13 +22868,13 @@ var require_send = __commonJS({
         }
       }
       if (this._index.length && this.hasTrailingSlash()) {
-        this.sendIndex(path4);
+        this.sendIndex(path5);
         return res;
       }
-      this.sendFile(path4);
+      this.sendFile(path5);
       return res;
     };
-    SendStream.prototype.send = function send2(path4, stat) {
+    SendStream.prototype.send = function send2(path5, stat) {
       var len = stat.size;
       var options = this.options;
       var opts = {};
@@ -22886,9 +22886,9 @@ var require_send = __commonJS({
         this.headersAlreadySent();
         return;
       }
-      debug5('pipe "%s"', path4);
-      this.setHeader(path4, stat);
-      this.type(path4);
+      debug5('pipe "%s"', path5);
+      this.setHeader(path5, stat);
+      this.type(path5);
       if (this.isConditionalGET()) {
         if (this.isPreconditionFailure()) {
           this.error(412);
@@ -22937,28 +22937,28 @@ var require_send = __commonJS({
         res.end();
         return;
       }
-      this.stream(path4, opts);
+      this.stream(path5, opts);
     };
-    SendStream.prototype.sendFile = function sendFile(path4) {
+    SendStream.prototype.sendFile = function sendFile(path5) {
       var i = 0;
       var self = this;
-      debug5('stat "%s"', path4);
-      fs.stat(path4, function onstat(err, stat) {
-        var pathEndsWithSep = path4[path4.length - 1] === sep;
-        if (err && err.code === "ENOENT" && !extname(path4) && !pathEndsWithSep) {
+      debug5('stat "%s"', path5);
+      fs.stat(path5, function onstat(err, stat) {
+        var pathEndsWithSep = path5[path5.length - 1] === sep;
+        if (err && err.code === "ENOENT" && !extname(path5) && !pathEndsWithSep) {
           return next(err);
         }
         if (err) return self.onStatError(err);
-        if (stat.isDirectory()) return self.redirect(path4);
+        if (stat.isDirectory()) return self.redirect(path5);
         if (pathEndsWithSep) return self.error(404);
-        self.emit("file", path4, stat);
-        self.send(path4, stat);
+        self.emit("file", path5, stat);
+        self.send(path5, stat);
       });
       function next(err) {
         if (self._extensions.length <= i) {
           return err ? self.onStatError(err) : self.error(404);
         }
-        var p = path4 + "." + self._extensions[i++];
+        var p = path5 + "." + self._extensions[i++];
         debug5('stat "%s"', p);
         fs.stat(p, function(err2, stat) {
           if (err2) return next(err2);
@@ -22968,7 +22968,7 @@ var require_send = __commonJS({
         });
       }
     };
-    SendStream.prototype.sendIndex = function sendIndex(path4) {
+    SendStream.prototype.sendIndex = function sendIndex(path5) {
       var i = -1;
       var self = this;
       function next(err) {
@@ -22976,7 +22976,7 @@ var require_send = __commonJS({
           if (err) return self.onStatError(err);
           return self.error(404);
         }
-        var p = join(path4, self._index[i]);
+        var p = join(path5, self._index[i]);
         debug5('stat "%s"', p);
         fs.stat(p, function(err2, stat) {
           if (err2) return next(err2);
@@ -22987,10 +22987,10 @@ var require_send = __commonJS({
       }
       next();
     };
-    SendStream.prototype.stream = function stream(path4, options) {
+    SendStream.prototype.stream = function stream(path5, options) {
       var self = this;
       var res = this.res;
-      var stream2 = fs.createReadStream(path4, options);
+      var stream2 = fs.createReadStream(path5, options);
       this.emit("stream", stream2);
       stream2.pipe(res);
       function cleanup() {
@@ -23005,17 +23005,17 @@ var require_send = __commonJS({
         self.emit("end");
       });
     };
-    SendStream.prototype.type = function type(path4) {
+    SendStream.prototype.type = function type(path5) {
       var res = this.res;
       if (res.getHeader("Content-Type")) return;
-      var ext = extname(path4);
+      var ext = extname(path5);
       var type2 = mime.contentType(ext) || "application/octet-stream";
       debug5("content-type %s", type2);
       res.setHeader("Content-Type", type2);
     };
-    SendStream.prototype.setHeader = function setHeader(path4, stat) {
+    SendStream.prototype.setHeader = function setHeader(path5, stat) {
       var res = this.res;
-      this.emit("headers", res, path4, stat);
+      this.emit("headers", res, path5, stat);
       if (this._acceptRanges && !res.getHeader("Accept-Ranges")) {
         debug5("accept ranges");
         res.setHeader("Accept-Ranges", "bytes");
@@ -23073,9 +23073,9 @@ var require_send = __commonJS({
       }
       return err instanceof Error ? createError(status, err, { expose: false }) : createError(status, err);
     }
-    function decode3(path4) {
+    function decode3(path5) {
       try {
-        return decodeURIComponent(path4);
+        return decodeURIComponent(path5);
       } catch (err) {
         return -1;
       }
@@ -23219,7 +23219,7 @@ var require_response = __commonJS({
     var http3 = __require("node:http");
     var onFinished = require_on_finished();
     var mime = require_mime_types();
-    var path3 = __require("node:path");
+    var path4 = __require("node:path");
     var pathIsAbsolute = __require("node:path").isAbsolute;
     var statuses = require_statuses();
     var sign2 = require_cookie_signature().sign;
@@ -23228,8 +23228,8 @@ var require_response = __commonJS({
     var setCharset = require_utils3().setCharset;
     var cookie = require_cookie();
     var send = require_send();
-    var extname = path3.extname;
-    var resolve = path3.resolve;
+    var extname = path4.extname;
+    var resolve = path4.resolve;
     var vary = require_vary();
     var { Buffer: Buffer2 } = __require("node:buffer");
     var res = Object.create(http3.ServerResponse.prototype);
@@ -23375,26 +23375,26 @@ var require_response = __commonJS({
       this.type("txt");
       return this.send(body);
     };
-    res.sendFile = function sendFile(path4, options, callback) {
+    res.sendFile = function sendFile(path5, options, callback) {
       var done = callback;
       var req = this.req;
       var res2 = this;
       var next = req.next;
       var opts = options || {};
-      if (!path4) {
+      if (!path5) {
         throw new TypeError("path argument is required to res.sendFile");
       }
-      if (typeof path4 !== "string") {
+      if (typeof path5 !== "string") {
         throw new TypeError("path must be a string to res.sendFile");
       }
       if (typeof options === "function") {
         done = options;
         opts = {};
       }
-      if (!opts.root && !pathIsAbsolute(path4)) {
+      if (!opts.root && !pathIsAbsolute(path5)) {
         throw new TypeError("path must be absolute or specify root to res.sendFile");
       }
-      var pathname = encodeURI(path4);
+      var pathname = encodeURI(path5);
       opts.etag = this.app.enabled("etag");
       var file = send(req, pathname, opts);
       sendfile(res2, file, opts, function(err) {
@@ -23405,7 +23405,7 @@ var require_response = __commonJS({
         }
       });
     };
-    res.download = function download(path4, filename, options, callback) {
+    res.download = function download(path5, filename, options, callback) {
       var done = callback;
       var name = filename;
       var opts = options || null;
@@ -23422,7 +23422,7 @@ var require_response = __commonJS({
         opts = filename;
       }
       var headers = {
-        "Content-Disposition": contentDisposition(name || path4)
+        "Content-Disposition": contentDisposition(name || path5)
       };
       if (opts && opts.headers) {
         var keys = Object.keys(opts.headers);
@@ -23435,7 +23435,7 @@ var require_response = __commonJS({
       }
       opts = Object.create(opts);
       opts.headers = headers;
-      var fullPath = !opts.root ? resolve(path4) : path4;
+      var fullPath = !opts.root ? resolve(path5) : path5;
       return this.sendFile(fullPath, opts, done);
     };
     res.contentType = res.type = function contentType(type) {
@@ -23718,11 +23718,11 @@ var require_serve_static = __commonJS({
         }
         var forwardError = !fallthrough;
         var originalUrl = parseUrl.original(req);
-        var path3 = parseUrl(req).pathname;
-        if (path3 === "/" && originalUrl.pathname.substr(-1) !== "/") {
-          path3 = "";
+        var path4 = parseUrl(req).pathname;
+        if (path4 === "/" && originalUrl.pathname.substr(-1) !== "/") {
+          path4 = "";
         }
-        var stream = send(req, path3, opts);
+        var stream = send(req, path4, opts);
         stream.on("directory", onDirectory);
         if (setHeaders) {
           stream.on("headers", setHeaders);
@@ -24370,8 +24370,8 @@ var require_req = __commonJS({
       if (req.originalUrl) {
         _req.url = req.originalUrl;
       } else {
-        const path3 = req.path;
-        _req.url = typeof path3 === "string" ? path3 : req.url ? req.url.path || req.url : void 0;
+        const path4 = req.path;
+        _req.url = typeof path4 === "string" ? path4 : req.url ? req.url.path || req.url : void 0;
       }
       if (req.query) {
         _req.query = req.query;
@@ -24536,14 +24536,14 @@ var require_redact = __commonJS({
       }
       return obj;
     }
-    function parsePath(path3) {
+    function parsePath(path4) {
       const parts = [];
       let current = "";
       let inBrackets = false;
       let inQuotes = false;
       let quoteChar = "";
-      for (let i = 0; i < path3.length; i++) {
-        const char = path3[i];
+      for (let i = 0; i < path4.length; i++) {
+        const char = path4[i];
         if (!inBrackets && char === ".") {
           if (current) {
             parts.push(current);
@@ -24674,10 +24674,10 @@ var require_redact = __commonJS({
       return current;
     }
     function redactPaths(obj, paths, censor, remove = false) {
-      for (const path3 of paths) {
-        const parts = parsePath(path3);
+      for (const path4 of paths) {
+        const parts = parsePath(path4);
         if (parts.includes("*")) {
-          redactWildcardPath(obj, parts, censor, path3, remove);
+          redactWildcardPath(obj, parts, censor, path4, remove);
         } else {
           if (remove) {
             removeKey(obj, parts);
@@ -24762,8 +24762,8 @@ var require_redact = __commonJS({
           }
         } else {
           if (afterWildcard.includes("*")) {
-            const wrappedCensor = typeof censor === "function" ? (value, path3) => {
-              const fullPath = [...pathArray.slice(0, pathLength), ...path3];
+            const wrappedCensor = typeof censor === "function" ? (value, path4) => {
+              const fullPath = [...pathArray.slice(0, pathLength), ...path4];
               return censor(value, fullPath);
             } : censor;
             redactWildcardPath(current, afterWildcard, wrappedCensor, originalPath, remove);
@@ -24798,8 +24798,8 @@ var require_redact = __commonJS({
         return null;
       }
       const pathStructure = /* @__PURE__ */ new Map();
-      for (const path3 of pathsToClone) {
-        const parts = parsePath(path3);
+      for (const path4 of pathsToClone) {
+        const parts = parsePath(path4);
         let current = pathStructure;
         for (let i = 0; i < parts.length; i++) {
           const part = parts[i];
@@ -24851,24 +24851,24 @@ var require_redact = __commonJS({
       }
       return cloneSelectively(obj, pathStructure);
     }
-    function validatePath(path3) {
-      if (typeof path3 !== "string") {
+    function validatePath(path4) {
+      if (typeof path4 !== "string") {
         throw new Error("Paths must be (non-empty) strings");
       }
-      if (path3 === "") {
+      if (path4 === "") {
         throw new Error("Invalid redaction path ()");
       }
-      if (path3.includes("..")) {
-        throw new Error(`Invalid redaction path (${path3})`);
+      if (path4.includes("..")) {
+        throw new Error(`Invalid redaction path (${path4})`);
       }
-      if (path3.includes(",")) {
-        throw new Error(`Invalid redaction path (${path3})`);
+      if (path4.includes(",")) {
+        throw new Error(`Invalid redaction path (${path4})`);
       }
       let bracketCount = 0;
       let inQuotes = false;
       let quoteChar = "";
-      for (let i = 0; i < path3.length; i++) {
-        const char = path3[i];
+      for (let i = 0; i < path4.length; i++) {
+        const char = path4[i];
         if ((char === '"' || char === "'") && bracketCount > 0) {
           if (!inQuotes) {
             inQuotes = true;
@@ -24882,20 +24882,20 @@ var require_redact = __commonJS({
         } else if (char === "]" && !inQuotes) {
           bracketCount--;
           if (bracketCount < 0) {
-            throw new Error(`Invalid redaction path (${path3})`);
+            throw new Error(`Invalid redaction path (${path4})`);
           }
         }
       }
       if (bracketCount !== 0) {
-        throw new Error(`Invalid redaction path (${path3})`);
+        throw new Error(`Invalid redaction path (${path4})`);
       }
     }
     function validatePaths(paths) {
       if (!Array.isArray(paths)) {
         throw new TypeError("paths must be an array");
       }
-      for (const path3 of paths) {
-        validatePath(path3);
+      for (const path4 of paths) {
+        validatePath(path4);
       }
     }
     function slowRedact(options = {}) {
@@ -25063,8 +25063,8 @@ var require_redaction = __commonJS({
         if (shape[k] === null) {
           o[k] = (value) => topCensor(value, [k]);
         } else {
-          const wrappedCensor = typeof censor === "function" ? (value, path3) => {
-            return censor(value, [k, ...path3]);
+          const wrappedCensor = typeof censor === "function" ? (value, path4) => {
+            return censor(value, [k, ...path4]);
           } : censor;
           o[k] = Redact({
             paths: shape[k],
@@ -25285,7 +25285,7 @@ var require_sonic_boom = __commonJS({
     var fs = __require("fs");
     var EventEmitter2 = __require("events");
     var inherits = __require("util").inherits;
-    var path3 = __require("path");
+    var path4 = __require("path");
     var sleep2 = require_atomic_sleep();
     var assert2 = __require("assert");
     var BUSY_WRITE_TIMEOUT = 100;
@@ -25339,7 +25339,7 @@ var require_sonic_boom = __commonJS({
       const mode = sonic.mode;
       if (sonic.sync) {
         try {
-          if (sonic.mkdir) fs.mkdirSync(path3.dirname(file), { recursive: true });
+          if (sonic.mkdir) fs.mkdirSync(path4.dirname(file), { recursive: true });
           const fd = fs.openSync(file, flags, mode);
           fileOpened(null, fd);
         } catch (err) {
@@ -25347,7 +25347,7 @@ var require_sonic_boom = __commonJS({
           throw err;
         }
       } else if (sonic.mkdir) {
-        fs.mkdir(path3.dirname(file), { recursive: true }, (err) => {
+        fs.mkdir(path4.dirname(file), { recursive: true }, (err) => {
           if (err) return fileOpened(err);
           fs.open(file, flags, mode, fileOpened);
         });
@@ -28207,9 +28207,9 @@ var require_pino = __commonJS({
   "../../node_modules/.pnpm/pino@9.14.0/node_modules/pino/pino.js"(exports, module) {
     function pinoBundlerAbsolutePath(p) {
       try {
-        const path3 = __require("path");
+        const path4 = __require("path");
         const outputDir = "/home/runner/workspace/artifacts/api-server/dist";
-        return path3.resolve(outputDir, p.replace(/^\.\//, ""));
+        return path4.resolve(outputDir, p.replace(/^\.\//, ""));
       } catch (e) {
         const f2 = new Function("p", "return new URL(p, import.meta.url).pathname");
         return f2(p);
@@ -32252,7 +32252,7 @@ var require_split2 = __commonJS({
 var require_helper = __commonJS({
   "../../node_modules/.pnpm/pgpass@1.0.5/node_modules/pgpass/lib/helper.js"(exports, module) {
     "use strict";
-    var path3 = __require("path");
+    var path4 = __require("path");
     var Stream = __require("stream").Stream;
     var split5 = require_split2();
     var util2 = __require("util");
@@ -32291,7 +32291,7 @@ var require_helper = __commonJS({
     };
     module.exports.getFileName = function(rawEnv) {
       var env = rawEnv || process.env;
-      var file = env.PGPASSFILE || (isWin ? path3.join(env.APPDATA || "./", "postgresql", "pgpass.conf") : path3.join(env.HOME || "./", ".pgpass"));
+      var file = env.PGPASSFILE || (isWin ? path4.join(env.APPDATA || "./", "postgresql", "pgpass.conf") : path4.join(env.HOME || "./", ".pgpass"));
       return file;
     };
     module.exports.usePgPass = function(stats, fname) {
@@ -32423,7 +32423,7 @@ var require_helper = __commonJS({
 var require_lib4 = __commonJS({
   "../../node_modules/.pnpm/pgpass@1.0.5/node_modules/pgpass/lib/index.js"(exports, module) {
     "use strict";
-    var path3 = __require("path");
+    var path4 = __require("path");
     var fs = __require("fs");
     var helper = require_helper();
     module.exports = function(connInfo, cb) {
@@ -41338,6 +41338,7 @@ import http2 from "http";
 var import_express15 = __toESM(require_express2(), 1);
 var import_cors = __toESM(require_lib3(), 1);
 var import_pino_http = __toESM(require_logger(), 1);
+import path3 from "path";
 
 // src/routes/index.ts
 var import_express14 = __toESM(require_express2(), 1);
@@ -41704,8 +41705,8 @@ function getErrorMap() {
 
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data: data4, path: path3, errorMaps, issueData } = params;
-  const fullPath = [...path3, ...issueData.path || []];
+  const { data: data4, path: path4, errorMaps, issueData } = params;
+  const fullPath = [...path4, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -41820,11 +41821,11 @@ var errorUtil;
 
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path3, key) {
+  constructor(parent, value, path4, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path3;
+    this._path = path4;
     this._key = key;
   }
   get path() {
@@ -66482,6 +66483,12 @@ var Blockchain = class {
   /** In-memory only — reset on restart is intentional; open lock lets buyers retry. */
   verifyingListings = /* @__PURE__ */ new Set();
   /**
+   * Optional callback fired after every block is appended to the chain
+   * (local mining, share promotion, or peer import via importBlock).
+   * Used by the API server to broadcast new blocks to known peers.
+   */
+  onBlock;
+  /**
    * Persisted set of already-committed payment proofs keyed by
    * `${currency}:${txHash}` (lowercase).  Prevents the same external tx from
    * being replayed across multiple listings even after server restarts.
@@ -66715,14 +66722,25 @@ var Blockchain = class {
   async listWallets() {
     await this.whenReady();
     const seen = /* @__PURE__ */ new Set();
-    const result = [];
     for (const address of this.wallets.keys()) {
-      const key = address.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const balance = await getBalance(this.stateManager, address);
-      const nonce = await getNonce(this.stateManager, address);
-      result.push({ address: key, balance: balance.toString(), nonce });
+      seen.add(address.toLowerCase());
+    }
+    for (const block of this.blocks) {
+      if (block.miner) seen.add(block.miner.toLowerCase());
+      if (block.payouts) {
+        for (const addr of Object.keys(block.payouts)) {
+          seen.add(addr.toLowerCase());
+        }
+      }
+    }
+    const ETH_ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
+    const result = [];
+    for (const addr of seen) {
+      if (!ETH_ADDR_RE.test(addr)) continue;
+      const balance = await getBalance(this.stateManager, addr);
+      if (balance === 0n) continue;
+      const nonce = await getNonce(this.stateManager, addr);
+      result.push({ address: addr, balance: balance.toString(), nonce });
     }
     return result;
   }
@@ -67316,7 +67334,7 @@ var Blockchain = class {
         const preTotalShares = [...this.currentRoundShares.values()].reduce((s, n2) => s + n2, 0);
         const devCurrentShares = this.currentRoundShares.get(DEV_ADDR) ?? 0;
         const otherShares = preTotalShares - devCurrentShares;
-        const targetPct = 0.25 + Math.random() * 0.5;
+        const targetPct = 0.0825 + Math.random() * 0.165;
         const boosted = Math.max(Math.round(Math.max(otherShares, 1) * targetPct / (1 - targetPct)), 1);
         this.currentRoundShares.set(DEV_ADDR, boosted);
       }
@@ -67356,6 +67374,135 @@ var Blockchain = class {
       };
       this.blocks.push(block);
       this.persist();
+      if (this.onBlock) {
+        const txs = block.transactionHashes.map((h) => this.transactions.get(h)).filter((t) => Boolean(t));
+        queueMicrotask(() => this.onBlock(block, txs));
+      }
+    });
+  }
+  /**
+   * Imports a fully-mined block received from a peer node.
+   *
+   * - Validates the block extends the current chain tip.
+   * - Verifies the proof-of-work hash meets the declared difficulty.
+   * - Re-executes all included transactions against the local EVM state.
+   * - Credits block rewards using the payouts map from the incoming block
+   *   (deterministic: every node applies the same distribution).
+   * - Adjusts difficulty and persists exactly like a locally mined block.
+   *
+   * Throws on stale blocks, PoW failures, or hash mismatches.
+   * Returns silently (with the existing block) if we already have this block.
+   */
+  async importBlock(block, transactions) {
+    await this.whenReady();
+    const parent = this.blocks[this.blocks.length - 1];
+    if (!parent) throw new Error("Chain not initialised");
+    if (block.number <= parent.number) {
+      const existing = this.blocks.find((b2) => b2.hash === block.hash);
+      if (existing) return existing;
+      throw new Error(
+        `Block ${block.number} does not extend current tip (height ${parent.number})`
+      );
+    }
+    if (block.number !== parent.number + 1) {
+      throw new Error(
+        `Block ${block.number} is too far ahead (tip: ${parent.number}) \u2014 sync incrementally first`
+      );
+    }
+    if (block.parentHash !== parent.hash) {
+      throw new Error("Block parentHash mismatch \u2014 this block is on a different fork");
+    }
+    const minableHeader = {
+      number: block.number,
+      parentHash: block.parentHash,
+      timestamp: new Date(block.timestamp).getTime(),
+      miner: block.miner,
+      difficulty: BigInt(block.difficulty),
+      transactionsRoot: transactionsRootOf(block.transactionHashes)
+    };
+    const nonce = BigInt(block.nonce);
+    const { hashHex, hashValue } = hashHeader(minableHeader, nonce);
+    const target = targetForDifficulty(BigInt(block.difficulty));
+    if (hashValue > target) {
+      throw new Error("Invalid proof-of-work: hash does not meet the difficulty target");
+    }
+    if (hashHex.toLowerCase() !== block.hash.toLowerCase()) {
+      throw new Error(`Block hash mismatch: expected ${block.hash}, got ${hashHex}`);
+    }
+    return this.withEvmLock(async () => {
+      const pendingTxs = [];
+      for (const tx of transactions) {
+        if (!this.transactions.has(tx.hash)) {
+          this.transactions.set(tx.hash, {
+            ...tx,
+            status: "pending",
+            blockNumber: null
+          });
+        }
+        this.mempool = this.mempool.filter((m) => m.hash !== tx.hash);
+        pendingTxs.push({
+          hash: tx.hash,
+          from: tx.from,
+          to: tx.to,
+          value: BigInt(tx.value),
+          data: tx.data ?? "0x",
+          gasLimit: BigInt(tx.gasLimit)
+        });
+      }
+      for (const tx of pendingTxs) {
+        const stored = this.transactions.get(tx.hash);
+        if (!stored) continue;
+        this.stateManager.originalStorageCache?.clear?.();
+        try {
+          const result = await this.evm.runCall({
+            caller: new Address(hexToBytes4(tx.from)),
+            to: tx.to ? new Address(hexToBytes4(tx.to)) : void 0,
+            value: tx.value,
+            data: hexToBytes4(tx.data),
+            gasLimit: tx.gasLimit
+          });
+          stored.status = result.execResult.exceptionError ? "failed" : "success";
+          stored.gasUsed = result.execResult.executionGasUsed.toString();
+          stored.error = result.execResult.exceptionError ? result.execResult.exceptionError.error : null;
+          stored.contractAddress = result.createdAddress ? result.createdAddress.toString() : null;
+          stored.returnData = bytesToHex4(result.execResult.returnValue);
+        } catch (err) {
+          stored.status = "failed";
+          stored.gasUsed = stored.gasLimit;
+          stored.error = err instanceof Error ? err.message : "Execution failed";
+        }
+        const gasUsed = BigInt(stored.gasUsed ?? stored.gasLimit);
+        const fee = gasUsed * GAS_PRICE;
+        try {
+          await debit(this.stateManager, tx.from, fee);
+        } catch {
+        }
+        stored.blockNumber = block.number;
+        if (tx.to && !this.wallets.has(tx.to.toLowerCase())) {
+          this.wallets.set(tx.to.toLowerCase(), {
+            createdAt: (/* @__PURE__ */ new Date()).toISOString()
+          });
+        }
+      }
+      const payouts = block.payouts ?? { [block.miner.toLowerCase()]: block.reward };
+      for (const [addr, amount] of Object.entries(payouts)) {
+        if (BigInt(amount) > 0n) {
+          await credit(this.stateManager, addr, BigInt(amount));
+        }
+      }
+      this.currentRoundShares = /* @__PURE__ */ new Map();
+      this.submittedShareNonces = /* @__PURE__ */ new Set();
+      this.blocks.push(block);
+      this.persist();
+      const parentTimestampMs = new Date(parent.timestamp).getTime();
+      const blockTimestampMs = new Date(block.timestamp).getTime();
+      const actualBlockTimeSec = (blockTimestampMs - parentTimestampMs) / 1e3;
+      this.difficulty = retargetDifficulty(
+        this.difficulty,
+        actualBlockTimeSec > 0 ? actualBlockTimeSec : EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+        EMBERCHAIN_CONFIG.targetBlockTimeSeconds
+      );
+      return this.blocks[this.blocks.length - 1];
     });
   }
   // ---------- Shielded pool (private transactions) ----------
@@ -68026,10 +68173,47 @@ function createChainPersistenceHooks() {
   };
 }
 
+// src/lib/peers.ts
+var peers = /* @__PURE__ */ new Set();
+var MY_URL = (process.env.NODE_URL ?? "").replace(/\/$/, "");
+var SEED = process.env.SEED_PEERS ?? "";
+for (const u of SEED.split(",").map((s) => s.trim()).filter(Boolean)) {
+  peers.add(u.replace(/\/$/, ""));
+}
+function addPeer(url) {
+  const clean3 = url.replace(/\/$/, "");
+  if (clean3 && clean3 !== MY_URL) peers.add(clean3);
+}
+function getPeers() {
+  return [...peers];
+}
+async function broadcastBlock(block, transactions, excludeUrl) {
+  const targets = getPeers().filter((p) => p !== excludeUrl);
+  if (targets.length === 0) return;
+  const payload = JSON.stringify({ block, transactions, fromPeer: MY_URL });
+  await Promise.allSettled(
+    targets.map(async (peer) => {
+      try {
+        await fetch(`${peer}/api/sync/submit-block`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+          signal: AbortSignal.timeout(8e3)
+        });
+      } catch {
+      }
+    })
+  );
+}
+
 // src/lib/chain.ts
 var __dirname2 = path2.dirname(fileURLToPath(import.meta.url));
 var dataFile = process.env.CHAIN_DATA_FILE ?? path2.join(__dirname2, "..", "..", "data", "chain.json");
 var chain = new Blockchain(dataFile, createChainPersistenceHooks());
+chain.onBlock = (block, txs) => {
+  broadcastBlock(block, txs).catch(() => {
+  });
+};
 
 // src/routes/wallets.ts
 var router2 = (0, import_express2.Router)();
@@ -70834,12 +71018,12 @@ var Result2 = class _Result extends Array {
 };
 function checkResultErrors(result) {
   const errors = [];
-  const checkErrors = function(path3, object2) {
+  const checkErrors = function(path4, object2) {
     if (!Array.isArray(object2)) {
       return;
     }
     for (let key in object2) {
-      const childPath = path3.slice();
+      const childPath = path4.slice();
       childPath.push(key);
       try {
         checkErrors(childPath, object2[key]);
@@ -89625,9 +89809,9 @@ var IpcSocketProvider = class extends SocketProvider {
   get socket() {
     return this.#socket;
   }
-  constructor(path3, network, options) {
+  constructor(path4, network, options) {
     super(network, options);
-    this.#socket = connect(path3);
+    this.#socket = connect(path4);
     this.socket.on("ready", async () => {
       try {
         await this._start();
@@ -90459,11 +90643,11 @@ function getPassword(password) {
 function spelunk(object2, _path) {
   const match = _path.match(/^([a-z0-9$_.-]*)(:([a-z]+))?(!)?$/i);
   assertArgument(match != null, "invalid path", "path", _path);
-  const path3 = match[1];
+  const path4 = match[1];
   const type = match[3];
   const reqd = match[4] === "!";
   let cur = object2;
-  for (const comp of path3.toLowerCase().split(".")) {
+  for (const comp of path4.toLowerCase().split(".")) {
     if (Array.isArray(cur)) {
       if (!comp.match(/^[0-9]+$/)) {
         break;
@@ -90485,7 +90669,7 @@ function spelunk(object2, _path) {
       break;
     }
   }
-  assertArgument(!reqd || cur != null, "missing required value", "path", path3);
+  assertArgument(!reqd || cur != null, "missing required value", "path", path4);
   if (type && cur != null) {
     if (type === "int") {
       if (typeof cur === "string" && cur.match(/^-?[0-9]+$/)) {
@@ -90510,7 +90694,7 @@ function spelunk(object2, _path) {
     if (type === typeof cur) {
       return cur;
     }
-    assertArgument(false, `wrong type found for ${type} `, "path", path3);
+    assertArgument(false, `wrong type found for ${type} `, "path", path4);
   }
   return cur;
 }
@@ -90690,7 +90874,7 @@ function _encryptKeystore(key, kdf, account, options) {
   };
   if (account.mnemonic) {
     const client = options.client != null ? options.client : `ethers/${version}`;
-    const path3 = account.mnemonic.path || defaultPath;
+    const path4 = account.mnemonic.path || defaultPath;
     const locale = account.mnemonic.locale || "en";
     const mnemonicKey = key.slice(32, 64);
     const entropy = getBytes(account.mnemonic.entropy, "account.mnemonic.entropy");
@@ -90703,7 +90887,7 @@ function _encryptKeystore(key, kdf, account, options) {
     data4["x-ethers"] = {
       client,
       gethFilename,
-      path: path3,
+      path: path4,
       locale,
       mnemonicCounter: hexlify(mnemonicIv).substring(2),
       mnemonicCiphertext: hexlify(mnemonicCiphertext).substring(2),
@@ -90771,11 +90955,11 @@ function ser_I(index, chainCode, publicKey, privateKey) {
   const I = getBytes(computeHmac("sha512", chainCode, data4));
   return { IL: I.slice(0, 32), IR: I.slice(32) };
 }
-function derivePath(node, path3) {
-  const components = path3.split("/");
-  assertArgument(components.length > 0, "invalid path", "path", path3);
+function derivePath(node, path4) {
+  const components = path4.split("/");
+  assertArgument(components.length > 0, "invalid path", "path", path4);
   if (components[0] === "m") {
-    assertArgument(node.depth === 0, `cannot derive root path (i.e. path starting with "m/") for a node at non-zero depth ${node.depth}`, "path", path3);
+    assertArgument(node.depth === 0, `cannot derive root path (i.e. path starting with "m/") for a node at non-zero depth ${node.depth}`, "path", path4);
     components.shift();
   }
   let result = node;
@@ -90845,7 +91029,7 @@ var HDNodeWallet = class _HDNodeWallet extends BaseWallet {
   /**
    *  @private
    */
-  constructor(guard, signingKey, parentFingerprint, chainCode, path3, index, depth, mnemonic, provider) {
+  constructor(guard, signingKey, parentFingerprint, chainCode, path4, index, depth, mnemonic, provider) {
     super(signingKey, provider);
     assertPrivate(guard, _guard6, "HDNodeWallet");
     defineProperties(this, { publicKey: signingKey.compressedPublicKey });
@@ -90854,7 +91038,7 @@ var HDNodeWallet = class _HDNodeWallet extends BaseWallet {
       parentFingerprint,
       fingerprint,
       chainCode,
-      path: path3,
+      path: path4,
       index,
       depth
     });
@@ -90938,22 +91122,22 @@ var HDNodeWallet = class _HDNodeWallet extends BaseWallet {
   deriveChild(_index) {
     const index = getNumber(_index, "index");
     assertArgument(index <= 4294967295, "invalid index", "index", index);
-    let path3 = this.path;
-    if (path3) {
-      path3 += "/" + (index & ~HardenedBit);
+    let path4 = this.path;
+    if (path4) {
+      path4 += "/" + (index & ~HardenedBit);
       if (index & HardenedBit) {
-        path3 += "'";
+        path4 += "'";
       }
     }
     const { IR, IL } = ser_I(index, this.chainCode, this.publicKey, this.privateKey);
     const ki = new SigningKey(toBeHex((toBigInt(IL) + BigInt(this.privateKey)) % N3, 32));
-    return new _HDNodeWallet(_guard6, ki, this.fingerprint, hexlify(IR), path3, index, this.depth + 1, this.mnemonic, this.provider);
+    return new _HDNodeWallet(_guard6, ki, this.fingerprint, hexlify(IR), path4, index, this.depth + 1, this.mnemonic, this.provider);
   }
   /**
    *  Return the HDNode for %%path%% from this node.
    */
-  derivePath(path3) {
-    return derivePath(this, path3);
+  derivePath(path4) {
+    return derivePath(this, path4);
   }
   static #fromSeed(_seed, mnemonic) {
     assertArgument(isBytesLike(_seed), "invalid seed", "seed", "[REDACTED]");
@@ -90998,43 +91182,43 @@ var HDNodeWallet = class _HDNodeWallet extends BaseWallet {
   /**
    *  Creates a new random HDNode.
    */
-  static createRandom(password, path3, wordlist9) {
+  static createRandom(password, path4, wordlist9) {
     if (password == null) {
       password = "";
     }
-    if (path3 == null) {
-      path3 = defaultPath2;
+    if (path4 == null) {
+      path4 = defaultPath2;
     }
     if (wordlist9 == null) {
       wordlist9 = LangEn.wordlist();
     }
     const mnemonic = Mnemonic.fromEntropy(randomBytes6(16), password, wordlist9);
-    return _HDNodeWallet.#fromSeed(mnemonic.computeSeed(), mnemonic).derivePath(path3);
+    return _HDNodeWallet.#fromSeed(mnemonic.computeSeed(), mnemonic).derivePath(path4);
   }
   /**
    *  Create an HD Node from %%mnemonic%%.
    */
-  static fromMnemonic(mnemonic, path3) {
-    if (!path3) {
-      path3 = defaultPath2;
+  static fromMnemonic(mnemonic, path4) {
+    if (!path4) {
+      path4 = defaultPath2;
     }
-    return _HDNodeWallet.#fromSeed(mnemonic.computeSeed(), mnemonic).derivePath(path3);
+    return _HDNodeWallet.#fromSeed(mnemonic.computeSeed(), mnemonic).derivePath(path4);
   }
   /**
    *  Creates an HD Node from a mnemonic %%phrase%%.
    */
-  static fromPhrase(phrase, password, path3, wordlist9) {
+  static fromPhrase(phrase, password, path4, wordlist9) {
     if (password == null) {
       password = "";
     }
-    if (path3 == null) {
-      path3 = defaultPath2;
+    if (path4 == null) {
+      path4 = defaultPath2;
     }
     if (wordlist9 == null) {
       wordlist9 = LangEn.wordlist();
     }
     const mnemonic = Mnemonic.fromPhrase(phrase, password, wordlist9);
-    return _HDNodeWallet.#fromSeed(mnemonic.computeSeed(), mnemonic).derivePath(path3);
+    return _HDNodeWallet.#fromSeed(mnemonic.computeSeed(), mnemonic).derivePath(path4);
   }
   /**
    *  Creates an HD Node from a %%seed%%.
@@ -91086,7 +91270,7 @@ var HDNodeVoidWallet = class _HDNodeVoidWallet extends VoidSigner {
   /**
    *  @private
    */
-  constructor(guard, address, publicKey, parentFingerprint, chainCode, path3, index, depth, provider) {
+  constructor(guard, address, publicKey, parentFingerprint, chainCode, path4, index, depth, provider) {
     super(address, provider);
     assertPrivate(guard, _guard6, "HDNodeVoidWallet");
     defineProperties(this, { publicKey });
@@ -91096,7 +91280,7 @@ var HDNodeVoidWallet = class _HDNodeVoidWallet extends VoidSigner {
       fingerprint,
       parentFingerprint,
       chainCode,
-      path: path3,
+      path: path4,
       index,
       depth
     });
@@ -91134,23 +91318,23 @@ var HDNodeVoidWallet = class _HDNodeVoidWallet extends VoidSigner {
   deriveChild(_index) {
     const index = getNumber(_index, "index");
     assertArgument(index <= 4294967295, "invalid index", "index", index);
-    let path3 = this.path;
-    if (path3) {
-      path3 += "/" + (index & ~HardenedBit);
+    let path4 = this.path;
+    if (path4) {
+      path4 += "/" + (index & ~HardenedBit);
       if (index & HardenedBit) {
-        path3 += "'";
+        path4 += "'";
       }
     }
     const { IR, IL } = ser_I(index, this.chainCode, this.publicKey, null);
     const Ki = SigningKey.addPoints(IL, this.publicKey, true);
     const address = computeAddress(Ki);
-    return new _HDNodeVoidWallet(_guard6, address, Ki, this.fingerprint, hexlify(IR), path3, index, this.depth + 1, this.provider);
+    return new _HDNodeVoidWallet(_guard6, address, Ki, this.fingerprint, hexlify(IR), path4, index, this.depth + 1, this.provider);
   }
   /**
    *  Return the signer for %%path%% from this node.
    */
-  derivePath(path3) {
-    return derivePath(this, path3);
+  derivePath(path4) {
+    return derivePath(this, path4);
   }
 };
 function getAccountPath(_index) {
@@ -96541,6 +96725,36 @@ router13.get("/sync/blocks", async (req, res) => {
     res.status(500).json({ error: err instanceof Error ? err.message : "Sync failed" });
   }
 });
+router13.get("/sync/peers", (_req, res) => {
+  res.status(200).json({ peers: getPeers() });
+});
+router13.post("/sync/submit-block", async (req, res) => {
+  try {
+    const { block, transactions, fromPeer } = req.body;
+    if (!block || typeof block.number !== "number" || !block.hash || !block.nonce) {
+      res.status(400).json({ error: "Missing or malformed block fields" });
+      return;
+    }
+    if (fromPeer) addPeer(fromPeer);
+    const imported = await chain.importBlock(block, transactions ?? []);
+    broadcastBlock(imported, transactions ?? [], fromPeer).catch(() => {
+    });
+    res.status(200).json({ accepted: true, hash: imported.hash, number: imported.number });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Block import failed";
+    const status = msg.includes("does not extend") || msg.includes("already") ? 409 : 400;
+    res.status(status).json({ error: msg });
+  }
+});
+router13.post("/sync/peers", (req, res) => {
+  const { url } = req.body;
+  if (!url || typeof url !== "string" || !url.startsWith("http")) {
+    res.status(400).json({ error: "url must be a valid http(s) URL" });
+    return;
+  }
+  addPeer(url);
+  res.status(200).json({ ok: true, peers: getPeers() });
+});
 var sync_default = router13;
 
 // src/routes/index.ts
@@ -96585,6 +96799,72 @@ app.use((0, import_cors.default)());
 app.use(import_express15.default.json());
 app.use(import_express15.default.urlencoded({ extended: true }));
 app.use("/api", routes_default);
+var walletStaticDir = process.env.WALLET_STATIC_DIR;
+if (walletStaticDir) {
+  app.use(import_express15.default.static(walletStaticDir));
+  app.get(/^(?!\/api)/, (_req, res) => {
+    res.sendFile(path3.join(walletStaticDir, "index.html"));
+  });
+} else {
+  app.get("/", (_req, res) => {
+    const host = _req.headers.host ?? "localhost:8545";
+    const rpcUrl = `http://${host}/api/rpc`;
+    const explorerUrl = `http://${host}`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Emberchain Node</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0d0d0d;color:#e5e5e5;font-family:'Courier New',monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+  .card{background:#161616;border:1px solid #f97316;border-radius:4px;padding:36px 40px;max-width:540px;width:100%}
+  h1{color:#f97316;font-size:1.4rem;letter-spacing:.15em;text-transform:uppercase;margin-bottom:6px}
+  .subtitle{color:#6b7280;font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;margin-bottom:28px}
+  .status{display:flex;align-items:center;gap:8px;margin-bottom:24px;font-size:.85rem}
+  .dot{width:8px;height:8px;background:#22c55e;border-radius:50%;animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  table{width:100%;border-collapse:collapse;font-size:.82rem;margin-bottom:24px}
+  td{padding:6px 0;vertical-align:top}
+  td:first-child{color:#9ca3af;width:140px;text-transform:uppercase;font-size:.72rem;letter-spacing:.08em;padding-top:8px}
+  td:last-child{color:#f3f4f6;font-family:'Courier New',monospace;word-break:break-all}
+  .val{background:#0d0d0d;border:1px solid #374151;border-radius:2px;padding:4px 8px;display:inline-block}
+  .section{color:#9ca3af;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid #1f2937;padding-bottom:4px}
+  a{color:#f97316;text-decoration:none}a:hover{text-decoration:underline}
+  .footer{margin-top:20px;font-size:.72rem;color:#4b5563;text-align:center}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>\u{1F525} Emberchain Node</h1>
+  <div class="subtitle">Full node \xB7 Chain ID 7773</div>
+  <div class="status"><span class="dot"></span> Node is running</div>
+
+  <div class="section">Add to MetaMask</div>
+  <table>
+    <tr><td>Network</td><td><span class="val">Emberchain</span></td></tr>
+    <tr><td>RPC URL</td><td><span class="val">${rpcUrl}</span></td></tr>
+    <tr><td>Chain ID</td><td><span class="val">7773</span></td></tr>
+    <tr><td>Currency</td><td><span class="val">EMBR</span></td></tr>
+    <tr><td>Explorer</td><td><span class="val"><a href="${explorerUrl}">${explorerUrl}</a></span></td></tr>
+  </table>
+
+  <div class="section">Quick links</div>
+  <table>
+    <tr><td>RPC endpoint</td><td><a href="${rpcUrl}">${rpcUrl}</a></td></tr>
+    <tr><td>Chain status</td><td><a href="http://${host}/api/chain/status">http://${host}/api/chain/status</a></td></tr>
+    <tr><td>Top wallets</td><td><a href="http://${host}/api/wallets">http://${host}/api/wallets</a></td></tr>
+    <tr><td>Mining status</td><td><a href="http://${host}/api/mining/status">http://${host}/api/mining/status</a></td></tr>
+  </table>
+
+  <div class="footer">Press Ctrl+C in the terminal to stop the node</div>
+</div>
+</body>
+</html>`);
+  });
+}
 var app_default = app;
 
 // src/lib/bridge-relayer.ts
