@@ -53,8 +53,12 @@ function randomNonce(): bigint {
   return (BigInt(hi) << 24n) | BigInt(lo);
 }
 
+// Normalise: accept both https://emberchain.org/api and https://emberchain.org
+// Strip a trailing /api so the paths below work regardless of what the user typed.
+const base = nodeUrl.replace(/\/api\/?$/, "");
+
 async function fetchTemplate() {
-  const r = await fetch(`${nodeUrl}/api/mining/template?minerAddress=${address}`, {
+  const r = await fetch(`${base}/api/mining/template?minerAddress=${address}`, {
     signal: AbortSignal.timeout(10_000),
   });
   if (!r.ok) throw new Error(`Template fetch failed: ${r.status}`);
@@ -62,7 +66,7 @@ async function fetchTemplate() {
 }
 
 async function submitShare(header: Header, nonce: string) {
-  const r = await fetch(`${nodeUrl}/api/mining/share`, {
+  const r = await fetch(`${base}/api/mining/share`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ minerAddress: address, header, nonce }),
   });
@@ -70,7 +74,7 @@ async function submitShare(header: Header, nonce: string) {
 }
 
 async function submitBlock(header: Header, nonce: string, blockHash: string) {
-  const r = await fetch(`${nodeUrl}/api/mining/submit`, {
+  const r = await fetch(`${base}/api/mining/submit`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ minerAddress: address, header, nonce, blockHash, pendingTxHashes: [] }),
   });
@@ -80,7 +84,7 @@ async function submitBlock(header: Header, nonce: string, blockHash: string) {
 
 async function fetchStatus() {
   try {
-    const r = await fetch(`${nodeUrl}/api/chain/status`, {
+    const r = await fetch(`${base}/api/chain/status`, {
       signal: AbortSignal.timeout(8_000),
     });
     if (r.ok) return r.json();
