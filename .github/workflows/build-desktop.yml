@@ -1,0 +1,111 @@
+name: Build Emberchain Desktop
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            rust-target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+          - platform: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            bundles: nsis,msi
+          - platform: macos-latest
+            rust-target: aarch64-apple-darwin
+            bundles: dmg
+          - platform: macos-13
+            rust-target: x86_64-apple-darwin
+            bundles: dmg
+
+    runs-on: ${{ matrix.platform }}
+    name: Build (${{ matrix.platform }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: lib/emberchain-desktop/src-tauri -> target
+
+      # Linux-specific WebKit + GTK dependencies
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev
+
+      - name: Install workspace packages
+        run: pnpm install --frozen-lockfile
+
+      # Build the standalone server bundle (needed by the desktop app)
+      - name: Build chain server bundle
+        run: pnpm --filter @workspace/emberchain-node run build
+
+      # Prepare node-resources/ directory for Tauri
+      - name: Prepare desktop resources
+        working-directory: lib/emberchain-desktop
+        run: pnpm install && node scripts/prepare-resources.mjs
+
+      # Build the Tauri app
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional: code signing
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: lib/emberchain-desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "Emberchain Desktop ${{ github.ref_name }}"
+          releaseBody: |
+            ## Emberchain Desktop
+
+            Full-node desktop wallet for Emberchain (EMBR).
+
+            **Requirements:** Node.js 20+ must be installed ([nodejs.org](https://nodejs.org))
+
+            ### Install
+            - **Windows** → download the `.msi` installer
+            - **macOS** → download the `.dmg` disk image
+            - **Linux** → download the `.AppImage` (no install needed) or `.deb`
+
+            ### First launch
+            The app downloads the Emberchain chain state automatically (~few MB).
+            Subsequent launches start in seconds from local data.
+          releaseDraft: true
+          args: --target ${{ matrix.rust-target }} --bundles ${{ matrix.bundles }}
