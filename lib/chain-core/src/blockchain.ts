@@ -1605,10 +1605,54 @@ export class Blockchain {
         }
       }
 
-      // Reset EVM state to empty and replay the entire new canonical chain
-      this.stateManager = createStateManager(this.common);
-      this.evm           = await createEVM({ common: this.common, stateManager: this.stateManager });
-      await this.replayChainEVM(newCanonical, forkTxMap);
+      // ── EVM state update ──────────────────────────────────────────────────────
+      //
+      // The full genesis-replay approach (reset state, replay every block) is
+      // correct but O(chain length) — for a 34 000-block chain it takes 20-60 s,
+      // which is longer than the 30-second stall watchdog.  The watchdog fires
+      // resetToGenesis() while the replay is still in progress, wiping the chain.
+      //
+      // Fast path (used when every rolled-back block AND every fork block has no
+      // transactions — the overwhelmingly common case for pure mining reorgs):
+      //   1. Debit mining rewards for each rolled-back block (reverse order).
+      //   2. Credit mining rewards for each fork block (forward order).
+      //   O(rolledBack + forkChain) instead of O(entire chain).
+      //
+      // Slow path (any block has transactions): fall back to the full replay to
+      // guarantee correct contract state after the reorg.
+
+      const hasTransactions = (b: StoredBlock) => b.transactionHashes.length > 0;
+      const needsFullReplay = [...rolledBack, ...forkChain].some(hasTransactions);
+
+      if (needsFullReplay) {
+        this.stateManager = createStateManager(this.common);
+        this.evm           = await createEVM({ common: this.common, stateManager: this.stateManager });
+        await this.replayChainEVM(newCanonical, forkTxMap);
+      } else {
+        // Fast path: patch state in-place without replaying from genesis.
+        // Undo rolled-back blocks (newest first — order doesn't matter for
+        // independent miner accounts, but reverse is semantically correct).
+        for (const b of [...rolledBack].reverse()) {
+          const payouts = b.payouts ?? { [b.miner.toLowerCase()]: b.reward };
+          for (const [addr, amount] of Object.entries(payouts)) {
+            if (BigInt(amount) > 0n) {
+              try {
+                await debit(this.stateManager, addr as PrefixedHexString, BigInt(amount));
+              } catch { /* miner balance already 0 — safe to ignore */ }
+            }
+          }
+        }
+        // Apply fork blocks (oldest first).
+        for (const b of forkChain) {
+          const payouts = b.payouts ?? { [b.miner.toLowerCase()]: b.reward };
+          for (const [addr, amount] of Object.entries(payouts)) {
+            if (BigInt(amount) > 0n) {
+              await credit(this.stateManager, addr as PrefixedHexString, BigInt(amount));
+            }
+          }
+        }
+        console.log(`[chain] Reorg used fast EVM patch (${rolledBack.length} block(s) rolled back, ${forkChain.length} applied — no tx replay needed)`);
+      }
 
       // Commit
       this.blocks       = newCanonical;
