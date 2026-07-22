@@ -1,6 +1,6 @@
 import { Download, Monitor, Apple, Tv2, Smartphone } from "lucide-react";
 
-const DESKTOP_RELEASE = "https://github.com/RedPillPhil/Emberchain/releases/tag/desktop-v1.0.18";
+const DESKTOP_RELEASE = "https://github.com/RedPillPhil/Emberchain/releases/tag/desktop-v1.0.19";
 const ANDROID_RELEASE = "https://github.com/RedPillPhil/Emberchain/releases/tag/android-v1.0.0";
 
 export default function Downloads() {
