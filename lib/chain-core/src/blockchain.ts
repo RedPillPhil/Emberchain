@@ -305,6 +305,55 @@ export class Blockchain {
   }
 
   /**
+   * Wipe the in-memory chain back to genesis and reset all EVM state.
+   *
+   * Called by the sync loop when the local node has been stuck on the same
+   * block for several consecutive rounds — a reliable signal that the local
+   * chain diverged from the canonical network chain at some earlier point.
+   * After the reset the sync loop re-imports every block from the peer,
+   * rebuilding the correct EVM state incrementally.
+   *
+   * IMPORTANT: this does NOT touch wallets / keystores — only chain data.
+   */
+  async resetToGenesis(): Promise<void> {
+    return this.withEvmLock(async () => {
+      console.log("[chain] ⚠️  Resetting chain to genesis for full re-sync…");
+
+      // Reconstruct the deterministic genesis block (same logic as init())
+      const genesisBlock: StoredBlock = {
+        number: 0,
+        hash: GENESIS_PARENT_HASH,
+        parentHash: GENESIS_PARENT_HASH,
+        timestamp: GENESIS_TIMESTAMP,
+        miner: ZERO_ADDRESS,
+        difficulty: EMBERCHAIN_CONFIG.genesisDifficulty,
+        nonce: "0",
+        stateRoot: `0x${"0".repeat(64)}`,
+        reward: "0",
+        transactionHashes: [],
+        totalDifficulty: EMBERCHAIN_CONFIG.genesisDifficulty,
+      };
+
+      this.blocks       = [genesisBlock];
+      this.blocksByHash = new Map([[genesisBlock.hash, genesisBlock]]);
+      this.orphanPool.clear();
+      this.transactions.clear();
+
+      // Reset difficulty to genesis value so retargeting restarts cleanly
+      this.difficulty = BigInt(EMBERCHAIN_CONFIG.genesisDifficulty);
+
+      // Wipe EVM state (all account balances / contract storage)
+      this.stateManager = createStateManager(this.common);
+      this.evm = await createEVM({ common: this.common, stateManager: this.stateManager });
+
+      // Persist the genesis-only chain so the node starts clean on next boot
+      this.persist();
+
+      console.log("[chain] ✅ Chain reset to genesis. Sync will re-import all blocks.");
+    });
+  }
+
+  /**
    * Persist chain state to the local file and optionally to the database.
    *
    * @param toDB - When true (default), also fires the async DB upsert.

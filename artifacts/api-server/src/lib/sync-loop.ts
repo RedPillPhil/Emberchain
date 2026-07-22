@@ -29,6 +29,10 @@ const PEX_INTERVAL_MS  = 5 * 60_000;
 // How many blocks to look back when searching for a fork divergence point
 const FORK_LOOKBACK = 64;
 
+// After this many consecutive stalled rounds the local chain is on a fork so
+// deep that the TD-based reorg can never fire.  Wipe to genesis and re-sync.
+const DEEP_STALL_RESET_AFTER = 3;
+
 let syncTimer: ReturnType<typeof setInterval> | null = null;
 let pexTimer:  ReturnType<typeof setInterval> | null = null;
 
@@ -148,7 +152,21 @@ async function syncOnce(): Promise<void> {
     } else if (peerHeight > ourHeight) {
       // Height didn't change even though peer is ahead — wrong fork branch
       _stallCount++;
-      console.warn(`[${ts()}] [sync] ⚠️  Stalled at ${ourHeight} (round ${_stallCount}) — will step back next round to find fork divergence`);
+      console.warn(`[${ts()}] [sync] ⚠️  Stalled at ${ourHeight} (round ${_stallCount}/${DEEP_STALL_RESET_AFTER})`);
+
+      if (_stallCount >= DEEP_STALL_RESET_AFTER) {
+        // The local chain has diverged so deeply from the canonical network
+        // chain that the TD-based orphan-pool reorg can never fire (our
+        // canonical TD >> any partial orphan chain we can accumulate).
+        // Wipe to genesis and let the next rounds re-import every block fresh.
+        console.warn(`[${ts()}] [sync] 🔄 Deep fork detected — resetting chain to genesis for full re-sync`);
+        try {
+          await chain.resetToGenesis();
+        } catch (e) {
+          console.error(`[${ts()}] [sync] ❌ resetToGenesis failed:`, e);
+        }
+        _stallCount = 0;
+      }
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
