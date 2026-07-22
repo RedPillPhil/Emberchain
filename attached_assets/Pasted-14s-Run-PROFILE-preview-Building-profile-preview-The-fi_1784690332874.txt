@@ -1,0 +1,62 @@
+14s
+Run PROFILE="preview"
+Building profile: preview
+The field "cli.appVersionSource" is not set, but it will be required in the future. Learn more: https://docs.expo.dev/build-reference/app-versions/
+Resolved "preview" environment for the build. Learn more: https://docs.expo.dev/eas/environment-variables/#setting-the-environment-for-your-builds
+No environment variables with visibility "Plain text" and "Sensitive" found for the "preview" environment on EAS.
+
+
+
+The field "cli.appVersionSource" is not set, but it will be required in the future. Learn more: https://docs.expo.dev/build-reference/app-versions/
+✔ Using remote Android credentials (Expo server)
+✔ Created keystore
+
+Compressing project files and uploading to EAS Build. Learn more: https://expo.fyi/eas-build-archive
+- Compressing project files
+- Uploading to EAS Build (0 / 62.0 MB)
+✔ Uploaded to EAS 
+- Computing project fingerprint
+✔ Computed project fingerprint
+
+See logs: https://expo.dev/accounts/robairecodes/projects/mobile-wallet/builds/107a3620-7d0d-493a-99e8-decdeb452e58
+
+[
+  {
+    "id": "107a3620-7d0d-493a-99e8-decdeb452e58",
+    "status": "NEW",
+    "platform": "ANDROID",
+    "artifacts": {},
+    "fingerprint": {
+      "id": "019f87d3-be4b-74a3-8093-af83ef709cbe",
+      "hash": "c6bf92c9a5997f1706f090613a5541b8093aa775"
+    },
+    "initiatingActor": {
+      "id": "5fda2f30-19b3-41b2-826a-d31945512e7f",
+      "displayName": "robairecodes"
+    },
+    "logFiles": [],
+    "project": {
+      "id": "18551cfe-b1a9-45d0-95b7-f5917e622340",
+      "name": "mobile-wallet",
+      "slug": "mobile-wallet",
+      "ownerAccount": {
+        "id": "cc4b3767-2131-4e2e-a166-5f4bfffa881e",
+        "name": "robairecodes"
+      }
+    },
+    "distribution": "INTERNAL",
+    "buildProfile": "preview",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.0.0",
+    "appBuildVersion": "1",
+    "gitCommitHash": "663dda78a371ae35dd204f1c29745c8db4e45770",
+    "gitCommitMessage": "fix: run eas init before build to register project on Expo servers",
+    "priority": "NORMAL",
+    "createdAt": "2026-07-22T03:17:08.777Z",
+    "updatedAt": "2026-07-22T03:17:08.777Z",
+    "expirationDate": "2026-08-05T03:17:08.804Z",
+    "isForIosSimulator": false
+  }
+]
+PARSE_ERROR: Expecting value: line 1 column 1 (char 0)
+Error: Process completed with exit code 1.
