@@ -869,10 +869,23 @@ export class Blockchain {
    * Intended to be sent as a large JSON blob to a bootstrapping standalone node.
    */
   exportSnapshot(): PersistedChain {
+    // Walk backwards from the canonical tip via parentHash to build the set of
+    // canonical block hashes — same logic as getBlocksFrom.  This filters out
+    // any competing blocks stored at the same height (a known production issue
+    // from past mining races) so peers always receive a clean single chain.
+    const canonicalHashes = new Set<string>();
+    let cursor: StoredBlock | undefined = this.blocks[this.blocks.length - 1];
+    while (cursor) {
+      canonicalHashes.add(cursor.hash);
+      if (cursor.number === 0) break;
+      cursor = this.blocksByHash.get(cursor.parentHash);
+    }
+    const canonicalBlocks = this.blocks.filter(b => canonicalHashes.has(b.hash));
+
     return {
       version: 3,
       difficulty: this.difficulty.toString(),
-      blocks: this.blocks,
+      blocks: canonicalBlocks,
       transactions: [...this.transactions.values()],
       wallets: [...this.wallets.entries()],
       state: dumpState(this.stateManager),

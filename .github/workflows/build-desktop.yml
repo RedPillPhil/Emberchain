@@ -50,11 +50,12 @@ jobs:
       # via git checkout, but here we bake it fresh per-build so it's current).
       - name: Download chain snapshot
         shell: bash
+        continue-on-error: true
         run: |
-          curl -fsSL --max-time 120 \
+          curl -fsSL --max-time 300 --retry 2 --retry-delay 10 \
             "https://emberchain.org/api/sync/snapshot" \
             -o lib/emberchain-wallet-electron/chain-snapshot.json
-          BLOCKS=$(python3 -c "import json,sys; d=json.load(open('lib/emberchain-wallet-electron/chain-snapshot.json')); print(len(d.get('blocks',[])))")
+          BLOCKS=$(python3 -c "import json,sys; d=json.load(open('lib/emberchain-wallet-electron/chain-snapshot.json')); print(len(d.get('blocks',[])))" 2>/dev/null || echo "unknown")
           echo "Snapshot downloaded: $BLOCKS blocks"
 
       # Bundle the embedded chain node into node-engine-bundle.cjs
