@@ -87,6 +87,9 @@ function extractCanonicalSubchain(
   return chain;
 }
 
+// Batch size for block fetches — larger = fewer round trips during catch-up
+const BATCH_SIZE = 2000;
+
 async function syncOnce(): Promise<void> {
   const peers = getPeers();
   if (peers.length === 0) return;
@@ -122,7 +125,7 @@ async function syncOnce(): Promise<void> {
         peerHeight = ps.latestBlock;
         if (peerHeight > _bestPeerHeight) _bestPeerHeight = peerHeight;
       }
-      if (ps.totalDifficulty)       peerTD     = BigInt(ps.totalDifficulty);
+      if (ps.totalDifficulty) peerTD = BigInt(ps.totalDifficulty);
     }
   } catch {
     // Peer may be offline or running an older version without totalDifficulty —
@@ -138,90 +141,86 @@ async function syncOnce(): Promise<void> {
   }
 
   const gap = peerHeight - ourHeight;
-  console.log(`[${ts()}] [sync] 📥 ${peerShort} is ${gap > 0 ? gap + " blocks" : "a fork"} ahead (us: ${ourHeight}, peer: ${peerHeight})${_stallCount > 0 ? ` — stall #${_stallCount}, stepping back to find fork` : ""} — fetching …`);
+  console.log(`[${ts()}] [sync] 📥 ${peerShort} is ${gap > 0 ? gap + " blocks" : "a fork"} ahead — draining from ${ourHeight + 1} …`);
 
-  // Determine fetch range:
-  //   • Normal catch-up: fetch from ourHeight + 1
-  //   • Fork or stall detected: step back FORK_LOOKBACK so importBlock can
-  //     find the common ancestor, compute incomingTD from a known parent, and
-  //     fire the reorg that switches to the heavier chain.
-  //   • Peer has more work but same/lower height: always step back (classic fork)
-  const fromBlock = (peerHeight > ourHeight && _stallCount === 0)
-    ? ourHeight + 1
-    : Math.max(1, ourHeight - FORK_LOOKBACK);
+  // ── Drain loop ───────────────────────────────────────────────────────────
+  // Fetch batch after batch with no delay until we're caught up or stall.
+  // This avoids the previous behaviour of fetching one 500-block batch then
+  // sitting idle for 10 seconds before the next one.
+  let drainFrom = _stallCount > 0
+    ? Math.max(1, ourHeight - FORK_LOOKBACK)
+    : ourHeight + 1;
 
-  try {
-    const r = await fetch(
-      `${peer}/api/sync/blocks?from=${fromBlock}&limit=500`,
-      { signal: AbortSignal.timeout(30_000) },
-    );
-    if (!r.ok) {
-      console.warn(`[${ts()}] [sync] ⚠️  ${peerShort} returned HTTP ${r.status} for blocks`);
-      return;
+  while (true) {
+    let batchBlocks: Array<StoredBlock & { transactions: StoredTransaction[] }> = [];
+    try {
+      const r = await fetch(
+        `${peer}/api/sync/blocks?from=${drainFrom}&limit=${BATCH_SIZE}`,
+        { signal: AbortSignal.timeout(60_000) },
+      );
+      if (!r.ok) {
+        console.warn(`[${ts()}] [sync] ⚠️  ${peerShort} HTTP ${r.status} — stopping drain`);
+        break;
+      }
+      const data = (await r.json()) as {
+        blocks: Array<StoredBlock & { transactions: StoredTransaction[] }>;
+      };
+      if (!Array.isArray(data.blocks) || data.blocks.length === 0) break;
+      batchBlocks = data.blocks;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[${ts()}] [sync] ⚠️  ${peerShort} unreachable: ${msg}`);
+      break;
     }
 
-    const data = (await r.json()) as {
-      blocks: Array<StoredBlock & { transactions: StoredTransaction[] }>;
-    };
-    if (!Array.isArray(data.blocks) || data.blocks.length === 0) return;
-
-    // The peer may return multiple competing blocks at the same height (a known
-    // production data issue where several miners won the same slot).  Importing
-    // all of them forces the local node to make a fork-choice it often gets
-    // wrong, producing a new stall one step further along the chain.
-    //
-    // Instead, extract only the single canonical chain from the batch:
-    //   1. Find the "tip" — the highest block whose hash is not used as a
-    //      parentHash by any other block in the batch (genuine chain endpoint).
-    //   2. Walk backwards via parentHash, collecting only blocks in the batch.
-    //   3. Import that sequence in ascending order — one block per height, no
-    //      fork-choice needed.
-    const canonical = extractCanonicalSubchain(data.blocks);
-    const skipped   = data.blocks.length - canonical.length;
+    // Strip competing blocks at the same height — keep only the canonical chain
+    const canonical = extractCanonicalSubchain(batchBlocks);
+    const skipped   = batchBlocks.length - canonical.length;
     if (skipped > 0) {
-      console.log(`[${ts()}] [sync] 🔍 Filtered batch: ${canonical.length} canonical blocks, ${skipped} competing blocks ignored`);
+      console.log(`[${ts()}] [sync] 🔍 Filtered: ${canonical.length} canonical, ${skipped} competing ignored`);
     }
 
+    const heightBefore = ourHeight;
+    let aborted = false;
     for (const blockData of canonical) {
       const { transactions, ...block } = blockData;
       try {
         await chain.importBlock(block as StoredBlock, transactions ?? []);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        // Reorg failed — we don't have the full fork yet, sync loop will retry
         if (msg.includes("Reorg aborted")) {
-          console.warn(`[${ts()}] [sync] Reorg from ${peerShort} incomplete, will retry: ${msg}`);
+          console.warn(`[${ts()}] [sync] Reorg incomplete, will retry next round: ${msg}`);
+          aborted = true;
           break;
         }
-        // Any other unrecognised error: log and continue to next block
-        if (!msg.includes("already") && !msg.includes("Reorg aborted")) {
+        if (!msg.includes("already")) {
           console.warn(`[${ts()}] [sync] importBlock #${(block as StoredBlock).number}: ${msg}`);
         }
       }
     }
+    if (aborted) break;
 
-    // Measure progress by actual height change — not by how many blocks we
-    // called importBlock on (already-known blocks also return without throwing,
-    // which used to mask stalls by resetting _stallCount prematurely).
+    // Measure actual progress
     const newStatus = await chain.getStatus().catch(() => null);
-    const nowHeight = newStatus?.height ?? ourHeight;
+    ourHeight = newStatus?.height ?? ourHeight;
 
-    if (nowHeight > ourHeight) {
+    if (ourHeight > heightBefore) {
       _stallCount = 0;
-      console.log(`[${ts()}] [sync] ✅ Height ${ourHeight} → ${nowHeight}${nowHeight < peerHeight ? ` (${peerHeight - nowHeight} remaining)` : " 🎉 fully synced"}`);
-    } else if (peerHeight > ourHeight) {
-      // Height didn't change even though peer is ahead.
-      // The canonical-subchain filter means this should be very rare — the
-      // peer batch was either all duplicates we already have, or the peer is
-      // temporarily behind.  Log it and let the next round retry; do NOT
-      // reset to genesis (that forces a full re-sync from block 0 which takes
-      // many minutes and loses all progress).
+      const remaining = peerHeight - ourHeight;
+      if (remaining <= 0) {
+        console.log(`[${ts()}] [sync] 🎉 Fully synced at ${ourHeight}`);
+        break;
+      }
+      console.log(`[${ts()}] [sync] ↑ ${ourHeight} (${remaining} remaining) …`);
+      drainFrom = ourHeight + 1;
+      // Refresh peer tip so we don't overshoot if the chain has grown
+      if (ourHeight >= peerHeight) break;
+    } else {
+      // No progress — don't spin, let the next timed interval retry
       _stallCount++;
-      console.warn(`[${ts()}] [sync] ⚠️  No progress at ${ourHeight} (round ${_stallCount}) — will retry`);
+      console.warn(`[${ts()}] [sync] ⚠️  No progress at ${ourHeight} (stall #${_stallCount}) — will retry`);
+      break;
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[${ts()}] [sync] ⚠️  ${peerShort} unreachable: ${msg}`);
   }
 }
 
