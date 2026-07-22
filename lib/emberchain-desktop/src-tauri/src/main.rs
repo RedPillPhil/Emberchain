@@ -91,13 +91,18 @@ async fn wait_for_port(port: u16, timeout_secs: u64) -> bool {
     false
 }
 
-/// Download the full chain snapshot from the production node.
+/// Download the full chain snapshot from the production node, streaming
+/// chunks directly to disk so the UI progress bar moves continuously.
 async fn download_snapshot(
     chain_file: &PathBuf,
     app: &AppHandle,
 ) -> Result<(), String> {
+    use std::io::Write;
+    use futures_util::StreamExt;
+
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(180))
+        .timeout(Duration::from_secs(600)) // 10 min — large chain
+        .connect_timeout(Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -116,18 +121,49 @@ async fn download_snapshot(
         ));
     }
 
-    emit(app, "syncing", "Downloading chain state…", 0.45);
+    // Content-Length lets us show a real percentage; fall back to indeterminate.
+    let total_bytes = response.content_length();
 
-    let body = response
-        .text()
-        .await
-        .map_err(|e| format!("Download error: {e}"))?;
+    // Write to a temp file; rename to final path only on success.
+    let tmp_file = chain_file.with_extension("json.tmp");
+    let mut file = std::fs::File::create(&tmp_file)
+        .map_err(|e| format!("Cannot create temp file: {e}"))?;
 
-    emit(app, "syncing", "Saving chain data…", 0.80);
+    let mut downloaded: u64 = 0;
+    let mut stream = response.bytes_stream();
 
-    std::fs::write(chain_file, &body)
-        .map_err(|e| format!("Write error: {e}"))?;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Download error: {e}"))?;
+        file.write_all(&chunk)
+            .map_err(|e| format!("Write error: {e}"))?;
+        downloaded += chunk.len() as u64;
 
+        // Progress: map download 0→100% onto the 0.20→0.82 range.
+        let dl_fraction = match total_bytes {
+            Some(total) if total > 0 => (downloaded as f32 / total as f32).clamp(0.0, 1.0),
+            _ => 0.5, // unknown size — hold at midpoint
+        };
+        let progress = 0.20 + dl_fraction * 0.62;
+
+        let mb = downloaded as f32 / (1024.0 * 1024.0);
+        let msg = match total_bytes {
+            Some(total) => format!(
+                "Downloading chain data… {:.1} / {:.1} MB",
+                mb,
+                total as f32 / (1024.0 * 1024.0)
+            ),
+            None => format!("Downloading chain data… {:.1} MB", mb),
+        };
+        emit(app, "syncing", &msg, progress);
+    }
+
+    // Flush + rename atomically so a partial download never corrupts the file.
+    file.flush().map_err(|e| format!("Flush error: {e}"))?;
+    drop(file);
+    std::fs::rename(&tmp_file, chain_file)
+        .map_err(|e| format!("Rename error: {e}"))?;
+
+    emit(app, "syncing", "Chain data saved.", 0.85);
     Ok(())
 }
 
