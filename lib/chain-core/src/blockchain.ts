@@ -883,8 +883,17 @@ export class Blockchain {
       cursor = this.blocksByHash.get(cursor.parentHash);
     }
 
+    // Deduplicate by hash — this.blocks can store the same block twice
+    // (e.g. imported from two peers), causing the same hash to appear at
+    // the same height twice and failing the duplicate-heights check.
+    const seenHashes = new Set<string>();
     const canonicalBlocks = this.blocks
-      .filter(b => canonicalHashes.has(b.hash))
+      .filter(b => {
+        if (!canonicalHashes.has(b.hash)) return false;
+        if (seenHashes.has(b.hash)) return false;
+        seenHashes.add(b.hash);
+        return true;
+      })
       .sort((a, b) => a.number - b.number);
 
     // ── Step 3: validate ─────────────────────────────────────────────────────
