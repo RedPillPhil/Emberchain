@@ -427,11 +427,26 @@ export class Blockchain {
    *               and exchange actions always pass toDB = true so that durable
    *               state is never lost across server restarts.
    */
+  /**
+   * Maximum number of blocks written to the local chain file.
+   * Older blocks are pruned from the file on every persist — the EVM stateRoot
+   * captures all historical state, so they are not needed for warm-start.
+   * The sync loop only needs FORK_LOOKBACK (64) blocks; 2000 gives plenty of
+   * headroom for serving peers and re-org detection.
+   */
+  private static readonly MAX_FILE_BLOCKS = 2_000;
+
   private persist(toDB = true): void {
+    // Prune the block list written to disk so the chain.json stays small and
+    // startup stays fast.  The full this.blocks array remains in memory.
+    const fileBlocks = this.blocks.length > Blockchain.MAX_FILE_BLOCKS
+      ? this.blocks.slice(-Blockchain.MAX_FILE_BLOCKS)
+      : this.blocks;
+
     const data: PersistedChain = {
       version: 3,
       difficulty: this.difficulty.toString(),
-      blocks: this.blocks,
+      blocks: fileBlocks,
       transactions: [...this.transactions.values()],
       wallets: [...this.wallets.entries()],
       state: dumpState(this.stateManager),
