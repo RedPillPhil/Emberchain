@@ -33,6 +33,9 @@ const TABS: { id: Tab; label: string; icon: React.ComponentProps<typeof Feather>
   { id: 'unshield', label: 'Unshield', icon: 'unlock' },
 ];
 
+/** 0.01 EMBR in human-readable form — matches DEFAULT_PRIVATE_FEE in blockchain.ts */
+const PRIVATE_SEND_FEE = '0.01';
+
 export default function PrivateScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -216,6 +219,10 @@ function PrivateSendPanel({ colors, insets }: any) {
   const [success, setSuccess] = useState('');
   const [bookVisible, setBookVisible] = useState(false);
 
+  const totalDeducted = amount && parseFloat(amount) > 0
+    ? (parseFloat(amount) + parseFloat(PRIVATE_SEND_FEE)).toFixed(4).replace(/\.?0+$/, '')
+    : null;
+
   const handle = async () => {
     setError(''); setSuccess('');
     if (!isValidAddress(to.trim())) { setError('Invalid recipient address.'); return; }
@@ -261,7 +268,7 @@ function PrivateSendPanel({ colors, insets }: any) {
         </Pressable>
       </View>
 
-      <Text style={[styles.fieldLabel, { color: colors.mutedForeground, marginTop: 12 }]}>AMOUNT (EMBR)</Text>
+      <Text style={[styles.fieldLabel, { color: colors.mutedForeground, marginTop: 12 }]}>AMOUNT TO SEND (EMBR)</Text>
       <View style={[styles.inputRow, { backgroundColor: colors.input, borderColor: colors.border }]}>
         <TextInput
           style={[styles.input, { color: colors.foreground, flex: 1 }]}
@@ -272,6 +279,24 @@ function PrivateSendPanel({ colors, insets }: any) {
           keyboardType="decimal-pad"
         />
         <Text style={[styles.unit, { color: colors.mutedForeground }]}>EMBR</Text>
+      </View>
+
+      {/* Fee notice */}
+      <View style={[styles.feeBox, { backgroundColor: `${colors.warning ?? '#F59E0B'}15`, borderColor: `${colors.warning ?? '#F59E0B'}40` }]}>
+        <Feather name="info" size={14} color={colors.warning ?? '#F59E0B'} />
+        <View style={{ flex: 1, gap: 3 }}>
+          <Text style={[styles.feeTitle, { color: colors.foreground }]}>
+            Network fee: {PRIVATE_SEND_FEE} EMBR
+          </Text>
+          <Text style={[styles.feeSub, { color: colors.mutedForeground }]}>
+            Deducted from your shielded balance on top of the send amount. The fee goes to a public protocol sink address (0x…deadbeef) — visible on-chain, but cannot be linked to you or the recipient.
+          </Text>
+          {totalDeducted && (
+            <Text style={[styles.feeTotal, { color: colors.foreground }]}>
+              Total deducted from pool: <Text style={{ fontWeight: '700' }}>{totalDeducted} EMBR</Text>
+            </Text>
+          )}
+        </View>
       </View>
 
       {error ? <Text style={[styles.errorText, { color: colors.destructive }]}>{error}</Text> : null}
@@ -403,4 +428,10 @@ const styles = StyleSheet.create({
   resultAmount: { fontSize: 40, fontWeight: '800', fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace' },
   resultCurrency: { fontSize: 16, fontWeight: '700' },
   resultMeta: { fontSize: 12, marginTop: 8 },
+
+  // Fee notice
+  feeBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 12, borderRadius: 10, borderWidth: 1 },
+  feeTitle: { fontSize: 13, fontWeight: '700' },
+  feeSub: { fontSize: 12, lineHeight: 17 },
+  feeTotal: { fontSize: 13, marginTop: 4 },
 });

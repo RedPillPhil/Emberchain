@@ -14,6 +14,8 @@ import {
 import { Stack, router, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { WalletProvider, useWallet } from '@/context/WalletContext';
+import { PinProvider, usePin } from '@/context/PinContext';
+import { PinLock } from '@/components/PinLock';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -22,6 +24,7 @@ const queryClient = new QueryClient();
 /** Handles redirect logic once wallet context is ready. */
 function RootLayoutNav() {
   const { isLoading, isSetup } = useWallet();
+  const { isLocked } = usePin();
   const segments = useSegments();
 
   useEffect(() => {
@@ -37,10 +40,14 @@ function RootLayoutNav() {
   }, [isLoading, isSetup, segments]);
 
   return (
-    <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="setup" />
-    </Stack>
+    <>
+      <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="setup" />
+      </Stack>
+      {/* PIN lock overlays everything — rendered above the navigator */}
+      {isLocked && <PinLock />}
+    </>
   );
 }
 
@@ -65,11 +72,13 @@ export default function RootLayout() {
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
           <WalletProvider>
-            <GestureHandlerRootView style={{ flex: 1 }}>
-              <KeyboardProvider>
-                <RootLayoutNav />
-              </KeyboardProvider>
-            </GestureHandlerRootView>
+            <PinProvider>
+              <GestureHandlerRootView style={{ flex: 1 }}>
+                <KeyboardProvider>
+                  <RootLayoutNav />
+                </KeyboardProvider>
+              </GestureHandlerRootView>
+            </PinProvider>
           </WalletProvider>
         </QueryClientProvider>
       </ErrorBoundary>
