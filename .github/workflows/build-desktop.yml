@@ -49,6 +49,7 @@ jobs:
       # Only run on Linux (one download is enough — all platforms share the file
       # via git checkout, but here we bake it fresh per-build so it's current).
       - name: Download chain snapshot
+        shell: bash
         run: |
           curl -fsSL --max-time 120 \
             "https://emberchain.org/api/sync/snapshot" \
