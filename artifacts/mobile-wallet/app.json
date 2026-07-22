@@ -18,7 +18,8 @@
       "bundleIdentifier": "org.emberchain.wallet"
     },
     "android": {
-      "package": "org.emberchain.wallet"
+      "package": "org.emberchain.wallet",
+      "usesCleartextTraffic": true
     },
     "web": {
       "favicon": "./assets/images/icon.png"
