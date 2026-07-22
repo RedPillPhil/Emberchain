@@ -869,18 +869,106 @@ export class Blockchain {
    * Intended to be sent as a large JSON blob to a bootstrapping standalone node.
    */
   exportSnapshot(): PersistedChain {
-    // Walk backwards from the canonical tip via parentHash to build the set of
-    // canonical block hashes — same logic as getBlocksFrom.  This filters out
-    // any competing blocks stored at the same height (a known production issue
-    // from past mining races) so peers always receive a clean single chain.
+    // ── Step 1: identify canonical tip ──────────────────────────────────────
+    const rawTip = this.blocks[this.blocks.length - 1];
+    if (!rawTip) throw new Error("exportSnapshot: chain is empty");
+
+    // ── Step 2: walk backwards from tip to build canonical set ───────────────
     const canonicalHashes = new Set<string>();
-    let cursor: StoredBlock | undefined = this.blocks[this.blocks.length - 1];
+    let cursor: StoredBlock | undefined = rawTip;
+    let walkedToGenesis = false;
     while (cursor) {
       canonicalHashes.add(cursor.hash);
-      if (cursor.number === 0) break;
+      if (cursor.number === 0) { walkedToGenesis = true; break; }
       cursor = this.blocksByHash.get(cursor.parentHash);
     }
-    const canonicalBlocks = this.blocks.filter(b => canonicalHashes.has(b.hash));
+
+    const canonicalBlocks = this.blocks
+      .filter(b => canonicalHashes.has(b.hash))
+      .sort((a, b) => a.number - b.number);
+
+    // ── Step 3: validate ─────────────────────────────────────────────────────
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Did the walk reach genesis?
+    if (!walkedToGenesis) {
+      errors.push(
+        `canonical walk from tip ${rawTip.hash.slice(0,14)} (height ${rawTip.number}) ` +
+        `did not reach genesis — chain has a broken parentHash link`,
+      );
+    }
+
+    // One block per height?
+    const byHeight = new Map<number, StoredBlock[]>();
+    for (const b of canonicalBlocks) {
+      const arr = byHeight.get(b.number) ?? [];
+      arr.push(b);
+      byHeight.set(b.number, arr);
+    }
+    const dupeHeights = [...byHeight.entries()].filter(([, arr]) => arr.length > 1);
+    if (dupeHeights.length > 0) {
+      const detail = dupeHeights
+        .slice(0, 5)
+        .map(([h, arr]) => `height ${h}: [${arr.map(b => b.hash.slice(0,10)).join(", ")}]`)
+        .join("; ");
+      errors.push(`duplicate heights in canonical set (${dupeHeights.length} heights): ${detail}`);
+    }
+
+    // Continuous chain — no height gaps?
+    for (let i = 1; i < canonicalBlocks.length; i++) {
+      const prev = canonicalBlocks[i - 1]!;
+      const cur  = canonicalBlocks[i]!;
+      if (cur.number !== prev.number + 1) {
+        errors.push(`gap in chain: block ${prev.number} → block ${cur.number} (missing ${cur.number - prev.number - 1} blocks)`);
+        break; // first gap is enough
+      }
+      if (cur.parentHash !== prev.hash) {
+        errors.push(
+          `broken parentHash link at height ${cur.number}: ` +
+          `block ${cur.hash.slice(0,14)} references parent ${cur.parentHash.slice(0,14)} ` +
+          `but previous block is ${prev.hash.slice(0,14)}`,
+        );
+        break;
+      }
+    }
+
+    // Tip hash must match the raw tip we started from
+    const exportedTip = canonicalBlocks[canonicalBlocks.length - 1];
+    if (exportedTip && exportedTip.hash !== rawTip.hash) {
+      errors.push(
+        `exported tip ${exportedTip.hash.slice(0,14)} (height ${exportedTip.number}) ` +
+        `does not match server canonical tip ${rawTip.hash.slice(0,14)} (height ${rawTip.number})`,
+      );
+    }
+
+    // Blocks in raw storage vs exported canonical
+    const rawCount = this.blocks.length;
+    const canonicalCount = canonicalBlocks.length;
+    if (rawCount !== canonicalCount) {
+      warnings.push(
+        `raw storage has ${rawCount} blocks, canonical chain has ${canonicalCount} ` +
+        `(${rawCount - canonicalCount} orphan/competing blocks filtered out)`,
+      );
+    }
+
+    // ── Step 4: log and gate ─────────────────────────────────────────────────
+    const tipStr = exportedTip
+      ? `${exportedTip.number} (${exportedTip.hash.slice(0,14)}…)`
+      : "none";
+
+    console.log(
+      `[exportSnapshot] canonical chain: ${canonicalCount} blocks, tip=${tipStr}` +
+      (warnings.length ? `\n  ⚠ ${warnings.join("\n  ⚠ ")}` : ""),
+    );
+
+    if (errors.length > 0) {
+      const msg = `exportSnapshot validation failed:\n  ✗ ${errors.join("\n  ✗ ")}`;
+      console.error(`[exportSnapshot] ✗ ${msg}`);
+      throw new Error(msg);
+    }
+
+    console.log(`[exportSnapshot] ✅ Snapshot is valid — exporting ${canonicalCount} canonical blocks`);
 
     return {
       version: 3,
