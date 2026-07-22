@@ -282,7 +282,7 @@ export default function SettingsScreen() {
             <Feather name="link" size={16} color={colors.mutedForeground} style={styles.rowIcon} />
             <TextInput
               style={[styles.nodeInput, { color: colors.foreground }]}
-              placeholder="Custom node URL (optional)"
+              placeholder="http://192.168.x.x:17545 (base URL, no /api/rpc)"
               placeholderTextColor={colors.mutedForeground}
               value={nodeOverride}
               onChangeText={setNodeOverride}
