@@ -1,4 +1,4 @@
-name: Build Emberchain Desktop
+name: Build EmberChain Desktop
 
 on:
   push:
@@ -52,7 +52,6 @@ jobs:
         with:
           workspaces: lib/emberchain-desktop/src-tauri -> target
 
-      # Linux-specific WebKit + GTK dependencies
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -67,45 +66,42 @@ jobs:
       - name: Install workspace packages
         run: pnpm install --frozen-lockfile
 
-      # Build the standalone server bundle (needed by the desktop app)
       - name: Build chain server bundle
         run: pnpm --filter @workspace/emberchain-node run build
 
-      # Prepare node-resources/ directory for Tauri
       - name: Prepare desktop resources
         working-directory: lib/emberchain-desktop
         run: pnpm install && node scripts/prepare-resources.mjs
 
-      # Build the Tauri app
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Optional: code signing
-          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # APPLE_ID: ${{ secrets.APPLE_ID }}
-          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: lib/emberchain-desktop
           tagName: ${{ github.ref_name }}
-          releaseName: "Emberchain Desktop ${{ github.ref_name }}"
+          releaseName: "EmberChain Desktop v1.0.0"
           releaseBody: |
-            ## Emberchain Desktop
+            ## EmberChain Desktop v1.0.0
 
-            Full-node desktop wallet for Emberchain (EMBR).
+            The all-in-one EmberChain app — full node, wallet, private transactions, and miner in a single desktop install.
 
-            **Requirements:** Node.js 20+ must be installed ([nodejs.org](https://nodejs.org))
+            ### Download
 
-            ### Install
-            - **Windows** → download the `.msi` installer
-            - **macOS** → download the `.dmg` disk image
-            - **Linux** → download the `.AppImage` (no install needed) or `.deb`
+            | Platform | File | Notes |
+            |----------|------|-------|
+            | 🪟 Windows | `*-setup.exe` or `*.msi` | Run installer, launch from Start Menu |
+            | 🍎 macOS Apple Silicon | `*-aarch64.dmg` | Open DMG → drag to Applications |
+            | 🍎 macOS Intel | `*-x64.dmg` | Open DMG → drag to Applications |
+            | 🐧 Linux | `*.AppImage` | `chmod +x *.AppImage` then run; or install the `.deb` |
 
-            ### First launch
-            The app downloads the Emberchain chain state automatically (~few MB).
-            Subsequent launches start in seconds from local data.
-          releaseDraft: true
+            ### What's included
+            - **Wallet** — create or import EMBR wallets, send public and private (shielded) transactions
+            - **Node** — full embedded EmberChain node starts automatically, RPC endpoint exposed locally
+            - **Miner** — one-click browser mining directly from the app
+            - **Private pool** — shield EMBR into private notes, send without revealing sender, receiver, or amount
+
+            > **Android?** Get the EmberChain Mobile Wallet from the [Android release](../../releases).
+          releaseDraft: false
+          releasePrerelease: false
           args: --target ${{ matrix.rust-target }} --bundles ${{ matrix.bundles }}

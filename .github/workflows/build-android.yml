@@ -1,0 +1,94 @@
+name: Build EmberChain Android
+
+on:
+  push:
+    tags:
+      - "android-v*"
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "EAS build profile (preview = APK, production = AAB)"
+        required: false
+        default: "preview"
+
+jobs:
+  build:
+    name: EAS Build — Android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up EAS CLI
+        run: npm install -g eas-cli
+
+      - name: Build APK via EAS
+        working-directory: artifacts/mobile-wallet
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          PROFILE="${{ github.event.inputs.profile || 'preview' }}"
+          eas build --platform android --profile "$PROFILE" --non-interactive --output ./emberchain-android.apk
+
+      - name: Determine release tag
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=android-v1.0.0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: "EmberChain Android v1.0.0"
+          draft: false
+          prerelease: false
+          files: artifacts/mobile-wallet/emberchain-android.apk
+          body: |
+            ## EmberChain Android v1.0.0
+
+            The EmberChain mobile wallet for Android — your full EMBR wallet in your pocket.
+
+            ### Install
+
+            1. Download `emberchain-android.apk` below
+            2. On your Android device, open **Settings → Security** and enable **Install unknown apps** for your browser or file manager
+            3. Open the downloaded APK and tap **Install**
+            4. Launch **EmberChain** from your app drawer
+
+            > **Tip:** You can also scan the QR code from the EmberChain website to download directly to your phone.
+
+            ### Features
+            - Create or restore an EMBR wallet (BIP-39 seed phrase compatible)
+            - Send and receive public EMBR transactions
+            - Shield EMBR into the private pool — send without revealing sender, receiver, or amount
+            - Browser-based mining to your wallet address
+            - Community chat and forum
+            - PIN lock for in-app security
+
+            ### Requirements
+            - Android 8.0 (Oreo) or later
+            - ~50 MB storage
+
+            > **Desktop?** Get the all-in-one desktop app from the [Desktop release](../../releases).
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
