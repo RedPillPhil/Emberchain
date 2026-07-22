@@ -284,6 +284,20 @@ async function syncOnce(): Promise<void> {
     } else {
       _stallCount++;
       console.warn(`[${ts()}] [sync] ⚠️  No progress at ${ourHeight} (stall #${_stallCount}) — will retry`);
+
+      // Deep stall: we're stuck and the peer is hundreds of blocks ahead.
+      // Our local tip is on the wrong fork and the reorg can't fire because
+      // we don't have the blocks needed to accumulate enough TD.
+      // Download a fresh snapshot to jump straight to the canonical tip.
+      if (_stallCount >= 2 && peerHeight - ourHeight > 200) {
+        console.warn(`[${ts()}] [sync] 🔄 Deep stall detected — downloading fresh snapshot to recover`);
+        const ok = await snapshotBootstrap(peer, peerShort);
+        if (ok) {
+          _stallCount = 0;
+          const recovered = await chain.getStatus().catch(() => null);
+          console.log(`[${ts()}] [sync] ✅ Recovered via snapshot — now at block ${recovered?.height ?? "?"}`);
+        }
+      }
       break;
     }
   }

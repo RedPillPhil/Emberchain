@@ -45,6 +45,17 @@ jobs:
         working-directory: lib/emberchain-wallet-electron
         run: npm install
 
+      # Download a chain snapshot so the app ships pre-synced.
+      # Only run on Linux (one download is enough — all platforms share the file
+      # via git checkout, but here we bake it fresh per-build so it's current).
+      - name: Download chain snapshot
+        run: |
+          curl -fsSL --max-time 120 \
+            "https://emberchain.org/api/sync/snapshot" \
+            -o lib/emberchain-wallet-electron/chain-snapshot.json
+          BLOCKS=$(python3 -c "import json,sys; d=json.load(open('lib/emberchain-wallet-electron/chain-snapshot.json')); print(len(d.get('blocks',[])))")
+          echo "Snapshot downloaded: $BLOCKS blocks"
+
       # Bundle the embedded chain node into node-engine-bundle.cjs
       - name: Bundle embedded node engine
         working-directory: lib/emberchain-wallet-electron

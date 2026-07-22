@@ -42,12 +42,14 @@
       "renderer/**/*",
       "node-engine-bundle.cjs",
       "mining-worker.js",
+      "chain-snapshot.json",
       "package.json",
       "node_modules/**/*"
     ],
     "asarUnpack": [
       "node-engine-bundle.cjs",
-      "mining-worker.js"
+      "mining-worker.js",
+      "chain-snapshot.json"
     ],
     "win": {
       "target": [{ "target": "nsis", "arch": ["x64"] }],
