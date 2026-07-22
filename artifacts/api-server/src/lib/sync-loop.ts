@@ -29,10 +29,6 @@ const PEX_INTERVAL_MS  = 5 * 60_000;
 // How many blocks to look back when searching for a fork divergence point
 const FORK_LOOKBACK = 64;
 
-// After this many consecutive stalled rounds the local chain is on a fork so
-// deep that the TD-based reorg can never fire.  Wipe to genesis and re-sync.
-const DEEP_STALL_RESET_AFTER = 3;
-
 let syncTimer: ReturnType<typeof setInterval> | null = null;
 let pexTimer:  ReturnType<typeof setInterval> | null = null;
 
@@ -214,23 +210,14 @@ async function syncOnce(): Promise<void> {
       _stallCount = 0;
       console.log(`[${ts()}] [sync] ✅ Height ${ourHeight} → ${nowHeight}${nowHeight < peerHeight ? ` (${peerHeight - nowHeight} remaining)` : " 🎉 fully synced"}`);
     } else if (peerHeight > ourHeight) {
-      // Height didn't change even though peer is ahead — wrong fork branch
+      // Height didn't change even though peer is ahead.
+      // The canonical-subchain filter means this should be very rare — the
+      // peer batch was either all duplicates we already have, or the peer is
+      // temporarily behind.  Log it and let the next round retry; do NOT
+      // reset to genesis (that forces a full re-sync from block 0 which takes
+      // many minutes and loses all progress).
       _stallCount++;
-      console.warn(`[${ts()}] [sync] ⚠️  Stalled at ${ourHeight} (round ${_stallCount}/${DEEP_STALL_RESET_AFTER})`);
-
-      if (_stallCount >= DEEP_STALL_RESET_AFTER) {
-        // The local chain has diverged so deeply from the canonical network
-        // chain that the TD-based orphan-pool reorg can never fire (our
-        // canonical TD >> any partial orphan chain we can accumulate).
-        // Wipe to genesis and let the next rounds re-import every block fresh.
-        console.warn(`[${ts()}] [sync] 🔄 Deep fork detected — resetting chain to genesis for full re-sync`);
-        try {
-          await chain.resetToGenesis();
-        } catch (e) {
-          console.error(`[${ts()}] [sync] ❌ resetToGenesis failed:`, e);
-        }
-        _stallCount = 0;
-      }
+      console.warn(`[${ts()}] [sync] ⚠️  No progress at ${ourHeight} (round ${_stallCount}) — will retry`);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
