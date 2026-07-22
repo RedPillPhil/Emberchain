@@ -1,6 +1,6 @@
 import { Download, Monitor, Apple, Tv2, Smartphone } from "lucide-react";
 
-const DESKTOP_RELEASE = "https://github.com/RedPillPhil/Emberchain/releases/tag/desktop-v1.0.20";
+const DESKTOP_RELEASE = "https://github.com/RedPillPhil/Emberchain/releases/tag/desktop-v1.0.21";
 const ANDROID_RELEASE = "https://github.com/RedPillPhil/Emberchain/releases/tag/android-v1.0.0";
 
 export default function Downloads() {
@@ -30,7 +30,7 @@ export default function Downloads() {
                 EmberChain Desktop
               </span>
               <span className="text-xs text-primary font-mono bg-primary/10 border border-primary/30 px-2 py-0.5 rounded uppercase tracking-wide">
-                v1.0.20 · Latest
+                v1.0.21 · Latest
               </span>
             </div>
             <p className="text-muted-foreground font-sans text-sm leading-relaxed max-w-xl">
@@ -102,7 +102,7 @@ export default function Downloads() {
         <p className="text-xs text-muted-foreground font-sans pl-1">
           All builds on{" "}
           <a href={DESKTOP_RELEASE} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
-            GitHub — desktop-v1.0.20
+            GitHub — desktop-v1.0.21
           </a>{" "}
           — no account required to download.
         </p>
