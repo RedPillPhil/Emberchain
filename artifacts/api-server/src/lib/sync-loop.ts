@@ -21,7 +21,7 @@
 
 import { chain } from "./chain";
 import { getPeers, exchangePeers } from "./peers";
-import type { StoredBlock, StoredTransaction } from "@workspace/chain-core";
+import type { StoredBlock, StoredTransaction, PersistedChain } from "@workspace/chain-core";
 
 const SYNC_INTERVAL_MS = 10_000;   // poll every 10 s for faster catch-up
 const PEX_INTERVAL_MS  = 5 * 60_000;
@@ -87,8 +87,62 @@ function extractCanonicalSubchain(
   return chain;
 }
 
-// Batch size for block fetches — larger = fewer round trips during catch-up
-const BATCH_SIZE = 2000;
+// Batch size for block fetches — matches the raised server cap of 5000
+const BATCH_SIZE = 5000;
+
+/** Fetch a batch of blocks from a peer, returning null on any network error. */
+async function fetchBatch(
+  peer: string,
+  from: number,
+  limit = BATCH_SIZE,
+): Promise<Array<StoredBlock & { transactions: StoredTransaction[] }> | null> {
+  try {
+    const r = await fetch(
+      `${peer}/api/sync/blocks?from=${from}&limit=${limit}`,
+      { signal: AbortSignal.timeout(60_000) },
+    );
+    if (!r.ok) return null;
+    const data = (await r.json()) as {
+      blocks: Array<StoredBlock & { transactions: StoredTransaction[] }>;
+    };
+    return Array.isArray(data.blocks) ? data.blocks : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Bootstrap a node that is still at genesis by downloading the peer's full
+ * chain snapshot in one shot and importing it atomically.  Much faster than
+ * paging through 5000-block batches because:
+ *   - one HTTP request instead of N round trips
+ *   - the snapshot includes pre-computed EVM state — no block-by-block replay
+ *   - the node jumps straight to the peer's tip and only needs incremental
+ *     updates from that point forward
+ */
+async function snapshotBootstrap(peer: string, peerShort: string): Promise<boolean> {
+  console.log(`[${ts()}] [sync] 🚀 First launch — downloading full snapshot from ${peerShort} …`);
+  try {
+    const r = await fetch(`${peer}/api/sync/snapshot`, {
+      signal: AbortSignal.timeout(120_000), // 2 min for large chain
+    });
+    if (!r.ok) {
+      console.warn(`[${ts()}] [sync] ⚠️  Snapshot endpoint returned HTTP ${r.status} — falling back to block-by-block sync`);
+      return false;
+    }
+    const snapshot = (await r.json()) as PersistedChain;
+    if (!Array.isArray(snapshot.blocks) || snapshot.blocks.length === 0) {
+      console.warn(`[${ts()}] [sync] ⚠️  Snapshot was empty — falling back to block-by-block sync`);
+      return false;
+    }
+    await chain.importSnapshot(snapshot);
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[${ts()}] [sync] ⚠️  Snapshot download failed (${msg}) — falling back to block-by-block sync`);
+    return false;
+  }
+}
 
 async function syncOnce(): Promise<void> {
   const peers = getPeers();
@@ -107,6 +161,23 @@ async function syncOnce(): Promise<void> {
     ourTD     = chain.getTotalDifficulty();
   } catch {
     return; // chain not ready yet
+  }
+
+  // ── Snapshot bootstrap ───────────────────────────────────────────────────
+  // If we're still at genesis (height 0 or just the genesis block), download
+  // the peer's full snapshot rather than syncing block-by-block.  This is
+  // orders of magnitude faster: one HTTP request vs thousands of importBlock
+  // calls.
+  if (ourHeight <= 1) {
+    const ok = await snapshotBootstrap(peer, peerShort);
+    if (ok) {
+      const newStatus = await chain.getStatus().catch(() => null);
+      ourHeight = newStatus?.height ?? ourHeight;
+      ourTD     = chain.getTotalDifficulty();
+      console.log(`[${ts()}] [sync] ✅ Snapshot bootstrap complete — at block ${ourHeight}`);
+      // Fall through to incremental drain for any blocks added since snapshot
+    }
+    // If snapshot failed, fall through to normal block-by-block sync below
   }
 
   // Get peer's chain state (includes totalDifficulty for fork-choice)
@@ -128,8 +199,6 @@ async function syncOnce(): Promise<void> {
       if (ps.totalDifficulty) peerTD = BigInt(ps.totalDifficulty);
     }
   } catch {
-    // Peer may be offline or running an older version without totalDifficulty —
-    // fall back to height-only comparison
     peerTD = peerHeight > ourHeight ? ourTD + 1n : ourTD;
   }
 
@@ -141,41 +210,39 @@ async function syncOnce(): Promise<void> {
   }
 
   const gap = peerHeight - ourHeight;
-  console.log(`[${ts()}] [sync] 📥 ${peerShort} is ${gap > 0 ? gap + " blocks" : "a fork"} ahead — draining from ${ourHeight + 1} …`);
+  console.log(`[${ts()}] [sync] 📥 ${peerShort} is ${gap > 0 ? gap + " blocks" : "a fork"} ahead — draining …`);
 
-  // ── Drain loop ───────────────────────────────────────────────────────────
-  // Fetch batch after batch with no delay until we're caught up or stall.
-  // This avoids the previous behaviour of fetching one 500-block batch then
-  // sitting idle for 10 seconds before the next one.
+  // ── Drain loop with pipeline prefetch ────────────────────────────────────
+  // While importing the current batch we prefetch the next one in parallel
+  // so there is zero wait between batches.  This gives ~2× throughput when
+  // the network round-trip and importBlock time are roughly equal.
   let drainFrom = _stallCount > 0
     ? Math.max(1, ourHeight - FORK_LOOKBACK)
     : ourHeight + 1;
 
+  // Kick off the first fetch immediately
+  let prefetch: Promise<Array<StoredBlock & { transactions: StoredTransaction[] }> | null> =
+    fetchBatch(peer, drainFrom);
+
   while (true) {
-    let batchBlocks: Array<StoredBlock & { transactions: StoredTransaction[] }> = [];
-    try {
-      const r = await fetch(
-        `${peer}/api/sync/blocks?from=${drainFrom}&limit=${BATCH_SIZE}`,
-        { signal: AbortSignal.timeout(60_000) },
-      );
-      if (!r.ok) {
-        console.warn(`[${ts()}] [sync] ⚠️  ${peerShort} HTTP ${r.status} — stopping drain`);
-        break;
-      }
-      const data = (await r.json()) as {
-        blocks: Array<StoredBlock & { transactions: StoredTransaction[] }>;
-      };
-      if (!Array.isArray(data.blocks) || data.blocks.length === 0) break;
-      batchBlocks = data.blocks;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[${ts()}] [sync] ⚠️  ${peerShort} unreachable: ${msg}`);
+    const batchBlocks = await prefetch;
+
+    if (!batchBlocks || batchBlocks.length === 0) {
+      if (!batchBlocks) console.warn(`[${ts()}] [sync] ⚠️  ${peerShort} unreachable — stopping drain`);
       break;
     }
 
     // Strip competing blocks at the same height — keep only the canonical chain
     const canonical = extractCanonicalSubchain(batchBlocks);
     const skipped   = batchBlocks.length - canonical.length;
+
+    // Fire the next fetch immediately (pipeline) — runs while we import this batch
+    const nextFrom = (canonical[canonical.length - 1]?.number ?? drainFrom) + 1;
+    const stillBehind = nextFrom <= peerHeight;
+    prefetch = stillBehind
+      ? fetchBatch(peer, nextFrom)
+      : Promise.resolve(null); // nothing left to fetch
+
     if (skipped > 0) {
       console.log(`[${ts()}] [sync] 🔍 Filtered: ${canonical.length} canonical, ${skipped} competing ignored`);
     }
@@ -213,10 +280,8 @@ async function syncOnce(): Promise<void> {
       }
       console.log(`[${ts()}] [sync] ↑ ${ourHeight} (${remaining} remaining) …`);
       drainFrom = ourHeight + 1;
-      // Refresh peer tip so we don't overshoot if the chain has grown
       if (ourHeight >= peerHeight) break;
     } else {
-      // No progress — don't spin, let the next timed interval retry
       _stallCount++;
       console.warn(`[${ts()}] [sync] ⚠️  No progress at ${ourHeight} (stall #${_stallCount}) — will retry`);
       break;

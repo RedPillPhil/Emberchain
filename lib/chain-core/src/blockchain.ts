@@ -315,6 +315,69 @@ export class Blockchain {
    *
    * IMPORTANT: this does NOT touch wallets / keystores — only chain data.
    */
+  /**
+   * Load a full chain snapshot downloaded from a peer.
+   * Called by the sync loop on first launch (height === 0) to bootstrap the
+   * local node from the peer's canonical state instead of syncing block-by-block
+   * from genesis.  Replaces all in-memory state atomically then persists.
+   */
+  async importSnapshot(data: PersistedChain): Promise<void> {
+    return this.withEvmLock(async () => {
+      console.log(`[chain] 📦 Importing snapshot (${data.blocks.length} blocks) …`);
+
+      this.difficulty = BigInt(data.difficulty);
+      this.blocks = data.blocks;
+
+      // Backfill totalDifficulty for any blocks missing it
+      {
+        let accumulated = 0n;
+        for (const block of this.blocks) {
+          accumulated += BigInt(block.difficulty);
+          if (!block.totalDifficulty) block.totalDifficulty = accumulated.toString();
+          else accumulated = BigInt(block.totalDifficulty);
+        }
+      }
+
+      this.blocksByHash.clear();
+      this.orphanPool.clear();
+      for (const block of this.blocks) this.blocksByHash.set(block.hash, block);
+
+      this.transactions.clear();
+      for (const tx of data.transactions ?? []) this.transactions.set(tx.hash, tx);
+
+      this.wallets = new Map(data.wallets ?? []);
+      this.stateManager = loadState(this.common, data.state);
+      this.evm = await createEVM({ common: this.common, stateManager: this.stateManager });
+
+      this.privateNotes.clear();
+      this.spentKeyImages.clear();
+      for (const note of data.privateNotes ?? []) {
+        this.privateNotes.set(note.id, note);
+        if (note.status === "spent" && note.keyImage) this.spentKeyImages.add(note.keyImage);
+      }
+      this.shieldedTxs = data.shieldedTxs ?? [];
+
+      this.exchangeListings.clear();
+      for (const listing of data.exchangeListings ?? []) {
+        this.exchangeListings.set(listing.id, listing);
+      }
+
+      this.usedPaymentProofs.clear();
+      for (const proof of data.usedPaymentProofs ?? []) this.usedPaymentProofs.add(proof);
+
+      this.submittedShareNonces = new Set(data.submittedShareNonces ?? []);
+
+      this.currentRoundShares.clear();
+      for (const [addr, count] of data.currentRoundShares ?? []) {
+        this.currentRoundShares.set(addr, count);
+      }
+
+      this.persist();
+      const tip = this.blocks[this.blocks.length - 1]!;
+      console.log(`[chain] ✅ Snapshot imported — tip is block ${tip.number} (${tip.hash.slice(0, 10)}…)`);
+    });
+  }
+
   async resetToGenesis(): Promise<void> {
     return this.withEvmLock(async () => {
       console.log("[chain] ⚠️  Resetting chain to genesis for full re-sync…");

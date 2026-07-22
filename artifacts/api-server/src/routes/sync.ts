@@ -69,7 +69,7 @@ router.get("/sync/snapshot", async (_req: Request, res: Response): Promise<void>
 router.get("/sync/blocks", async (req: Request, res: Response): Promise<void> => {
   try {
     const from  = Math.max(0, parseInt(String(req.query.from  ?? "0"),   10) || 0);
-    const limit = Math.min(1000, Math.max(1, parseInt(String(req.query.limit ?? "500"), 10) || 500));
+    const limit = Math.min(5000, Math.max(1, parseInt(String(req.query.limit ?? "500"), 10) || 500));
     const blocks = await chain.getBlocksFrom(from, limit);
     const nextFrom = blocks.length > 0 ? blocks[blocks.length - 1]!.number + 1 : from;
     res.status(200).json({ blocks, nextFrom, hasMore: blocks.length === limit });
