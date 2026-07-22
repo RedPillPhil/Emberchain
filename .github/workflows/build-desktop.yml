@@ -17,15 +17,12 @@ jobs:
           - os: windows-latest
             label: Windows
             builder_flag: --win
-            artifact_glob: "dist/*Setup*.exe"
           - os: macos-latest
             label: macOS
             builder_flag: --mac
-            artifact_glob: "dist/**/*.dmg"
           - os: ubuntu-latest
             label: Linux
             builder_flag: --linux
-            artifact_glob: "dist/**/*.AppImage"
 
     runs-on: ${{ matrix.os }}
 
@@ -58,21 +55,47 @@ jobs:
         working-directory: lib/emberchain-wallet-electron
         run: node scripts/build.mjs
 
-      # macOS: skip code-signing for unsigned builds
-      - name: Build installer
+      # Build with electron-builder (produces win-unpacked on Windows, dmg on mac, AppImage on linux)
+      - name: Build app
         working-directory: lib/emberchain-wallet-electron
         run: npx electron-builder ${{ matrix.builder_flag }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
-      - name: Upload installer artifact
+      # Windows: zip win-unpacked folder — users extract and run EmberChain Desktop.exe directly.
+      # No NSIS installer — avoids conflicts with any previously installed versions.
+      - name: Create portable zip (Windows)
+        if: matrix.label == 'Windows'
+        shell: pwsh
+        working-directory: lib/emberchain-wallet-electron/dist
+        run: Compress-Archive -Path win-unpacked\* -DestinationPath EmberChain-Desktop-Windows.zip
+
+      # Upload artifacts for the release job
+      - name: Upload Windows artifact
+        if: matrix.label == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: installer-${{ matrix.label }}
-          path: lib/emberchain-wallet-electron/dist/
+          name: installer-Windows
+          path: lib/emberchain-wallet-electron/dist/EmberChain-Desktop-Windows.zip
           if-no-files-found: error
 
-  # ── Attach all installers to a GitHub Release ─────────────────────────────
+      - name: Upload macOS artifacts
+        if: matrix.label == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-macOS
+          path: lib/emberchain-wallet-electron/dist/*.dmg
+          if-no-files-found: error
+
+      - name: Upload Linux artifact
+        if: matrix.label == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-Linux
+          path: lib/emberchain-wallet-electron/dist/*.AppImage
+          if-no-files-found: error
+
+  # ── Attach all builds to a GitHub Release ────────────────────────────────
   release:
     name: Publish GitHub Release
     needs: build
@@ -90,7 +113,7 @@ jobs:
             echo "name=desktop-v1.0.0" >> $GITHUB_OUTPUT
           fi
 
-      - name: Download all installers
+      - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: installer-*
@@ -108,24 +131,24 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            release-files/**/*Setup*.exe
+            release-files/**/*.zip
             release-files/**/*.dmg
             release-files/**/*.AppImage
           body: |
             ## EmberChain Desktop ${{ steps.tag.outputs.name }}
 
-            Full-node desktop wallet — node starts automatically on launch. No separate downloads needed.
+            Full-node desktop wallet — embedded node starts automatically. No separate downloads needed.
 
-            | Platform | Download | Notes |
-            |----------|----------|-------|
-            | 🪟 Windows | `*-Setup.exe` | Run installer, launch from Start Menu |
+            | Platform | Download | How to run |
+            |----------|----------|------------|
+            | 🪟 Windows | `EmberChain-Desktop-Windows.zip` | Extract the zip → run **EmberChain Desktop.exe** |
             | 🍎 macOS Intel | `*-x64.dmg` | Open DMG → drag to Applications |
             | 🍎 macOS Apple Silicon | `*-arm64.dmg` | Open DMG → drag to Applications |
             | 🐧 Linux | `*.AppImage` | `chmod +x *.AppImage` then run |
 
             ### What's included
             - **Wallet** — create/import wallets, send & receive EMBR
-            - **Node** — full embedded chain node starts automatically
+            - **Node** — full embedded chain node syncs automatically
             - **Miner** — one-click mining from the app
             - **Private transactions** — shielded sends via the privacy pool
 
