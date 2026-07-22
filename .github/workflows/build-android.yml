@@ -50,18 +50,18 @@ jobs:
           PROFILE="${{ github.event.inputs.profile || 'preview' }}"
           echo "Building profile: $PROFILE"
 
-          # Build and capture JSON output (EAS prints JSON to stdout with --json)
+          # Redirect stderr to log, stdout (JSON) to file — keeps them separate
           eas build \
             --platform android \
             --profile "$PROFILE" \
             --non-interactive \
             --json \
             --no-wait \
-            > /tmp/build-meta.json 2>&1 || true
-
+            > /tmp/build-meta.json 2>/tmp/build-stderr.log
+          cat /tmp/build-stderr.log
           cat /tmp/build-meta.json
 
-          # Extract build ID
+          # Extract build ID from clean JSON stdout
           BUILD_ID=$(python3 -c "
           import sys, json
           try:
