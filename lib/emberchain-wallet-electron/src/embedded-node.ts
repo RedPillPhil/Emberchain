@@ -10,7 +10,9 @@ import { startServer, type ServerHandle } from "../../../artifacts/api-server/sr
 import { addPeer, getPeers } from "../../../artifacts/api-server/src/lib/peers";
 import { triggerSync, stopSyncLoop, getBestPeerHeight } from "../../../artifacts/api-server/src/lib/sync-loop";
 import { chain } from "../../../artifacts/api-server/src/lib/chain";
-import { mkdirSync, existsSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, writeFileSync, createWriteStream, renameSync } from "node:fs";
+import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
 import path from "node:path";
 
 const BOOTSTRAP_PEERS = ["https://emberchain.org"];
@@ -45,14 +47,22 @@ async function downloadSnapshot(snapshotPath: string): Promise<void> {
       console.log(`[embedded-node] Downloading chain snapshot from ${peer}…`);
       const res = await fetch(`${peer}/api/sync/snapshot`, {
         headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(600_000), // 10 min — large chain
       });
-      if (!res.ok) continue;
-      const body = await res.text();
-      if (body.length < 10) continue;
-      writeFileSync(snapshotPath, body, "utf-8");
-      const parsed = JSON.parse(body) as { blocks?: unknown[] };
-      console.log(`[embedded-node] Snapshot saved (${parsed.blocks?.length ?? "?"} blocks)`);
+      if (!res.ok || !res.body) continue;
+
+      // Stream chunks directly to a temp file — avoids buffering the whole
+      // chain JSON in RAM which caused the UI to freeze on large chains.
+      const tmp = snapshotPath + ".tmp";
+      const fileStream = createWriteStream(tmp);
+      await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), fileStream);
+
+      // Quick sanity check before promoting
+      const stats = fileStream.bytesWritten;
+      if (stats < 10) { try { renameSync(tmp, tmp + ".bad"); } catch {} continue; }
+
+      renameSync(tmp, snapshotPath);
+      console.log(`[embedded-node] Snapshot saved (${(stats / 1024 / 1024).toFixed(1)} MB)`);
       return;
     } catch (err) {
       console.warn(`[embedded-node] Snapshot download from ${peer} failed:`, err);
