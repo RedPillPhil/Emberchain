@@ -11,6 +11,12 @@
  * Two intervals:
  *   SYNC_INTERVAL_MS (default 30 s) — pull new blocks / detect forks from a random peer
  *   PEX_INTERVAL_MS  (default 5 min) — ask all peers for their peer lists
+ *
+ * Stall detection:
+ *   If the peer is ahead but we import 0 blocks for a round, our local tip is
+ *   probably on the wrong fork branch.  After one stalled round we step back
+ *   FORK_LOOKBACK blocks so importBlock can find the common ancestor, compute
+ *   incomingTD correctly, and fire the reorg that promotes the heavier chain.
  */
 
 import { chain } from "./chain";
@@ -25,6 +31,10 @@ const FORK_LOOKBACK = 64;
 
 let syncTimer: ReturnType<typeof setInterval> | null = null;
 let pexTimer:  ReturnType<typeof setInterval> | null = null;
+
+// Consecutive rounds where the peer was ahead but we imported nothing.
+// After ≥1 stalled round we step back to find the fork.
+let _stallCount = 0;
 
 // ── Block sync ────────────────────────────────────────────────────────────────
 
@@ -75,18 +85,21 @@ async function syncOnce(): Promise<void> {
 
   // Skip if the peer has no more work than us
   if (peerTD <= ourTD && peerHeight <= ourHeight) {
+    _stallCount = 0;
     console.log(`[${ts()}] [sync] ✅ In sync with ${peerShort} (height ${ourHeight})`);
     return;
   }
 
   const gap = peerHeight - ourHeight;
-  console.log(`[${ts()}] [sync] 📥 ${peerShort} is ${gap > 0 ? gap + " blocks" : "a fork"} ahead (us: ${ourHeight}, peer: ${peerHeight}) — fetching …`);
+  console.log(`[${ts()}] [sync] 📥 ${peerShort} is ${gap > 0 ? gap + " blocks" : "a fork"} ahead (us: ${ourHeight}, peer: ${peerHeight})${_stallCount > 0 ? ` — stall #${_stallCount}, stepping back to find fork` : ""} — fetching …`);
 
   // Determine fetch range:
-  //   • Peer is simply ahead  → fetch from ourHeight + 1 (normal catch-up)
-  //   • Peer has more work but same/lower height → competing fork detected;
-  //     back up FORK_LOOKBACK blocks to find the divergence point
-  const fromBlock = peerHeight > ourHeight
+  //   • Normal catch-up: fetch from ourHeight + 1
+  //   • Fork or stall detected: step back FORK_LOOKBACK so importBlock can
+  //     find the common ancestor, compute incomingTD from a known parent, and
+  //     fire the reorg that switches to the heavier chain.
+  //   • Peer has more work but same/lower height: always step back (classic fork)
+  const fromBlock = (peerHeight > ourHeight && _stallCount === 0)
     ? ourHeight + 1
     : Math.max(1, ourHeight - FORK_LOOKBACK);
 
@@ -126,9 +139,14 @@ async function syncOnce(): Promise<void> {
     }
 
     if (imported > 0) {
+      _stallCount = 0;
       const newStatus = await chain.getStatus().catch(() => null);
       const nowHeight = newStatus?.height ?? ourHeight + imported;
       console.log(`[${ts()}] [sync] ✅ Imported ${imported} block(s) — height now ${nowHeight}${nowHeight < peerHeight ? ` (${peerHeight - nowHeight} remaining)` : " 🎉 fully synced"}`);
+    } else if (peerHeight > ourHeight) {
+      // Peer is ahead but we made no progress — likely on wrong fork branch
+      _stallCount++;
+      console.warn(`[${ts()}] [sync] ⚠️  Stalled at ${ourHeight} (round ${_stallCount}) — will step back next round to find fork divergence`);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
