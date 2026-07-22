@@ -23,7 +23,7 @@ import { chain } from "./chain";
 import { getPeers, exchangePeers } from "./peers";
 import type { StoredBlock, StoredTransaction } from "@workspace/chain-core";
 
-const SYNC_INTERVAL_MS = 30_000;
+const SYNC_INTERVAL_MS = 10_000;   // poll every 10 s for faster catch-up
 const PEX_INTERVAL_MS  = 5 * 60_000;
 
 // How many blocks to look back when searching for a fork divergence point
@@ -105,8 +105,8 @@ async function syncOnce(): Promise<void> {
 
   try {
     const r = await fetch(
-      `${peer}/api/sync/blocks?from=${fromBlock}&limit=200`,
-      { signal: AbortSignal.timeout(15_000) },
+      `${peer}/api/sync/blocks?from=${fromBlock}&limit=500`,
+      { signal: AbortSignal.timeout(30_000) },
     );
     if (!r.ok) {
       console.warn(`[${ts()}] [sync] ⚠️  ${peerShort} returned HTTP ${r.status} for blocks`);
@@ -118,12 +118,10 @@ async function syncOnce(): Promise<void> {
     };
     if (!Array.isArray(data.blocks) || data.blocks.length === 0) return;
 
-    let imported = 0;
     for (const blockData of data.blocks) {
       const { transactions, ...block } = blockData;
       try {
         await chain.importBlock(block as StoredBlock, transactions ?? []);
-        imported++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         // Reorg failed — we don't have the full fork yet, sync loop will retry
@@ -138,13 +136,17 @@ async function syncOnce(): Promise<void> {
       }
     }
 
-    if (imported > 0) {
+    // Measure progress by actual height change — not by how many blocks we
+    // called importBlock on (already-known blocks also return without throwing,
+    // which used to mask stalls by resetting _stallCount prematurely).
+    const newStatus = await chain.getStatus().catch(() => null);
+    const nowHeight = newStatus?.height ?? ourHeight;
+
+    if (nowHeight > ourHeight) {
       _stallCount = 0;
-      const newStatus = await chain.getStatus().catch(() => null);
-      const nowHeight = newStatus?.height ?? ourHeight + imported;
-      console.log(`[${ts()}] [sync] ✅ Imported ${imported} block(s) — height now ${nowHeight}${nowHeight < peerHeight ? ` (${peerHeight - nowHeight} remaining)` : " 🎉 fully synced"}`);
+      console.log(`[${ts()}] [sync] ✅ Height ${ourHeight} → ${nowHeight}${nowHeight < peerHeight ? ` (${peerHeight - nowHeight} remaining)` : " 🎉 fully synced"}`);
     } else if (peerHeight > ourHeight) {
-      // Peer is ahead but we made no progress — likely on wrong fork branch
+      // Height didn't change even though peer is ahead — wrong fork branch
       _stallCount++;
       console.warn(`[${ts()}] [sync] ⚠️  Stalled at ${ourHeight} (round ${_stallCount}) — will step back next round to find fork divergence`);
     }
