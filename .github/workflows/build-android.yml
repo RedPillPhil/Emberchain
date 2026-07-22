@@ -39,6 +39,10 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Initialize EAS project
+        working-directory: artifacts/mobile-wallet
+        run: eas init --non-interactive --force
+
       - name: Build APK via EAS
         id: eas-build
         working-directory: artifacts/mobile-wallet
