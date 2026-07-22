@@ -760,23 +760,35 @@ export class Blockchain {
 
   /** Returns up to `limit` canonical blocks (with their transactions) starting from `fromNumber`, in ascending order.
    *
-   * Deduplicates by height — if the in-memory chain somehow contains more than
-   * one block at the same height (e.g. due to a past race condition), only the
-   * last one (= canonical after the most recent reorg) is returned.  This
-   * ensures peers always receive a single, unambiguous chain, not a mix of
-   * canonical and orphan blocks that would confuse their fork-choice logic.
+   * Correctness guarantee: only blocks that are true ancestors of the current
+   * canonical tip are returned — never orphan or competing blocks.
+   *
+   * Strategy: walk backwards from the tip via parentHash to build the set of
+   * canonical block hashes, then filter this.blocks to that set.  This is
+   * O(chain length) per call but runs in microseconds for an in-memory map,
+   * and is the only approach that is correct when this.blocks contains
+   * duplicate heights (a known production data issue from a past race
+   * condition where several miners won the same block height simultaneously).
+   *
+   * "Last block at each height wins" deduplication was wrong: the canonical
+   * block at a height is not necessarily the one inserted last, so it could
+   * serve non-canonical blocks to syncing peers and cause them to fork.
    */
   async getBlocksFrom(fromNumber: number, limit = 500) {
     await this.whenReady();
     const cap = Math.min(limit, 1000);
 
-    // Deduplicate by height — last block at each height wins (canonical after reorgs)
-    const byHeight = new Map<number, StoredBlock>();
-    for (const b of this.blocks) {
-      if (b.number >= fromNumber) byHeight.set(b.number, b);
+    // Build the set of canonical block hashes by walking backwards from the tip.
+    const canonicalHashes = new Set<string>();
+    let cursor: StoredBlock | undefined = this.blocks[this.blocks.length - 1];
+    while (cursor) {
+      canonicalHashes.add(cursor.hash);
+      if (cursor.number === 0) break; // genesis — stop
+      cursor = this.blocksByHash.get(cursor.parentHash);
     }
 
-    const slice = [...byHeight.values()]
+    const slice = this.blocks
+      .filter((b) => b.number >= fromNumber && canonicalHashes.has(b.hash))
       .sort((a, b) => a.number - b.number)
       .slice(0, cap);
 

@@ -44,6 +44,53 @@ let _stallCount = 0;
 
 function ts() { return new Date().toISOString().slice(11, 19); }
 
+/**
+ * Given a raw batch from the peer (which may contain multiple competing blocks
+ * at the same height), return only the blocks that form a single canonical
+ * chain ending at the batch's highest block.
+ *
+ * Algorithm:
+ *   1. Find "tips" — blocks whose hash is not referenced as parentHash by any
+ *      other block in the batch.  These are genuine chain endpoints.
+ *   2. Pick the tip at the maximum height (last returned if tied — typically
+ *      the highest stored TD on the server).
+ *   3. Walk backwards from the tip via parentHash, collecting only blocks
+ *      present in the batch.
+ *   4. Return the result in ascending block-number order.
+ *
+ * Even if the chosen tip turns out to be a 1-block orphan (ambiguous at the
+ * very end of the batch), the chain BELOW that point is always canonical —
+ * which is exactly what matters for resolving deep stalls.  A wrong final
+ * block is a trivial 1-block reorg that the normal fork-choice handles.
+ */
+function extractCanonicalSubchain(
+  blocks: Array<StoredBlock & { transactions: StoredTransaction[] }>,
+): Array<StoredBlock & { transactions: StoredTransaction[] }> {
+  if (blocks.length === 0) return blocks;
+
+  const byHash = new Map(blocks.map((b) => [b.hash, b]));
+  const usedAsParent = new Set(blocks.map((b) => b.parentHash));
+
+  // Tips = blocks not referenced as a parent by anything else in the batch
+  const tips = blocks.filter((b) => !usedAsParent.has(b.hash));
+  const candidates = tips.length > 0 ? tips : blocks; // fallback: all blocks
+
+  // Pick the tip at the highest block number; last in array wins ties
+  // (server inserts canonical blocks last — highest stored TD)
+  const maxHeight = Math.max(...candidates.map((b) => b.number));
+  const tip = candidates.filter((b) => b.number === maxHeight).at(-1)!;
+
+  // Walk backwards via parentHash through the batch
+  const chain: Array<StoredBlock & { transactions: StoredTransaction[] }> = [];
+  let cur: (StoredBlock & { transactions: StoredTransaction[] }) | undefined = tip;
+  while (cur) {
+    chain.unshift(cur);
+    cur = byHash.get(cur.parentHash);
+  }
+
+  return chain;
+}
+
 async function syncOnce(): Promise<void> {
   const peers = getPeers();
   if (peers.length === 0) return;
@@ -122,7 +169,24 @@ async function syncOnce(): Promise<void> {
     };
     if (!Array.isArray(data.blocks) || data.blocks.length === 0) return;
 
-    for (const blockData of data.blocks) {
+    // The peer may return multiple competing blocks at the same height (a known
+    // production data issue where several miners won the same slot).  Importing
+    // all of them forces the local node to make a fork-choice it often gets
+    // wrong, producing a new stall one step further along the chain.
+    //
+    // Instead, extract only the single canonical chain from the batch:
+    //   1. Find the "tip" — the highest block whose hash is not used as a
+    //      parentHash by any other block in the batch (genuine chain endpoint).
+    //   2. Walk backwards via parentHash, collecting only blocks in the batch.
+    //   3. Import that sequence in ascending order — one block per height, no
+    //      fork-choice needed.
+    const canonical = extractCanonicalSubchain(data.blocks);
+    const skipped   = data.blocks.length - canonical.length;
+    if (skipped > 0) {
+      console.log(`[${ts()}] [sync] 🔍 Filtered batch: ${canonical.length} canonical blocks, ${skipped} competing blocks ignored`);
+    }
+
+    for (const blockData of canonical) {
       const { transactions, ...block } = blockData;
       try {
         await chain.importBlock(block as StoredBlock, transactions ?? []);
