@@ -1,6 +1,6 @@
 import { Download, Monitor, Apple, Tv2, Smartphone } from "lucide-react";
 
-const RELEASES = "https://github.com/RedPillPhil/Emberchain/releases";
+const DESKTOP_RELEASE = "https://github.com/RedPillPhil/Emberchain/releases/tag/desktop-v1.0.16";
 const ANDROID_RELEASE = "https://github.com/RedPillPhil/Emberchain/releases/tag/android-v1.0.0";
 
 export default function Downloads() {
@@ -30,7 +30,7 @@ export default function Downloads() {
                 EmberChain Desktop
               </span>
               <span className="text-xs text-primary font-mono bg-primary/10 border border-primary/30 px-2 py-0.5 rounded uppercase tracking-wide">
-                v1.0.0
+                v1.0.16 · Latest
               </span>
             </div>
             <p className="text-muted-foreground font-sans text-sm leading-relaxed max-w-xl">
@@ -60,7 +60,7 @@ export default function Downloads() {
           {[
             {
               label: "Windows",
-              sub: ".exe / .msi installer",
+              sub: "Extract zip → run .exe",
               Icon: Monitor,
               color: "text-blue-400",
               border: "border-blue-400/40 hover:border-blue-400/80 hover:bg-blue-400/5",
@@ -74,7 +74,7 @@ export default function Downloads() {
             },
             {
               label: "Linux",
-              sub: "AppImage / .deb",
+              sub: "AppImage — chmod +x then run",
               Icon: Tv2,
               color: "text-orange-300",
               border: "border-orange-300/40 hover:border-orange-300/80 hover:bg-orange-300/5",
@@ -82,7 +82,7 @@ export default function Downloads() {
           ].map(({ label, sub, Icon, color, border }) => (
             <a
               key={label}
-              href={RELEASES}
+              href={DESKTOP_RELEASE}
               target="_blank"
               rel="noreferrer"
               className={`flex items-center gap-3 border rounded-sm px-4 py-3 transition-colors ${border}`}
@@ -100,9 +100,9 @@ export default function Downloads() {
         </div>
 
         <p className="text-xs text-muted-foreground font-sans pl-1">
-          All builds posted to{" "}
-          <a href={RELEASES} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
-            GitHub Releases
+          All builds on{" "}
+          <a href={DESKTOP_RELEASE} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
+            GitHub — desktop-v1.0.16
           </a>{" "}
           — no account required to download.
         </p>
