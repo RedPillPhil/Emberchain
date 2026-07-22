@@ -71,13 +71,16 @@ jobs:
         working-directory: lib/emberchain-desktop
         run: pnpm install && node scripts/prepare-resources.mjs
 
+      - name: Install Tauri CLI globally
+        run: npm install -g @tauri-apps/cli@2
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: lib/emberchain-desktop
-          tauriScript: pnpm exec tauri
+          tauriScript: tauri
           tagName: ${{ github.ref_name }}
           releaseName: "EmberChain Desktop v1.0.0"
           releaseBody: |
