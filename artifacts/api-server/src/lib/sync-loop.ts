@@ -148,10 +148,6 @@ async function syncOnce(): Promise<void> {
   const peers = getPeers();
   if (peers.length === 0) return;
 
-  // Pick a random peer each round for load distribution
-  const peer = peers[Math.floor(Math.random() * peers.length)]!;
-  const peerShort = peer.replace(/^https?:\/\//, "");
-
   // Get our current chain state
   let ourHeight: number;
   let ourTD: bigint;
@@ -162,6 +158,42 @@ async function syncOnce(): Promise<void> {
   } catch {
     return; // chain not ready yet
   }
+
+  // Query ALL peers in parallel and pick the one with the most work.
+  // This prevents the node from stalling because it randomly picked a
+  // dead or behind peer — we always sync from the best available peer.
+  type PeerInfo = { url: string; height: number; td: bigint };
+  const peerStatuses = await Promise.all(
+    peers.map(async (url): Promise<PeerInfo | null> => {
+      try {
+        const r = await fetch(`${url}/api/sync/status`, { signal: AbortSignal.timeout(5_000) });
+        if (!r.ok) return null;
+        const ps = await r.json() as { latestBlock?: number; totalDifficulty?: string };
+        return {
+          url,
+          height: ps.latestBlock ?? 0,
+          td: ps.totalDifficulty ? BigInt(ps.totalDifficulty) : 0n,
+        };
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  // Sort reachable peers by total difficulty descending; fall back to random if all unreachable
+  const reachable = peerStatuses.filter((p): p is PeerInfo => p !== null);
+  if (reachable.length > 0) {
+    reachable.sort((a, b) => (b.td > a.td ? 1 : b.td < a.td ? -1 : 0));
+    // Update best known peer height for progress UI
+    if (reachable[0]!.height > _bestPeerHeight) _bestPeerHeight = reachable[0]!.height;
+  }
+
+  const best = reachable.length > 0
+    ? reachable[0]!.url
+    : peers[Math.floor(Math.random() * peers.length)]!;
+
+  const peer = best;
+  const peerShort = peer.replace(/^https?:\/\//, "");
 
   // ── Snapshot bootstrap ───────────────────────────────────────────────────
   // If we're still at genesis (height 0 or just the genesis block), download
@@ -180,27 +212,10 @@ async function syncOnce(): Promise<void> {
     // If snapshot failed, fall through to normal block-by-block sync below
   }
 
-  // Get peer's chain state (includes totalDifficulty for fork-choice)
-  let peerHeight = ourHeight;
-  let peerTD     = ourTD;
-  try {
-    const sr = await fetch(`${peer}/api/sync/status`, {
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (sr.ok) {
-      const ps = await sr.json() as {
-        latestBlock?: number;
-        totalDifficulty?: string;
-      };
-      if (ps.latestBlock != null) {
-        peerHeight = ps.latestBlock;
-        if (peerHeight > _bestPeerHeight) _bestPeerHeight = peerHeight;
-      }
-      if (ps.totalDifficulty) peerTD = BigInt(ps.totalDifficulty);
-    }
-  } catch {
-    peerTD = peerHeight > ourHeight ? ourTD + 1n : ourTD;
-  }
+  // Reuse the status we already fetched in the parallel query above
+  const peerInfo = reachable.find(p => p.url === peer);
+  let peerHeight = peerInfo?.height ?? ourHeight;
+  let peerTD     = peerInfo?.td     ?? (peerHeight > ourHeight ? ourTD + 1n : ourTD);
 
   // Skip if the peer has no more work than us
   if (peerTD <= ourTD && peerHeight <= ourHeight) {
