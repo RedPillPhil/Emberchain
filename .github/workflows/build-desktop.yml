@@ -69,7 +69,7 @@ jobs:
 
       - name: Prepare desktop resources
         working-directory: lib/emberchain-desktop
-        run: pnpm install && node scripts/prepare-resources.mjs
+        run: npm install && node scripts/prepare-resources.mjs
 
       - name: Install Tauri CLI globally
         run: npm install -g @tauri-apps/cli@2
