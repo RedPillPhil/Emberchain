@@ -30,34 +30,80 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Setup Expo + EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Set up EAS CLI
-        run: npm install -g eas-cli
-
       - name: Build APK via EAS
+        id: eas-build
+        working-directory: artifacts/mobile-wallet
+        run: |
+          PROFILE="${{ github.event.inputs.profile || 'preview' }}"
+          echo "Building profile: $PROFILE"
+
+          # Build and capture JSON output (EAS prints JSON to stdout with --json)
+          eas build \
+            --platform android \
+            --profile "$PROFILE" \
+            --non-interactive \
+            --json \
+            --no-wait \
+            > /tmp/build-meta.json 2>&1 || true
+
+          cat /tmp/build-meta.json
+
+          # Extract build ID
+          BUILD_ID=$(python3 -c "
+          import sys, json
+          try:
+              data = json.load(open('/tmp/build-meta.json'))
+              builds = data if isinstance(data, list) else [data]
+              print(builds[0]['id'])
+          except Exception as e:
+              print('PARSE_ERROR: ' + str(e), file=sys.stderr)
+              sys.exit(1)
+          ")
+
+          echo "Build ID: $BUILD_ID"
+          echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
+
+      - name: Wait for build and download APK
         working-directory: artifacts/mobile-wallet
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          PROFILE="${{ github.event.inputs.profile || 'preview' }}"
-          # Run EAS cloud build and capture output
-          BUILD_OUTPUT=$(eas build --platform android --profile "$PROFILE" --non-interactive 2>&1)
-          echo "$BUILD_OUTPUT"
-          # Extract the artifact download URL from the output
-          ARTIFACT_URL=$(echo "$BUILD_OUTPUT" | grep -oE 'https://expo\.dev/artifacts/eas/[^[:space:]]+' | head -1)
-          if [ -z "$ARTIFACT_URL" ]; then
-            # Fallback: get the latest build URL via eas build:list
-            ARTIFACT_URL=$(eas build:list --platform android --limit 1 --json --non-interactive 2>/dev/null \
-              | python3 -c "import sys,json; builds=json.load(sys.stdin); print(builds[0].get('artifacts',{}).get('buildUrl',''))" 2>/dev/null)
+          BUILD_ID="${{ steps.eas-build.outputs.build_id }}"
+          echo "Waiting for build $BUILD_ID to complete..."
+
+          # Poll until done (max 40 min)
+          for i in $(seq 1 80); do
+            STATUS_JSON=$(eas build:view "$BUILD_ID" --json 2>/dev/null)
+            STATUS=$(echo "$STATUS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null)
+            echo "[$i] Status: $STATUS"
+
+            if [ "$STATUS" = "FINISHED" ]; then
+              ARTIFACT_URL=$(echo "$STATUS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['artifacts']['buildUrl'])" 2>/dev/null)
+              echo "Artifact URL: $ARTIFACT_URL"
+              curl -L "$ARTIFACT_URL" -o emberchain-android.apk
+              ls -lh emberchain-android.apk
+              break
+            elif [ "$STATUS" = "ERRORED" ] || [ "$STATUS" = "CANCELLED" ]; then
+              echo "Build failed with status: $STATUS"
+              echo "$STATUS_JSON"
+              exit 1
+            fi
+
+            sleep 30
+          done
+
+          if [ ! -f emberchain-android.apk ]; then
+            echo "Timed out waiting for build"; exit 1
           fi
-          echo "Artifact URL: $ARTIFACT_URL"
-          if [ -z "$ARTIFACT_URL" ]; then
-            echo "Could not determine artifact URL"; exit 1
-          fi
-          curl -L "$ARTIFACT_URL" -o emberchain-android.apk
-          ls -lh emberchain-android.apk
 
       - name: Determine release tag
         id: tag
@@ -84,11 +130,9 @@ jobs:
             ### Install
 
             1. Download `emberchain-android.apk` below
-            2. On your Android device, open **Settings → Security** and enable **Install unknown apps** for your browser or file manager
+            2. On your Android device: **Settings → Security → Install unknown apps** → enable for your browser
             3. Open the downloaded APK and tap **Install**
             4. Launch **EmberChain** from your app drawer
-
-            > **Tip:** You can also scan the QR code from the EmberChain website to download directly to your phone.
 
             ### Features
             - Create or restore an EMBR wallet (BIP-39 seed phrase compatible)
