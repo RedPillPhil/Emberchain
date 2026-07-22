@@ -7,105 +7,128 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ── Build on each platform ────────────────────────────────────────────────
   build:
+    name: Build — ${{ matrix.label }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: ubuntu-22.04
-            rust-target: x86_64-unknown-linux-gnu
-            bundles: deb,appimage
-          - platform: windows-latest
-            rust-target: x86_64-pc-windows-msvc
-            bundles: nsis,msi
-          - platform: macos-latest
-            rust-target: aarch64-apple-darwin
-            bundles: dmg
-          - platform: macos-13
-            rust-target: x86_64-apple-darwin
-            bundles: dmg
+          - os: windows-latest
+            label: Windows
+            builder_flag: --win
+            artifact_glob: "dist/**/*.exe"
+          - os: macos-latest
+            label: macOS
+            builder_flag: --mac
+            artifact_glob: "dist/**/*.dmg"
+          - os: ubuntu-latest
+            label: Linux
+            builder_flag: --linux
+            artifact_glob: "dist/**/*.AppImage"
 
-    runs-on: ${{ matrix.platform }}
-    name: Build (${{ matrix.platform }})
-    permissions:
-      contents: write
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Install pnpm
         uses: pnpm/action-setup@v4
 
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust-target }}
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: lib/emberchain-desktop/src-tauri -> target
-
-      - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libgtk-3-dev
-
+      # Workspace install gives bundle-node-engine.mjs access to esbuild
       - name: Install workspace packages
         run: pnpm install --frozen-lockfile
 
-      - name: Build chain server bundle
-        run: pnpm --filter @workspace/emberchain-node run build
+      # Electron app has its own node_modules (electron-builder, ethers, etc.)
+      - name: Install Electron app dependencies
+        working-directory: lib/emberchain-wallet-electron
+        run: npm install
 
-      - name: Prepare desktop resources
-        working-directory: lib/emberchain-desktop
-        run: npm install && node scripts/prepare-resources.mjs
+      # Bundle the embedded chain node into node-engine-bundle.cjs
+      - name: Bundle embedded node engine
+        working-directory: lib/emberchain-wallet-electron
+        run: node scripts/bundle-node-engine.mjs
 
-      - name: Install Tauri CLI globally
-        run: npm install -g @tauri-apps/cli@2
+      # Validate renderer files exist before building
+      - name: Validate renderer files
+        working-directory: lib/emberchain-wallet-electron
+        run: node scripts/build.mjs
 
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+      # macOS: skip code-signing for unsigned builds
+      - name: Build installer
+        working-directory: lib/emberchain-wallet-electron
+        run: npx electron-builder ${{ matrix.builder_flag }} --publish never
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
         with:
-          projectPath: lib/emberchain-desktop
-          tauriScript: tauri
-          tagName: ${{ github.ref_name }}
-          releaseName: "EmberChain Desktop v1.0.0"
-          releaseBody: |
-            ## EmberChain Desktop v1.0.0
+          name: installer-${{ matrix.label }}
+          path: lib/emberchain-wallet-electron/dist/
+          if-no-files-found: error
 
-            The all-in-one EmberChain app — full node, wallet, private transactions, and miner in a single desktop install.
+  # ── Attach all installers to a GitHub Release ─────────────────────────────
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
-            ### Download
+    steps:
+      - name: Determine tag name
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=desktop-v1.0.0" >> $GITHUB_OUTPUT
+          fi
 
-            | Platform | File | Notes |
-            |----------|------|-------|
-            | 🪟 Windows | `*-setup.exe` or `*.msi` | Run installer, launch from Start Menu |
-            | 🍎 macOS Apple Silicon | `*-aarch64.dmg` | Open DMG → drag to Applications |
+      - name: Download all installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: release-files
+          merge-multiple: true
+
+      - name: List release files
+        run: find release-files -type f | sort
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: "EmberChain Desktop ${{ steps.tag.outputs.name }}"
+          draft: false
+          prerelease: false
+          files: |
+            release-files/**/*.exe
+            release-files/**/*.dmg
+            release-files/**/*.AppImage
+          body: |
+            ## EmberChain Desktop ${{ steps.tag.outputs.name }}
+
+            Full-node desktop wallet — node starts automatically on launch. No separate downloads needed.
+
+            | Platform | Download | Notes |
+            |----------|----------|-------|
+            | 🪟 Windows | `*-Setup.exe` | Run installer, launch from Start Menu |
             | 🍎 macOS Intel | `*-x64.dmg` | Open DMG → drag to Applications |
-            | 🐧 Linux | `*.AppImage` | `chmod +x *.AppImage` then run; or install the `.deb` |
+            | 🍎 macOS Apple Silicon | `*-arm64.dmg` | Open DMG → drag to Applications |
+            | 🐧 Linux | `*.AppImage` | `chmod +x *.AppImage` then run |
 
             ### What's included
-            - **Wallet** — create or import EMBR wallets, send public and private (shielded) transactions
-            - **Node** — full embedded EmberChain node starts automatically, RPC endpoint exposed locally
-            - **Miner** — one-click browser mining directly from the app
-            - **Private pool** — shield EMBR into private notes, send without revealing sender, receiver, or amount
+            - **Wallet** — create/import wallets, send & receive EMBR
+            - **Node** — full embedded chain node starts automatically
+            - **Miner** — one-click mining from the app
+            - **Private transactions** — shielded sends via the privacy pool
 
-            > **Android?** Get the EmberChain Mobile Wallet from the [Android release](../../releases).
-          releaseDraft: false
-          prerelease: false
-          args: --target ${{ matrix.rust-target }} --bundles ${{ matrix.bundles }}
+            > **Android?** Get the [EmberChain Android Wallet](../../releases/tag/android-v1.0.0).
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
