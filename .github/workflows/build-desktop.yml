@@ -17,7 +17,7 @@ jobs:
           - os: windows-latest
             label: Windows
             builder_flag: --win
-            artifact_glob: "dist/**/*.exe"
+            artifact_glob: "dist/*Setup*.exe"
           - os: macos-latest
             label: macOS
             builder_flag: --mac
@@ -108,7 +108,7 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            release-files/**/*.exe
+            release-files/**/*Setup*.exe
             release-files/**/*.dmg
             release-files/**/*.AppImage
           body: |
