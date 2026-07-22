@@ -253,7 +253,9 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 /* ── Status bar ──────────────────────────────────────────────────────── */
 #status-bar { height: 26px; background: var(--bg2); border-top: 1px solid var(--border); display: flex; align-items: center; gap: 16px; padding: 0 14px; font-size: 11px; color: var(--text-dim); flex-shrink: 0; }
 #status-conn.connected    { color: var(--green); }
+#status-conn.node-remote  { color: var(--accent2); }   /* amber — remote fallback */
 #status-conn.disconnected { color: var(--red); }
+#status-conn.node-syncing { color: var(--accent2); }   /* amber — connecting */
 #status-node-indicator { font-size: 11px; }
 #status-node-indicator.node-ok      { color: var(--green); }
 #status-node-indicator.node-syncing { color: var(--accent2); }
