@@ -758,14 +758,28 @@ export class Blockchain {
     return { ...block, transactions };
   }
 
-  /** Returns up to `limit` blocks (with their transactions) starting from `fromNumber`, in ascending order. */
+  /** Returns up to `limit` canonical blocks (with their transactions) starting from `fromNumber`, in ascending order.
+   *
+   * Deduplicates by height — if the in-memory chain somehow contains more than
+   * one block at the same height (e.g. due to a past race condition), only the
+   * last one (= canonical after the most recent reorg) is returned.  This
+   * ensures peers always receive a single, unambiguous chain, not a mix of
+   * canonical and orphan blocks that would confuse their fork-choice logic.
+   */
   async getBlocksFrom(fromNumber: number, limit = 500) {
     await this.whenReady();
     const cap = Math.min(limit, 1000);
-    const slice = this.blocks
-      .filter((b) => b.number >= fromNumber)
+
+    // Deduplicate by height — last block at each height wins (canonical after reorgs)
+    const byHeight = new Map<number, StoredBlock>();
+    for (const b of this.blocks) {
+      if (b.number >= fromNumber) byHeight.set(b.number, b);
+    }
+
+    const slice = [...byHeight.values()]
       .sort((a, b) => a.number - b.number)
       .slice(0, cap);
+
     return slice.map((block) => ({
       ...block,
       transactions: block.transactionHashes
@@ -1571,6 +1585,25 @@ export class Blockchain {
         ...this.blocks.slice(0, commonAncestorIdx + 1),
         ...forkChain,
       ];
+
+      // ── Critical: preserve rolled-back canonical blocks in the orphan pool ──
+      //
+      // When we reorg away from blocks [commonAncestor+1 … oldTip], those blocks
+      // are removed from blocksByHash.  If a subsequent sync batch contains blocks
+      // that reference one of these rolled-back blocks as their parent, the parent
+      // lookup fails, TD falls back to `BigInt(block.difficulty)` (≈ trivial), and
+      // the block is incorrectly stored as a low-TD orphan that can never trigger a
+      // reorg.  Keeping the rolled-back blocks in the orphan pool ensures the
+      // parent is still findable so TD is computed correctly and the reorg can fire.
+      const rolledBack = this.blocks.slice(commonAncestorIdx + 1);
+      for (const b of rolledBack) {
+        if (!this.orphanPool.has(b.hash)) {
+          const txs = b.transactionHashes
+            .map((h) => this.transactions.get(h))
+            .filter((t): t is StoredTransaction => Boolean(t));
+          this.storeOrphan(b, txs);
+        }
+      }
 
       // Reset EVM state to empty and replay the entire new canonical chain
       this.stateManager = createStateManager(this.common);
