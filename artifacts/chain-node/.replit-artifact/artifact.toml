@@ -32,6 +32,7 @@ args = ["node", "--enable-source-maps", "artifacts/chain-node/dist/index.mjs"]
 PORT = "8082"
 NODE_ENV = "production"
 NODE_URL = "https://emberchain.org"
+SEED_PEERS = "https://emberchain.duckdns.org"
 MINING_DISABLED = "true"
 MINING_NODE_URL = "https://emberchain.duckdns.org"
 
