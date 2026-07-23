@@ -30,7 +30,7 @@ export default function Downloads() {
                 EmberChain Desktop
               </span>
               <span className="text-xs text-primary font-mono bg-primary/10 border border-primary/30 px-2 py-0.5 rounded uppercase tracking-wide">
-                v1.0.21 · Latest
+                v1.0.22 · Latest
               </span>
             </div>
             <p className="text-muted-foreground font-sans text-sm leading-relaxed max-w-xl">
