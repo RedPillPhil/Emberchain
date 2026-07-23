@@ -113,6 +113,10 @@ export async function ensureProofsTable(): Promise<void> {
   }
 }
 
+export async function clearChainStateFromDB(): Promise<void> {
+  await pool.query("DELETE FROM chain_state WHERE id = $1", [STATE_ID]);
+}
+
 export function createChainPersistenceHooks() {
   return {
     asyncLoadHook: loadChainFromDB,

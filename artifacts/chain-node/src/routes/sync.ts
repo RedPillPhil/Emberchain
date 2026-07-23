@@ -71,4 +71,42 @@ router.post("/sync/peers", (req: Request, res: Response): void => {
   res.json({ ok: true, peers: getPeers() });
 });
 
+/**
+ * Admin: force this node to abandon its current chain and adopt a fresh
+ * snapshot from the given peer.  Used to resolve chain forks manually.
+ * POST /api/sync/force-resync  { "peer": "https://emberchain.duckdns.org" }
+ */
+router.post("/sync/force-resync", async (req: Request, res: Response): Promise<void> => {
+  const secret = process.env.CHAIN_NODE_INTERNAL_SECRET ?? process.env.SESSION_SECRET;
+  const auth   = req.headers["x-internal-secret"];
+  if (!secret || auth !== secret) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  const { peer } = req.body as { peer?: string };
+  if (!peer || !peer.startsWith("http")) {
+    res.status(400).json({ error: "peer URL required" });
+    return;
+  }
+  try {
+    console.log(`[admin] force-resync: downloading snapshot from ${peer} …`);
+    const r = await fetch(`${peer}/api/sync/snapshot`, {
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!r.ok) throw new Error(`Snapshot fetch failed: ${r.status}`);
+    const snapshot = await r.json() as Parameters<typeof chain.importSnapshot>[0];
+    if (!Array.isArray((snapshot as {blocks?: unknown}).blocks) || (snapshot as {blocks: unknown[]}).blocks.length === 0) {
+      throw new Error("Empty snapshot received");
+    }
+    await chain.importSnapshot(snapshot);
+    const status = await chain.getStatus();
+    console.log(`[admin] force-resync complete — now at block ${status.height}`);
+    res.json({ ok: true, height: status.height });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[admin] force-resync failed: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
 export default router;

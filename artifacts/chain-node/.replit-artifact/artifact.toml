@@ -35,6 +35,7 @@ NODE_URL = "https://emberchain.org"
 SEED_PEERS = "https://emberchain.duckdns.org"
 MINING_DISABLED = "true"
 MINING_NODE_URL = "https://emberchain.duckdns.org"
+FORCE_RESYNC_FROM = "https://emberchain.duckdns.org"
 
 [services.production.health.startup]
 path = "/api/healthz"
