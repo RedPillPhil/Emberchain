@@ -36,6 +36,19 @@ let pexTimer:  ReturnType<typeof setInterval> | null = null;
 // After ≥1 stalled round we step back to find the fork.
 let _stallCount = 0;
 
+// ── Cached best peer ──────────────────────────────────────────────────────
+// We re-poll ALL peers only when:
+//   a) we have no cached peer yet, or
+//   b) the cached peer is unreachable, or
+//   c) PEER_REPOLL_INTERVAL_MS has elapsed since the last full poll.
+//
+// In every other round we skip straight to syncing with the cached peer
+// using a SINGLE HTTP request instead of N simultaneous ones.  This is
+// what prevents the ongoing connection bursts that disrupt home routers.
+let _cachedBestPeer: string | null = null;
+let _lastPeerPollMs = 0;
+const PEER_REPOLL_INTERVAL_MS = 5 * 60_000; // re-rank peers every 5 min
+
 // ── Block sync ────────────────────────────────────────────────────────────────
 
 function ts() { return new Date().toISOString().slice(11, 19); }
@@ -144,6 +157,23 @@ async function snapshotBootstrap(peer: string, peerShort: string): Promise<boole
   }
 }
 
+/** Query a single peer's sync status. Returns null if unreachable. */
+type PeerInfo = { url: string; height: number; td: bigint };
+async function queryPeer(url: string): Promise<PeerInfo | null> {
+  try {
+    const r = await fetch(`${url}/api/sync/status`, { signal: AbortSignal.timeout(5_000) });
+    if (!r.ok) return null;
+    const ps = await r.json() as { latestBlock?: number; totalDifficulty?: string };
+    return {
+      url,
+      height: ps.latestBlock ?? 0,
+      td: ps.totalDifficulty ? BigInt(ps.totalDifficulty) : 0n,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function syncOnce(): Promise<void> {
   const peers = getPeers();
   if (peers.length === 0) return;
@@ -159,40 +189,53 @@ async function syncOnce(): Promise<void> {
     return; // chain not ready yet
   }
 
-  // Query ALL peers in parallel and pick the one with the most work.
-  // This prevents the node from stalling because it randomly picked a
-  // dead or behind peer — we always sync from the best available peer.
-  type PeerInfo = { url: string; height: number; td: bigint };
-  const peerStatuses = await Promise.all(
-    peers.map(async (url): Promise<PeerInfo | null> => {
-      try {
-        const r = await fetch(`${url}/api/sync/status`, { signal: AbortSignal.timeout(5_000) });
-        if (!r.ok) return null;
-        const ps = await r.json() as { latestBlock?: number; totalDifficulty?: string };
-        return {
-          url,
-          height: ps.latestBlock ?? 0,
-          td: ps.totalDifficulty ? BigInt(ps.totalDifficulty) : 0n,
-        };
-      } catch {
-        return null;
-      }
-    }),
-  );
+  // ── Peer selection ───────────────────────────────────────────────────────
+  // To avoid N simultaneous TCP connections on every round (which disrupts
+  // home routers), we reuse a cached best peer for most rounds.
+  //
+  // We only re-poll ALL peers when:
+  //   a) no cached peer exists yet (first run)
+  //   b) the cached peer is unreachable
+  //   c) PEER_REPOLL_INTERVAL_MS has elapsed (periodic re-rank)
+  //
+  // In every other round this is a single HTTP request, not N.
+  const now = Date.now();
+  const needRepoll =
+    !_cachedBestPeer ||
+    (now - _lastPeerPollMs) > PEER_REPOLL_INTERVAL_MS;
 
-  // Sort reachable peers by total difficulty descending; fall back to random if all unreachable
-  const reachable = peerStatuses.filter((p): p is PeerInfo => p !== null);
-  if (reachable.length > 0) {
-    reachable.sort((a, b) => (b.td > a.td ? 1 : b.td < a.td ? -1 : 0));
-    // Update best known peer height for progress UI
-    if (reachable[0]!.height > _bestPeerHeight) _bestPeerHeight = reachable[0]!.height;
+  let peerInfo: PeerInfo | null = null;
+
+  if (!needRepoll && _cachedBestPeer) {
+    // Fast path: reuse cached peer — one connection
+    peerInfo = await queryPeer(_cachedBestPeer);
+    if (!peerInfo) {
+      // Cached peer died — force a full repoll below
+      console.log(`[${ts()}] [sync] cached peer unreachable, re-polling all peers …`);
+      _cachedBestPeer = null;
+    }
   }
 
-  const best = reachable.length > 0
-    ? reachable[0]!.url
-    : peers[Math.floor(Math.random() * peers.length)]!;
+  if (!peerInfo) {
+    // Full repoll: query ALL peers in parallel and pick best by total difficulty
+    const results = await Promise.all(peers.map(queryPeer));
+    const reachable = results.filter((p): p is PeerInfo => p !== null);
+    reachable.sort((a, b) => (b.td > a.td ? 1 : b.td < a.td ? -1 : 0));
 
-  const peer = best;
+    if (reachable.length > 0) {
+      peerInfo = reachable[0]!;
+      _cachedBestPeer = peerInfo.url;
+      _lastPeerPollMs = now;
+    } else {
+      // All peers unreachable — nothing to do this round
+      return;
+    }
+  }
+
+  // Update best known peer height for progress UI
+  if (peerInfo.height > _bestPeerHeight) _bestPeerHeight = peerInfo.height;
+
+  const peer = peerInfo.url;
   const peerShort = peer.replace(/^https?:\/\//, "");
 
   // ── Snapshot bootstrap ───────────────────────────────────────────────────
@@ -212,10 +255,8 @@ async function syncOnce(): Promise<void> {
     // If snapshot failed, fall through to normal block-by-block sync below
   }
 
-  // Reuse the status we already fetched in the parallel query above
-  const peerInfo = reachable.find(p => p.url === peer);
-  let peerHeight = peerInfo?.height ?? ourHeight;
-  let peerTD     = peerInfo?.td     ?? (peerHeight > ourHeight ? ourTD + 1n : ourTD);
+  let peerHeight = peerInfo.height;
+  let peerTD     = peerInfo.td;
 
   // Skip if the peer has no more work than us
   if (peerTD <= ourTD && peerHeight <= ourHeight) {

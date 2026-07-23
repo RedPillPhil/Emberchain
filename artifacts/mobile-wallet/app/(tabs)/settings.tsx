@@ -185,9 +185,25 @@ export default function SettingsScreen() {
   const handleSaveNode = async () => {
     setOverrideLoading(true);
     try {
-      await nodeClient.setOverride(nodeOverride.trim() || null);
+      const url = nodeOverride.trim() || null;
+      await nodeClient.setOverride(url);
       await reconnect();
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      const active = nodeClient.getActiveNode();
+      if (url && active === url) {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert('Node saved', `Connected to ${url}`);
+      } else if (url && active !== url) {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert(
+          'Node unreachable',
+          `Could not reach ${url}.\n\nCheck that:\n• The node is running\n• Your phone and node are on the same network (or it has a public URL)\n• The URL has no trailing slash\n\nFalling back to ${active ?? 'default node'}.`,
+        );
+      } else {
+        // Cleared the override
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert('Node reset', `Using auto-selected node: ${active ?? 'emberchain.org'}`);
+      }
     } finally {
       setOverrideLoading(false);
     }
