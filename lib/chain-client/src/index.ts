@@ -13,14 +13,17 @@ import { createHmac } from "node:crypto";
 
 const BASE_URL = (process.env["CHAIN_NODE_URL"] ?? "http://localhost:8082").replace(/\/$/, "");
 
-/** Derive the same internal bearer secret that chain-node computes from SESSION_SECRET. */
-function deriveInternalSecret(): string | null {
+/** Resolve the internal bearer secret that chain-node expects.
+ *  Prefers CHAIN_NODE_INTERNAL_SECRET; falls back to HMAC derivation from SESSION_SECRET. */
+function resolveInternalSecret(): string | null {
+  const explicit = process.env["CHAIN_NODE_INTERNAL_SECRET"];
+  if (explicit) return explicit;
   const s = process.env["SESSION_SECRET"];
   if (!s) return null;
   return createHmac("sha256", s).update("chain-node-internal-v1").digest("hex");
 }
 
-const INTERNAL_SECRET = deriveInternalSecret();
+const INTERNAL_SECRET = resolveInternalSecret();
 
 class ChainClientError extends Error {
   status: number;

@@ -15,7 +15,12 @@
 import { createHmac } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
 
-function deriveInternalSecret(): string | null {
+function resolveInternalSecret(): string | null {
+  // Prefer an explicitly configured secret (Replit Secret or env var).
+  const explicit = process.env["CHAIN_NODE_INTERNAL_SECRET"];
+  if (explicit) return explicit;
+  // Fall back to deriving from SESSION_SECRET so the service still works
+  // in environments where only SESSION_SECRET is configured.
   const sessionSecret = process.env["SESSION_SECRET"];
   if (!sessionSecret) return null;
   return createHmac("sha256", sessionSecret)
@@ -23,13 +28,12 @@ function deriveInternalSecret(): string | null {
     .digest("hex");
 }
 
-const INTERNAL_SECRET = deriveInternalSecret();
+const INTERNAL_SECRET = resolveInternalSecret();
 
 if (!INTERNAL_SECRET) {
   console.warn(
-    "[chain-node] SESSION_SECRET is not set — " +
-      "/api/internal/* endpoints will reject all requests. " +
-      "Set SESSION_SECRET to enable api-server → chain-node communication."
+    "[chain-node] Neither CHAIN_NODE_INTERNAL_SECRET nor SESSION_SECRET is set — " +
+      "/api/internal/* endpoints will reject all requests."
   );
 }
 
