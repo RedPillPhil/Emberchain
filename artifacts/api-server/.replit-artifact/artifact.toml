@@ -30,6 +30,7 @@ args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
 PORT = "8080"
 NODE_ENV = "production"
 CHAIN_NODE_URL = "http://localhost:8082"
+MINING_NODE_URL = "https://emberchain.duckdns.org"
 
 [services.production.health.startup]
 path = "/api/healthz"

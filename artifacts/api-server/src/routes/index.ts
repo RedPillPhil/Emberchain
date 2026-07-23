@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { proxyToNode } from "../lib/chain-proxy";
+import { proxyToNode, proxyToMiningNode } from "../lib/chain-proxy";
 import healthRouter from "./health";
 import contractsRouter from "./contracts";  // registers /wallets/:address/tokens FIRST
 import privacyRouter from "./privacy";
@@ -51,13 +51,14 @@ router.post("/sync/submit-block",             proxyToNode);
 router.get("/chain/status",                   proxyToNode);
 router.get("/chain/blocks",                   proxyToNode);
 router.get("/chain/blocks/:number",           proxyToNode);
-// mining routes
-router.get("/mining/status",                  proxyToNode);
-router.post("/mining/start",                  proxyToNode);
-router.post("/mining/stop",                   proxyToNode);
-router.get("/mining/template",                proxyToNode);
-router.post("/mining/submit",                 proxyToNode);
-router.post("/mining/share",                  proxyToNode);
+// mining routes — routed to the dedicated mining node (duckdns in production)
+// so miner floods never touch the local chain-node that serves the wallet.
+router.get("/mining/status",                  proxyToMiningNode);
+router.post("/mining/start",                  proxyToMiningNode);
+router.post("/mining/stop",                   proxyToMiningNode);
+router.get("/mining/template",                proxyToMiningNode);
+router.post("/mining/submit",                 proxyToMiningNode);
+router.post("/mining/share",                  proxyToMiningNode);
 // wallet routes (excluding /wallets/:address/tokens handled by contractsRouter above)
 router.post("/wallets",                       proxyToNode);
 router.get("/wallets",                        proxyToNode);
