@@ -329,18 +329,35 @@ export function getBestPeerHeight(): number { return _bestPeerHeight; }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
+/**
+ * How long to wait after startup before the first sync and PEX round.
+ * The burst of simultaneous outbound TCP connections that fires the instant
+ * the embedded node starts can fill a home router's NAT connection-tracking
+ * table and disrupt every device on the LAN.  Delaying the first round by
+ * 20 s lets the OS/Electron settle and avoids the connection storm.
+ */
+const STARTUP_DELAY_MS = 20_000;
+
 export function startSyncLoop(): void {
   if (syncTimer) return; // already running
 
-  // Run immediately on start, then on interval
-  void syncOnce();
-  syncTimer = setInterval(() => { void syncOnce(); }, SYNC_INTERVAL_MS);
+  console.log(`[sync-loop] Started — first sync in ${STARTUP_DELAY_MS / 1000} s, then every ${SYNC_INTERVAL_MS / 1000} s (fork-choice enabled), PEX every 5 min`);
 
-  // Peer exchange — grow the mesh over time
-  void exchangePeers();
-  pexTimer = setInterval(() => { void exchangePeers(); }, PEX_INTERVAL_MS);
+  // Delay the first round so the sudden burst of outbound TCP connections
+  // from startup doesn't overwhelm cheap home routers.
+  const firstSync = setTimeout(() => {
+    void syncOnce();
+    syncTimer = setInterval(() => { void syncOnce(); }, SYNC_INTERVAL_MS);
+  }, STARTUP_DELAY_MS);
+  // Keep a reference so stopSyncLoop() can cancel it if called before it fires
+  (firstSync as unknown as { _isStartup: boolean })._isStartup = true;
+  syncTimer = firstSync as unknown as ReturnType<typeof setInterval>;
 
-  console.log("[sync-loop] Started — syncing every 30 s (fork-choice enabled), PEX every 5 min");
+  // PEX also delayed — no point discovering peers before the first sync
+  pexTimer = setTimeout(() => {
+    void exchangePeers();
+    pexTimer = setInterval(() => { void exchangePeers(); }, PEX_INTERVAL_MS);
+  }, STARTUP_DELAY_MS + 5_000) as unknown as ReturnType<typeof setInterval>;
 }
 
 export function stopSyncLoop(): void {
