@@ -26,7 +26,7 @@ args = ["pnpm", "--filter", "@workspace/chain-node", "run", "build"]
 NODE_ENV = "production"
 
 [services.production.run]
-args = ["sh", "-c", "ulimit -n 65536; node --enable-source-maps artifacts/chain-node/dist/index.mjs"]
+args = ["node", "--enable-source-maps", "artifacts/chain-node/dist/index.mjs"]
 
 [services.production.run.env]
 PORT = "8082"
