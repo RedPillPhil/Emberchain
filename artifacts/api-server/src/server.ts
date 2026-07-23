@@ -27,26 +27,27 @@ export interface ServerHandle {
 }
 
 export async function startServer(port: number): Promise<ServerHandle> {
-  await Promise.all([
-    ensureProofsTable(),
-    ensureCommunityTables(),
-    ensureBridgeTables(),
-  ]).catch((err) =>
-    logger.warn({ err }, "DB tables unavailable — running without DB persistence"),
-  );
-
   const server = http.createServer(app);
   const wss    = new WebSocketServer({ server, path: "/api/community/ws" });
   setupCommunityWS(wss);
 
+  // Listen immediately so health checks pass on startup.
   await new Promise<void>((resolve, reject) => {
     server.listen(port, "0.0.0.0", (err?: Error) => {
       if (err) { reject(err); return; }
       logger.info({ port }, "Emberchain API server listening");
-      startBridgeRelayer();
       resolve();
     });
   });
+
+  // DB setup and background services run after the port is open.
+  Promise.all([
+    ensureProofsTable(),
+    ensureCommunityTables(),
+    ensureBridgeTables(),
+  ])
+    .catch((err) => logger.warn({ err }, "DB tables unavailable — running without DB persistence"))
+    .then(() => startBridgeRelayer());
 
   const stop = (): Promise<void> => {
     stopBridgeRelayer();

@@ -11,22 +11,24 @@ export interface ServerHandle {
 }
 
 export async function startServer(port: number): Promise<ServerHandle> {
-  // Best-effort DB setup
-  await ensureProofsTable().catch((err) =>
-    logger.warn({ err }, "DB tables unavailable — running file-only mode"),
-  );
-
   const server = http.createServer(app);
 
+  // Listen immediately so health checks pass on startup.
   await new Promise<void>((resolve, reject) => {
     server.listen(port, "0.0.0.0", (err?: Error) => {
       if (err) { reject(err); return; }
       logger.info({ port }, "Emberchain chain-node listening");
-      startSyncLoop();
-      startChainScanner();
       resolve();
     });
   });
+
+  // DB setup and chain bootstrap run in the background after the port is open.
+  ensureProofsTable()
+    .catch((err) => logger.warn({ err }, "DB tables unavailable — running file-only mode"))
+    .then(() => {
+      startSyncLoop();
+      startChainScanner();
+    });
 
   const stop = (): Promise<void> => {
     stopSyncLoop();
