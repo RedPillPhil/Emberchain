@@ -10,7 +10,10 @@ import type { StoredBlock, StoredTransaction, PersistedChain } from "@workspace/
 
 const SYNC_INTERVAL_MS = 10_000;
 const PEX_INTERVAL_MS  = 5 * 60_000;
-const FORK_LOOKBACK = 64;
+// How far back to re-scan when the sync loop stalls — must exceed any realistic
+// fork depth.  64 was too small for a 127-block fork; 512 gives comfortable
+// headroom for deep re-orgs while still being a fast bulk-fetch.
+const FORK_LOOKBACK = 512;
 
 let syncTimer: ReturnType<typeof setInterval> | null = null;
 let pexTimer:  ReturnType<typeof setInterval> | null = null;
