@@ -8,6 +8,14 @@ import { miningStatusCache, chainStatusCache } from "../lib/status-cache";
 
 const router = Router();
 
+/**
+ * Concurrency cap for share validation.
+ * Rejects with 429 when too many shares are already in-flight so the event
+ * loop always has headroom to serve health checks even under peak mining load.
+ */
+let shareInflight = 0;
+const MAX_SHARE_INFLIGHT = 40;
+
 router.get("/mining/status", (_req: Request, res: Response): void => {
   const cached = miningStatusCache.get();
   if (cached) { res.json(cached); return; }
@@ -56,8 +64,13 @@ router.post("/mining/submit", async (req: Request, res: Response): Promise<void>
 });
 
 router.post("/mining/share", async (req: Request, res: Response): Promise<void> => {
-  const body = SubmitShareBody.parse(req.body);
+  if (shareInflight >= MAX_SHARE_INFLIGHT) {
+    res.status(429).json({ error: "Too many concurrent share submissions — retry shortly" });
+    return;
+  }
+  shareInflight++;
   try {
+    const body = SubmitShareBody.parse(req.body);
     const result = await chain.submitShare(body);
     const parsed = SubmitShareResponse.parse(result);
     // If a block was found, invalidate status caches
@@ -69,6 +82,8 @@ router.post("/mining/share", async (req: Request, res: Response): Promise<void> 
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Share submission failed";
     res.status(msg.includes("stale") ? 409 : 400).json({ error: msg });
+  } finally {
+    shareInflight--;
   }
 });
 

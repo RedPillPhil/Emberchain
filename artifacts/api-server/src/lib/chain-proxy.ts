@@ -31,7 +31,7 @@ export async function proxyToNode(
 
     const upstream = await fetch(target, {
       ...init,
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(8_000),
     });
 
     // Forward the status and body verbatim
