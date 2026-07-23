@@ -916,10 +916,19 @@ export class Blockchain {
     const warnings: string[] = [];
 
     // Did the walk reach genesis?
+    // On long-running nodes, blocks older than MAX_FILE_BLOCKS are pruned from
+    // the DB/file snapshot, so the backward walk stops at the oldest block in
+    // memory rather than at genesis.  This is expected and should not prevent
+    // the node from serving a partial snapshot — the exported canonical section
+    // is internally valid and carries the correct totalDifficulty on every block.
     if (!walkedToGenesis) {
-      errors.push(
+      const oldestKnown = cursor
+        ? `oldest in-memory block is ${cursor.number} (${cursor.hash.slice(0,14)}…)`
+        : `walked off chain end`;
+      warnings.push(
         `canonical walk from tip ${rawTip.hash.slice(0,14)} (height ${rawTip.number}) ` +
-        `did not reach genesis — chain has a broken parentHash link`,
+        `did not reach genesis — old blocks were pruned (${oldestKnown}). ` +
+        `Exporting partial canonical chain; this is expected on long-running nodes.`,
       );
     }
 

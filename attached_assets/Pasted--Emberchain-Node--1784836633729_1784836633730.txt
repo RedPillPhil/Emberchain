@@ -1,0 +1,77 @@
+
+╔══════════════════════════════════════════════════════╗
+║              🔥  Emberchain Node  🔥                 ║
+╚══════════════════════════════════════════════════════╝
+  Bootstrap peers : https://emberchain.org
+  Port   : 8545
+  Data   : /root/Emberchain/lib/emberchain-node/dist/downloads/emberchain-data
+  My URL : https://emberchain.duckdns.org
+
+[19:56:57] 📥  No local chain data — downloading snapshot …
+[19:56:57]     Will try 1 peer(s) in order.
+[19:56:57] 📥  Trying https://emberchain.org …
+
+❌  Fatal error: Could not download snapshot from any peer:
+  • https://emberchain.org: HTTP 500
+
+Ensure at least one peer is reachable, or run without --resync to use local data.
+root@emberchain-seed-1:~/Emberchain/lib/emberchain-node/dist/downloads# curl -s https://emberchain.org/api/sync/status
+{"latestBlock":50140,"difficulty":"147784987955","totalDifficulty":"3167193249034443","chainId":7773,"network":"emberchain"}root@emberchain-seed-1:~/Emberchain/lib/emberchain-node/dist/downloacurl -v https://emberchain.org/api/sync/snapshot
+* Host emberchain.org:443 was resolved.
+* IPv6: (none)
+* IPv4: 34.111.179.208
+*   Trying 34.111.179.208:443...
+* Connected to emberchain.org (34.111.179.208) port 443
+* ALPN: curl offers h2,http/1.1
+* TLSv1.3 (OUT), TLS handshake, Client hello (1):
+*  CAfile: /etc/ssl/certs/ca-certificates.crt
+*  CApath: /etc/ssl/certs
+* TLSv1.3 (IN), TLS handshake, Server hello (2):
+* TLSv1.3 (IN), TLS handshake, Encrypted Extensions (8):
+* TLSv1.3 (IN), TLS handshake, Certificate (11):
+* TLSv1.3 (IN), TLS handshake, CERT verify (15):
+* TLSv1.3 (IN), TLS handshake, Finished (20):
+* TLSv1.3 (OUT), TLS change cipher, Change cipher spec (1):
+* TLSv1.3 (OUT), TLS handshake, Finished (20):
+* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384 / X25519 / id-ecPublicKey
+* ALPN: server accepted h2
+* Server certificate:
+*  subject: CN=emberchain.org
+*  start date: Jul 15 19:30:55 2026 GMT
+*  expire date: Oct 13 19:30:54 2026 GMT
+*  subjectAltName: host "emberchain.org" matched cert's "emberchain.org"
+*  issuer: C=US; O=Let's Encrypt; CN=YE1
+*  SSL certificate verify ok.
+*   Certificate level 0: Public key type EC/prime256v1 (256/128 Bits/secBits), signed using ecdsa-with-SHA384
+*   Certificate level 1: Public key type EC/secp384r1 (384/192 Bits/secBits), signed using ecdsa-with-SHA384
+*   Certificate level 2: Public key type EC/secp384r1 (384/192 Bits/secBits), signed using ecdsa-with-SHA384
+*   Certificate level 3: Public key type EC/secp384r1 (384/192 Bits/secBits), signed using ecdsa-with-SHA384
+* using HTTP/2
+* [HTTP/2] [1] OPENED stream for https://emberchain.org/api/sync/snapshot
+* [HTTP/2] [1] [:method: GET]
+* [HTTP/2] [1] [:scheme: https]
+* [HTTP/2] [1] [:authority: emberchain.org]
+* [HTTP/2] [1] [:path: /api/sync/snapshot]
+* [HTTP/2] [1] [user-agent: curl/8.5.0]
+* [HTTP/2] [1] [accept: */*]
+> GET /api/sync/snapshot HTTP/2
+> Host: emberchain.org
+> User-Agent: curl/8.5.0
+> Accept: */*
+>
+* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
+* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
+* old SSL session ID is stale, removing
+< HTTP/2 500
+< access-control-allow-origin: *
+< content-length: 167
+< content-type: application/json; charset=utf-8
+< date: Thu, 23 Jul 2026 19:58:09 GMT
+< etag: W/"a7-qupMvJojqUWubPonQg0wgo4Gyk4"
+< strict-transport-security: max-age=63072000; includeSubDomains
+< x-powered-by: Express
+< via: 1.1 google
+< alt-svc: h3=":443"; ma=2592000
+<
+* Connection #0 to host emberchain.org left intact
+{"error":"exportSnapshot validation failed:\n  ✗ canonical walk from tip 0x0000000060f8 (height 50140) did not reach genesis — chain has a broken parentHash link"}root@emberchain-seed-1:~/Emberchain/lib/emberchain-node/dist/downloads#
