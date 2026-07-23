@@ -1,13 +1,49 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Shell } from "@/components/layout/shell";
 import { useActiveWallet } from "@/hooks/use-active-wallet";
-import { useGetMiningStatus, useSubmitBlock, useSubmitShare, getMiningTemplate } from "@workspace/api-client-react";
-import type { MiningTemplate, SubmitBlockInput } from "@workspace/api-client-react";
+import { useGetMiningStatus } from "@workspace/api-client-react";
+import type { MiningTemplate, SubmitBlockInput, SubmitShareInput, SubmitShareResult } from "@workspace/api-client-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Flame, Zap, Hash, Database, Terminal, Cpu, Share2 } from "lucide-react";
 import { cn, formatEmbr } from "@/lib/utils";
 import type { FromWorkerMsg, ToWorkerMsg, WorkerErrorMsg } from "@/workers/mining.worker";
+
+// ── mining node — direct calls bypass the Replit proxy entirely ───────────────
+// In production builds, shares and templates go straight to the dedicated
+// mining node (duckdns). In development the empty string falls back to the
+// same-origin dev proxy so local testing still works.
+const MINING_NODE = (
+  (import.meta.env.VITE_MINING_NODE_URL as string | undefined) ??
+  (import.meta.env.PROD ? "https://emberchain.duckdns.org" : "")
+).replace(/\/$/, "");
+
+async function fetchMiningTemplate(minerAddress: string): Promise<MiningTemplate> {
+  const r = await fetch(
+    `${MINING_NODE}/api/mining/template?minerAddress=${encodeURIComponent(minerAddress)}`,
+  );
+  if (!r.ok) throw new Error(`Template fetch failed: ${r.status}`);
+  return r.json() as Promise<MiningTemplate>;
+}
+
+async function postMiningShare(data: SubmitShareInput): Promise<SubmitShareResult> {
+  const r = await fetch(`${MINING_NODE}/api/mining/share`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!r.ok) throw new Error(`Share submit failed: ${r.status}`);
+  return r.json() as Promise<SubmitShareResult>;
+}
+
+async function postMiningBlock(data: SubmitBlockInput): Promise<void> {
+  const r = await fetch(`${MINING_NODE}/api/mining/submit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!r.ok) throw new Error(`Block submit failed: ${r.status}`);
+}
 
 // ── intensity levels ──────────────────────────────────────────────────────────
 
@@ -41,9 +77,6 @@ const MINING_CHANNEL = "emberchain_mining";
 
 export default function Mining() {
   const { activeWallet } = useActiveWallet();
-  const submitBlock = useSubmitBlock();
-  const submitShareMutation = useSubmitShare();
-
   const [isMining, setIsMining]               = useState(false);
   const [hashRate, setHashRate]               = useState(0);
   const [sessionBlocks, setSessionBlocks]     = useState(0);
@@ -122,7 +155,7 @@ export default function Mining() {
               setSessionShares((n) => n + 1);
               if (templateRef.current) {
                 const t = templateRef.current;
-                submitShareMutation.mutateAsync({
+                postMiningShare({
                   minerAddress: t.header.miner,
                   header: t.header,
                   nonce: msg.nonce,
@@ -158,7 +191,7 @@ export default function Mining() {
               };
 
               try {
-                await submitBlock.mutateAsync(submitPayload);
+                await postMiningBlock(submitPayload);
                 setSessionBlocks((n) => n + 1);
                 addLog(`★ BLOCK FORGED! Fetching next template…`, "found");
               } catch (err) {
@@ -172,14 +205,14 @@ export default function Mining() {
 
               if (!miningRef.current) return;
               try {
-                const newTemplate = await getMiningTemplate(t.header.miner);
+                const newTemplate = await fetchMiningTemplate(t.header.miner);
                 if (!miningRef.current) return;
                 spawnPool(newTemplate);
               } catch {
                 addLog("Failed to fetch next template — retrying in 2s…", "warn");
                 setTimeout(() => {
                   if (!miningRef.current) return;
-                  getMiningTemplate(t.header.miner)
+                  fetchMiningTemplate(t.header.miner)
                     .then((nt) => { if (miningRef.current) spawnPool(nt); })
                     .catch(() => stopWorker());
                 }, 2000);
@@ -196,7 +229,7 @@ export default function Mining() {
               const minerAddr = templateRef.current?.header.miner ?? activeWallet?.address;
               if (!minerAddr) { templateFetchingRef.current = false; return; }
 
-              getMiningTemplate(minerAddr).then((nt) => {
+              fetchMiningTemplate(minerAddr).then((nt) => {
                 templateFetchingRef.current = false;
                 if (!miningRef.current) return;
                 // Restart the whole pool on the new template
@@ -207,7 +240,7 @@ export default function Mining() {
                   if (!miningRef.current) return;
                   const addr = templateRef.current?.header.miner ?? activeWallet?.address;
                   if (!addr) return;
-                  getMiningTemplate(addr)
+                  fetchMiningTemplate(addr)
                     .then((nt) => { if (miningRef.current) spawnPool(nt); })
                     .catch(() => stopWorker());
                 }, 2000);
@@ -246,7 +279,7 @@ export default function Mining() {
 
       spawnPool(template);
     },
-    [addLog, stopWorker, submitBlock, submitShareMutation],
+    [addLog, stopWorker],
   );
 
   // ── handlers ────────────────────────────────────────────────────────────────
@@ -264,7 +297,7 @@ export default function Mining() {
     const level = INTENSITY_LEVELS.find((l) => l.value === selectedIntensity) ?? INTENSITY_LEVELS[1]!;
     addLog(`IGNITE @ ${CORE_COUNT} cores × intensity ${selectedIntensity} (${level.label}) — mining for ${truncate(activeWallet.address)}`);
     try {
-      const template = await getMiningTemplate(activeWallet.address);
+      const template = await fetchMiningTemplate(activeWallet.address);
       if (!miningRef.current) return;
       addLog(`Template: block #${template.header.number} · ${template.pendingTxHashes.length} pending txs · diff ${template.header.difficulty}`);
       startWorkerWithTemplate(template, selectedIntensity);
