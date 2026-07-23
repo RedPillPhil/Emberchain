@@ -1,0 +1,118 @@
+We need to refactor Emberchain into a multi-service architecture without changing the user-facing website.
+
+The current problem:
+The website, blockchain node, mining system, RPC endpoints, database operations, chat, forum, and wallet services are running too tightly coupled. When one component experiences heavy load, it affects the entire application and can cause website downtime or Internal Server Errors.
+
+The goal:
+Keep emberchain.org exactly the same for users. Do not redesign the frontend or remove any features.
+
+We need to separate backend responsibilities into independent services.
+
+Architecture goal:
+
+1. Blockchain Node Service (highest priority)
+Create a standalone Emberchain node service that runs independently.
+
+The node service should ONLY handle:
+- blockchain state
+- block validation
+- chain synchronization
+- peer-to-peer networking
+- block storage
+- RPC endpoints (eth_* methods)
+- consensus logic
+
+The node should NOT handle:
+- website frontend
+- React assets
+- chat
+- forum
+- user accounts
+- mining dashboard
+- UI requests unrelated to blockchain
+
+The node should be able to run on its own server/VPS with no dependency on the website.
+
+---
+
+2. Website Service
+
+Keep the current Emberchain website unchanged.
+
+The website should communicate with the blockchain through external RPC/API calls.
+
+Instead of:
+Website -> local blockchain process
+
+Change to:
+Website -> Emberchain RPC Node -> Blockchain
+
+The frontend experience should remain identical.
+
+---
+
+3. Mining Service
+
+Separate mining infrastructure from the blockchain node.
+
+Create a dedicated mining service responsible for:
+- miner connections
+- mining jobs
+- share submissions
+- miner statistics
+- reward calculations
+
+The mining service should communicate with the blockchain node through APIs.
+
+Instead of:
+Miners -> Blockchain Node
+
+Use:
+Miners -> Mining Server -> Blockchain Node
+
+This prevents many miners from consuming node resources.
+
+---
+
+4. Community Services
+
+Separate community features:
+- chat
+- forum
+- user messaging
+- notifications
+
+These should not compete with blockchain resources.
+
+---
+
+Desired final architecture:
+
+emberchain.org
+        |
+        |
+   Website Frontend
+        |
+        |
+   API Layer
+        |
+ ------------------------------------------------
+ |              |              |                 |
+Blockchain   Mining       Community        Database
+Node         Service      Services         Services
+
+
+Requirements:
+- Existing wallets must continue working
+- Existing miner must continue working
+- Existing chat/forum must continue working
+- No visible UI changes
+- Preserve current blockchain data
+- Preserve RPC compatibility
+- Allow multiple independent blockchain nodes in the future
+
+The goal is that if the website crashes, the blockchain continues running.
+If the mining server crashes, the blockchain continues running.
+If the chat/forum goes down, the blockchain continues running.
+
+Make the blockchain node the foundation, not the website server.
