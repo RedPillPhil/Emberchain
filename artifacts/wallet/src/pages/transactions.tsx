@@ -34,8 +34,8 @@ export default function Transactions() {
   const addressFilter = isAddress ? trimmed : undefined;
 
   const { data: transactions, isLoading } = useListTransactions(
-    { limit: 100, address: addressFilter },
-    { query: { refetchInterval: 5000 } },
+    { limit: 50, address: addressFilter },
+    { query: { refetchInterval: 15_000 } },
   );
 
   // Client-side filter for partial/full hash queries

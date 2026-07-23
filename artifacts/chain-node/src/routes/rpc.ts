@@ -83,7 +83,10 @@ async function dispatch(method: string, params: unknown[]): Promise<unknown> {
     case "web3_sha3": return "0x";
     case "net_version": return String(EMBERCHAIN_ID);
     case "net_listening": return true;
-    case "net_peerCount": return "0x0";
+    case "net_peerCount": {
+      const { getPeers } = await import("../lib/peers");
+      return "0x" + getPeers().length.toString(16);
+    }
     case "eth_protocolVersion": return "0x41";
     case "eth_syncing": return false;
     case "eth_coinbase": return "0x0000000000000000000000000000000000000000";

@@ -502,12 +502,12 @@ function AddressResult({ address, onAddressClick }: { address: string; onAddress
   const isMe = activeWallet?.address.toLowerCase() === address.toLowerCase();
 
   const { data: wallet, isLoading: walletLoading, isError: walletError } = useGetWallet(address, {
-    query: { retry: false, refetchInterval: 5000 },
+    query: { retry: false, refetchInterval: 12_000 },
   });
 
   const { data: txs, isLoading: txsLoading } = useListTransactions(
-    { address, limit: 100 },
-    { query: { refetchInterval: 8000 } },
+    { address, limit: 50 },
+    { query: { refetchInterval: 15_000 } },
   );
 
   // Contract info
