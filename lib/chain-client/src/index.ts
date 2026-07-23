@@ -10,8 +10,20 @@
  */
 
 import { createHmac } from "node:crypto";
+import { Pool } from "undici";
 
 const BASE_URL = (process.env["CHAIN_NODE_URL"] ?? "http://localhost:8082").replace(/\/$/, "");
+
+/**
+ * Persistent connection pool to chain-node.
+ * Reusing connections eliminates per-request TCP handshakes and prevents
+ * file-descriptor exhaustion under high mining-share load.
+ */
+const pool = new Pool(BASE_URL, {
+  connections: 20,
+  keepAliveTimeout: 30_000,
+  keepAliveMaxTimeout: 60_000,
+});
 
 /** Resolve the internal bearer secret that chain-node expects.
  *  Prefers CHAIN_NODE_INTERNAL_SECRET; falls back to HMAC derivation from SESSION_SECRET. */
@@ -52,7 +64,11 @@ function internalHeaders(): Record<string, string> {
 
 async function get<T>(path: string): Promise<T> {
   const headers = path.includes("/internal/") ? internalHeaders() : baseHeaders();
-  const res = await fetch(`${BASE_URL}${path}`, { headers });
+  const res = await fetch(`${BASE_URL}${path}`, {
+    headers,
+    // @ts-expect-error — undici dispatcher is not in standard RequestInit types
+    dispatcher: pool,
+  });
   const body = await res.json() as T;
   if (!res.ok) throw new ChainClientError(res.status, body, path);
   return body;
@@ -64,6 +80,8 @@ async function post<T>(path: string, data?: unknown): Promise<T> {
     method: "POST",
     headers,
     body: data !== undefined ? JSON.stringify(data) : undefined,
+    // @ts-expect-error — undici dispatcher is not in standard RequestInit types
+    dispatcher: pool,
   });
   const body = await res.json() as T;
   if (!res.ok) throw new ChainClientError(res.status, body, path);

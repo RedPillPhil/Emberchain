@@ -11,10 +11,7 @@ paths = ["/chain-node"]
 
 [services.env]
 PORT = "8082"
-# This node's public identity — used to prevent self-peering.
-# Must match the URL peers would use to reach this node's sync endpoints.
 NODE_URL = "https://emberchain.org"
-# Comma-separated bootstrap peers. Both nodes seed each other.
 SEED_PEERS = "https://emberchain.duckdns.org"
 
 [services.development]
@@ -29,7 +26,7 @@ args = ["pnpm", "--filter", "@workspace/chain-node", "run", "build"]
 NODE_ENV = "production"
 
 [services.production.run]
-args = ["node", "--enable-source-maps", "artifacts/chain-node/dist/index.mjs"]
+args = ["sh", "-c", "ulimit -n 65536; node --enable-source-maps artifacts/chain-node/dist/index.mjs"]
 
 [services.production.run.env]
 PORT = "8082"

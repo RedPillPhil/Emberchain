@@ -863,6 +863,10 @@ importers:
         version: 3.25.76
 
   lib/chain-client:
+    dependencies:
+      undici:
+        specifier: ^6.27.0
+        version: 6.27.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
