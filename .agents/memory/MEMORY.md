@@ -1,5 +1,6 @@
 # Memory Index
 
+- [Chain-node microservice architecture](chain-node-architecture.md) — chain-node owns Blockchain; api-server uses chain-client/proxy; two instances = state divergence.
 - [EMBR chain RPC stubs](embr-chain-rpc-stubs.md) — eth_estimateGas was hardcoded to 21k and eth_getCode always returned "0x"; both are now fixed and break Hardhat deployments if regressed.
 - [EMBR chain contract deployment](embr-chain-contract-deployment.md) — requires server-side mining during deploy, deployer needs EMBR funded first, Hardhat needs DO_NOT_TRACK=1.
 - [EMBR chain EVM concurrency lock](embr-chain-evm-lock.md) — production chain hangs on eth_sendRawTransaction under mining load; fixed with withEvmLock() serialising applyBlock/callContract/estimateGas/submitRawEVMTransaction.

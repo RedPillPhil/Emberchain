@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { ethers } from "ethers";
-import { chain } from "../lib/chain";
+import * as chainClient from "@workspace/chain-client";
 import {
   ensureContractTable,
   getContractRecord,
@@ -20,9 +20,9 @@ async function balanceOf(tokenAddress: string, walletAddress: string): Promise<s
   try {
     const padded = walletAddress.toLowerCase().replace("0x", "").padStart(64, "0");
     const data   = "0x70a08231" + padded; // balanceOf(address)
-    const result = await chain.callContract({ to: tokenAddress, data });
+    const result = await chainClient.callContract({ to: tokenAddress, data });
     if (!result.success || !result.returnData || result.returnData === "0x") return "0";
-    const [bal] = coder.decode(["uint256"], result.returnData) as [bigint];
+    const [bal] = coder.decode(["uint256"], result.returnData) as unknown as [bigint];
     return bal.toString();
   } catch {
     return "0";
@@ -41,7 +41,6 @@ function encodeCall(abi: object[], functionName: string, args: unknown[]): strin
 function decodeReturn(abi: object[], functionName: string, data: string): unknown {
   const iface = new ethers.Interface(abi as ethers.InterfaceAbi);
   const result = iface.decodeFunctionResult(functionName, data);
-  // Convert Result object to plain array/values
   return result.length === 1 ? formatValue(result[0]) : [...result].map(formatValue);
 }
 
@@ -74,7 +73,7 @@ router.get("/contracts/:address", async (req: Request, res: Response): Promise<v
     return;
   }
 
-  const bytecode = await chain.getContractCode(address);
+  const bytecode = await chainClient.getContractCode(address);
   const isContract = bytecode !== "0x" && bytecode.length > 2;
 
   if (!isContract) {
@@ -82,10 +81,8 @@ router.get("/contracts/:address", async (req: Request, res: Response): Promise<v
     return;
   }
 
-  // Check registry
   let record = await getContractRecord(address);
 
-  // Auto-detect ERC-20 if not already known
   if (!record || (!record.isToken && !record.name)) {
     const erc20 = await detectERC20(address);
     if (erc20) {
@@ -130,7 +127,6 @@ router.post("/contracts/:address/register", async (req: Request, res: Response):
 
   const record = await upsertContractRecord({ address, abi, creator, creatorTx });
 
-  // Re-detect ERC-20 with the new ABI present
   const erc20 = await detectERC20(address);
   if (erc20 && !record.isToken) {
     await upsertContractRecord({ address, isToken: true, ...erc20 });
@@ -151,14 +147,13 @@ router.post("/contracts/:address/read", async (req: Request, res: Response): Pro
     functionName: string; args?: unknown[]; abi?: object[];
   };
 
-  // Get ABI from request or registry
   const record = await getContractRecord(address);
   const abi = reqAbi ?? record?.abi;
   if (!abi) { res.status(400).json({ error: "No ABI. Register the contract ABI first or pass abi in the request." }); return; }
 
   try {
     const calldata = encodeCall(abi, functionName, args);
-    const result   = await chain.callContract({ to: address, data: calldata });
+    const result   = await chainClient.callContract({ to: address, data: calldata });
     if (!result.success) {
       res.json({ success: false, error: result.error ?? "Reverted" });
       return;
@@ -193,13 +188,13 @@ router.post("/contracts/:address/write", async (req: Request, res: Response): Pr
 
   try {
     const calldata = encodeCall(abi, functionName, args);
-    const tx = await chain.submitTransaction({
+    const tx = await chainClient.submitTransaction({
       fromPrivateKey,
       to: address,
       value,
       data: calldata,
       gasLimit,
-    });
+    }) as { hash: string; status: string };
     res.json({ success: true, txHash: tx.hash, status: tx.status });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
@@ -225,22 +220,19 @@ router.get("/tokens/:address", async (req: Request, res: Response): Promise<void
 
   const record = await getContractRecord(address);
   if (!record?.isToken) {
-    // Try auto-detect first
     const erc20 = await detectERC20(address);
     if (!erc20) { res.status(404).json({ error: "Not a known ERC-20 token" }); return; }
     await upsertContractRecord({ address, isToken: true, ...erc20 });
   }
 
-  // Live totalSupply
   const supplyR = await callView(address, "0x18160ddd", ["uint256"]);
   const totalSupply = supplyR ? String(supplyR[0]) : (record?.totalSupply ?? "0");
 
-  // Holders: scan all known wallets and call balanceOf for each
-  const wallets = await chain.listWallets();
+  const wallets = (await chainClient.listWallets()) as Array<{ address: string }>;
   const holderResults = await Promise.all(
     wallets.map(async (w) => ({
-      address:  w.address,
-      balance:  await balanceOf(address, w.address),
+      address: w.address,
+      balance: await balanceOf(address, w.address),
     })),
   );
   const holders = holderResults
@@ -292,7 +284,7 @@ router.get("/wallets/:address/tokens", async (req: Request, res: Response): Prom
 
 router.post("/contracts/call", async (req: Request, res: Response): Promise<void> => {
   try {
-    const result = await chain.callContract(req.body);
+    const result = await chainClient.callContract(req.body as { to: string; data: string; from?: string | null });
     res.status(200).json(result);
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Call failed" });

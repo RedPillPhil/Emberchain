@@ -1,24 +1,19 @@
 /**
- * Chain Scanner
+ * chain-scanner (api-server residual)
  *
- * Runs a background loop that scans every transaction in the chain history,
- * finds contract deployment transactions (to === null), auto-detects ERC-20
- * tokens, and populates the contract_registry table.
+ * The background scanning loop now runs inside chain-node, which has direct
+ * access to the Blockchain instance. This file retains only the ERC-20
+ * detection helpers that contracts.ts needs so it can auto-detect tokens
+ * when responding to GET /api/contracts/:address or GET /api/tokens/:address.
  *
- * This is what makes "GET /api/tokens" return all tokens that have been
- * deployed on the chain — analogous to how Etherscan discovers tokens.
+ * Detection is done by forwarding callContract requests to chain-node via
+ * chain-client, so no direct chain-core dependency is needed here.
  */
 
 import { ethers } from "ethers";
-import { chain } from "./chain";
-import { upsertContractRecord, getContractRecord, ensureContractTable } from "./contract-registry";
-import { logger } from "./logger";
+import * as chainClient from "@workspace/chain-client";
 
 const coder = ethers.AbiCoder.defaultAbiCoder();
-
-// ---------------------------------------------------------------------------
-// ERC-20 detection (shared — also imported by contracts route)
-// ---------------------------------------------------------------------------
 
 async function callView(
   to: string,
@@ -26,7 +21,7 @@ async function callView(
   types: string[],
 ): Promise<unknown[] | null> {
   try {
-    const result = await chain.callContract({ to, data: selector });
+    const result = await chainClient.callContract({ to, data: selector });
     if (!result.success || !result.returnData || result.returnData === "0x") return null;
     return coder.decode(types, result.returnData) as unknown[];
   } catch {
@@ -58,102 +53,4 @@ export async function callViewRaw(
   types: string[],
 ): Promise<unknown[] | null> {
   return callView(to, selector, types);
-}
-
-// ---------------------------------------------------------------------------
-// Scanner
-// ---------------------------------------------------------------------------
-
-/** Set of contract addresses already indexed in this process run */
-const indexed = new Set<string>();
-
-async function scanOnce(): Promise<void> {
-  // Grab every transaction the chain knows about (no address filter, very high limit)
-  const txs = await chain.listTransactions(undefined, 1_000_000);
-
-  // Filter for successful contract deployments
-  const deployments = txs.filter(
-    (tx) => tx.to === null && tx.status === "success" && tx.contractAddress,
-  );
-
-  if (deployments.length === 0) return;
-
-  let added = 0;
-  for (const tx of deployments) {
-    const addr = tx.contractAddress!.toLowerCase();
-
-    // Skip if we've already processed this address in this run
-    if (indexed.has(addr)) continue;
-
-    // Check DB — if it's there and already has token info, skip the EVM call
-    const existing = await getContractRecord(addr);
-    if (existing && (existing.isToken || existing.name)) {
-      indexed.add(addr);
-      continue;
-    }
-
-    // Probe the contract
-    const erc20 = await detectERC20(addr);
-
-    await upsertContractRecord({
-      address:     addr,
-      isToken:     !!erc20,
-      name:        erc20?.name        ?? null,
-      symbol:      erc20?.symbol      ?? null,
-      decimals:    erc20?.decimals    ?? null,
-      totalSupply: erc20?.totalSupply ?? null,
-      creator:     tx.from?.toLowerCase() ?? null,
-      creatorTx:   tx.hash,
-    });
-
-    indexed.add(addr);
-    added++;
-
-    if (erc20) {
-      logger.info(
-        { address: addr, name: erc20.name, symbol: erc20.symbol, creator: tx.from },
-        "[scanner] ERC-20 token discovered",
-      );
-    }
-  }
-
-  if (added > 0) {
-    logger.info({ discovered: added, total: deployments.length }, "[scanner] scan complete");
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-let _timer: ReturnType<typeof setInterval> | null = null;
-
-export function startChainScanner(): void {
-  if (_timer) return;
-
-  // In standalone / file-only mode DATABASE_URL is empty — no DB to write to.
-  // Skip the scanner entirely so it doesn't spam error logs every 30 s.
-  if (!process.env.DATABASE_URL) {
-    logger.info("[scanner] no database configured — contract registry disabled");
-    return;
-  }
-
-  // Ensure the registry table exists before we start writing
-  ensureContractTable()
-    .then(() => scanOnce())
-    .catch((err: Error) => logger.warn({ err: err.message }, "[scanner] initial scan error"));
-
-  // Re-scan every 30 s to pick up newly deployed contracts
-  _timer = setInterval(() => {
-    scanOnce().catch((err: Error) =>
-      logger.warn({ err: err.message }, "[scanner] periodic scan error"),
-    );
-  }, 30_000);
-}
-
-export function stopChainScanner(): void {
-  if (_timer) {
-    clearInterval(_timer);
-    _timer = null;
-  }
 }

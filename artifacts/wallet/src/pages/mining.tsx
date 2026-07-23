@@ -62,7 +62,7 @@ export default function Mining() {
   const templateFetchingRef = useRef(false);   // prevents duplicate simultaneous fetches
   const channelRef          = useRef<BroadcastChannel | null>(null);
 
-  const { data: status } = useGetMiningStatus({ query: { refetchInterval: 3000 } });
+  const { data: status } = useGetMiningStatus({ query: { refetchInterval: 8000 } });
 
   const addLog = useCallback((msg: string, kind: "default" | "found" | "warn" = "default") => {
     const tag = kind === "found" ? "★ " : kind === "warn" ? "! " : "  ";

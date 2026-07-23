@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { chain } from "../lib/chain";
+import * as chainClient from "@workspace/chain-client";
 
 const router: IRouter = Router();
 
@@ -21,12 +21,12 @@ function optionalString(obj: Record<string, unknown>, key: string): string | und
 // ---------- Privacy pool routes ----------
 
 router.get("/privacy/status", async (_req: Request, res: Response): Promise<void> => {
-  const status = await chain.getPrivacyStatus();
+  const status = await chainClient.getPrivacyStatus();
   res.status(200).json(status);
 });
 
 router.get("/privacy/meta/:address", async (req: Request, res: Response): Promise<void> => {
-  const meta = await chain.getStealthMeta(req.params["address"] as string);
+  const meta = await chainClient.getStealthMeta(req.params["address"] as string);
   if (!meta) {
     res.status(404).json({ error: "No stealth meta-address registered for this wallet on this node" });
     return;
@@ -38,7 +38,7 @@ router.post("/privacy/balance", async (req: Request, res: Response): Promise<voi
   try {
     const body = parseBody(req);
     const privateKey = requireString(body, "privateKey");
-    const result = await chain.getPrivateBalance(privateKey);
+    const result = await chainClient.getPrivateBalance(privateKey);
     res.status(200).json(result);
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Failed to scan private balance" });
@@ -51,7 +51,7 @@ router.post("/privacy/shield", async (req: Request, res: Response): Promise<void
     const fromPrivateKey = requireString(body, "fromPrivateKey");
     const amount = requireString(body, "amount");
     const toAddress = optionalString(body, "toAddress");
-    const record = await chain.shield({ fromPrivateKey, amount, toAddress });
+    const record = await chainClient.shield({ fromPrivateKey, amount, toAddress });
     res.status(201).json(record);
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Shield failed" });
@@ -65,7 +65,7 @@ router.post("/privacy/send", async (req: Request, res: Response): Promise<void> 
     const toAddress = requireString(body, "toAddress");
     const amount = requireString(body, "amount");
     const fee = optionalString(body, "fee");
-    const record = await chain.privateSend({ fromPrivateKey, toAddress, amount, fee });
+    const record = await chainClient.privateSend({ fromPrivateKey, toAddress, amount, fee });
     res.status(201).json(record);
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Private send failed" });
@@ -78,7 +78,7 @@ router.post("/privacy/unshield", async (req: Request, res: Response): Promise<vo
     const fromPrivateKey = requireString(body, "fromPrivateKey");
     const toAddress = requireString(body, "toAddress");
     const amount = requireString(body, "amount");
-    const record = await chain.unshield({ fromPrivateKey, toAddress, amount });
+    const record = await chainClient.unshield({ fromPrivateKey, toAddress, amount });
     res.status(201).json(record);
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Unshield failed" });
@@ -87,7 +87,7 @@ router.post("/privacy/unshield", async (req: Request, res: Response): Promise<vo
 
 router.get("/privacy/transactions", async (req: Request, res: Response): Promise<void> => {
   const limit = req.query.limit ? parseInt(String(req.query.limit)) : 20;
-  const records = await chain.listPrivacyLedger(limit);
+  const records = await chainClient.listPrivacyLedger(limit);
   res.status(200).json(records);
 });
 

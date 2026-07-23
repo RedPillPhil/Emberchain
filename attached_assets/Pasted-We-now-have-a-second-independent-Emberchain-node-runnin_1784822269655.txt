@@ -1,0 +1,107 @@
+We now have a second independent Emberchain node running outside of Replit.
+
+New public node:
+https://emberchain.duckdns.org
+
+The goal is NOT to change the website UI. Keep emberchain.org exactly the same.
+
+We need to improve the architecture so the Replit Emberchain instance and the new external node work together as peers instead of having one node act as the single source of truth.
+
+Please audit the current blockchain networking architecture and make the following improvements:
+
+1. Peer-to-peer awareness
+
+The main Emberchain node should know about:
+- https://emberchain.duckdns.org
+
+The external node should know about:
+- https://emberchain.org
+
+Both nodes should:
+- exchange chain status
+- exchange blocks
+- validate received blocks
+- announce newly created blocks
+- recover from temporary outages
+
+The goal is that if either node goes offline, the other can continue operating.
+
+---
+
+2. Remove single-node dependency
+
+Currently the website, mining system, RPC, and blockchain logic appear tightly connected.
+
+Refactor so:
+
+Website:
+- continues serving users normally
+- does not directly depend on a single blockchain process
+
+Blockchain nodes:
+- operate independently
+- expose RPC/API endpoints
+- sync through peers
+
+Mining:
+- can submit work through available nodes
+- does not fail because one node is unavailable
+
+---
+
+3. Improve sync logic
+
+Audit the sync process.
+
+The node should:
+- discover peers automatically
+- compare chain height
+- compare total difficulty/work
+- download missing blocks from any available peer
+- recover after downtime
+
+Avoid relying only on:
+https://emberchain.org
+
+---
+
+4. Improve fault tolerance
+
+Test scenarios:
+
+Scenario A:
+emberchain.org goes offline.
+
+Expected:
+- external node continues responding
+- miners can continue operating if connected
+- blocks can continue propagating
+
+Scenario B:
+external node goes offline.
+
+Expected:
+- emberchain.org continues operating
+
+---
+
+5. Keep existing features working:
+
+Do not remove:
+- browser miner
+- wallet
+- chat
+- forum
+- explorer
+- RPC compatibility
+- MetaMask support
+
+The user experience should remain unchanged.
+
+The goal is to evolve Emberchain from:
+"a blockchain running inside a website"
+
+into:
+"a blockchain network that powers the website."
+
+Please first analyze the current architecture and explain what needs to change before making modifications.

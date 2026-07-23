@@ -14,9 +14,10 @@ import type { PersistedChain } from "@workspace/chain-core";
 
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 5,
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 3_000,
+  max: 7,                        // api-server handles exchange, bridge, proof reads
+  idleTimeoutMillis: 10_000,     // release idle connections faster
+  connectionTimeoutMillis: 5_000, // give more headroom before timeout error
+  allowExitOnIdle: true,
 });
 
 pool.on("error", (err) => {

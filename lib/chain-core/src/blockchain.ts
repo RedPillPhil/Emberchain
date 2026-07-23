@@ -526,9 +526,9 @@ export class Blockchain {
     const result = [];
     for (const addr of seen) {
       if (!ETH_ADDR_RE.test(addr)) continue; // skip malformed addresses from block data
-      const balance = await getBalance(this.stateManager, addr);
+      const balance = await getBalance(this.stateManager, addr as `0x${string}`);
       if (balance === 0n) continue; // skip zero-balance addresses
-      const nonce = await getNonce(this.stateManager, addr);
+      const nonce = await getNonce(this.stateManager, addr as `0x${string}`);
       result.push({ address: addr, balance: balance.toString(), nonce });
     }
     return result;

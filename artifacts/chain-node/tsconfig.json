@@ -10,16 +10,10 @@
   "include": ["src"],
   "references": [
     {
-      "path": "../../lib/db"
+      "path": "../../lib/chain-core"
     },
     {
       "path": "../../lib/api-zod"
-    },
-    {
-      "path": "../../lib/chain-client"
-    },
-    {
-      "path": "../../lib/chain-core"
     }
   ]
 }

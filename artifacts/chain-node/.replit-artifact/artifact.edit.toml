@@ -1,0 +1,35 @@
+kind = "api"
+previewPath = "/chain-node"
+title = "Emberchain Node"
+version = "1.0.0"
+id = "artifacts/chain-node"
+
+[[services]]
+localPort = 8082
+name = "Chain Node"
+paths = ["/chain-node"]
+
+[services.env]
+PORT = "8082"
+SEED_PEERS = "https://emberchain.org"
+
+[services.development]
+run = "pnpm --filter @workspace/chain-node run dev"
+
+[services.production]
+
+[services.production.build]
+args = ["pnpm", "--filter", "@workspace/chain-node", "run", "build"]
+
+[services.production.build.env]
+NODE_ENV = "production"
+
+[services.production.run]
+args = ["node", "--enable-source-maps", "artifacts/chain-node/dist/index.mjs"]
+
+[services.production.run.env]
+PORT = "8082"
+NODE_ENV = "production"
+
+[services.production.health.startup]
+path = "/api/healthz"

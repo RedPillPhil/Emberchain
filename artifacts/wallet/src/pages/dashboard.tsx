@@ -54,16 +54,16 @@ export default function Dashboard() {
   const { data: wallet } = useGetWallet(activeWallet?.address || "", {
     query: {
       enabled: !!activeWallet?.address,
-      refetchInterval: 3000,
+      refetchInterval: 8000,
     }
   });
 
   const { data: chainStatus } = useGetChainStatus({
-    query: { refetchInterval: 3000 }
+    query: { refetchInterval: 8000 }
   });
 
   const { data: miningStatus } = useGetMiningStatus({
-    query: { refetchInterval: 3000 }
+    query: { refetchInterval: 8000 }
   });
 
   // Track balance changes to animate

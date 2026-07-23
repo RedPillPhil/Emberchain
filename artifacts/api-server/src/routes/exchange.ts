@@ -6,7 +6,7 @@ import {
   ReserveListingBody,
   ListExchangeListingsParams,
 } from "@workspace/api-zod";
-import { chain } from "../lib/chain";
+import * as chainClient from "@workspace/chain-client";
 import { verifyPayment } from "../lib/payment-verifier";
 import { getProofByTxHash } from "../lib/db";
 
@@ -14,10 +14,22 @@ const router: IRouter = Router();
 
 type IdParams = { id: string };
 
+// Minimal type for the fields exchange routes need from a listing
+interface ListingView {
+  id: string;
+  sellerAddress: string;
+  status: string;
+  currency: string;
+  receiveAddress: string;
+  priceAmount: string;
+  networkAddresses?: Record<string, string>;
+  [key: string]: unknown;
+}
+
 // GET /exchange/listings
 router.get("/exchange/listings", async (req: Request, res: Response): Promise<void> => {
   const query = ListExchangeListingsParams.parse(req.query);
-  const listings = await chain.listExchangeListings(query.status);
+  const listings = (await chainClient.listExchangeListings(query.status)) as ListingView[];
   const filtered = query.seller
     ? listings.filter((l) => l.sellerAddress.toLowerCase() === query.seller!.toLowerCase())
     : listings;
@@ -26,7 +38,7 @@ router.get("/exchange/listings", async (req: Request, res: Response): Promise<vo
 
 // GET /exchange/listings/:id
 router.get("/exchange/listings/:id", async (req: Request<IdParams>, res: Response): Promise<void> => {
-  const listing = await chain.getExchangeListing(req.params.id);
+  const listing = await chainClient.getExchangeListing(req.params.id);
   if (!listing) {
     res.status(404).json({ error: "Listing not found" });
     return;
@@ -38,7 +50,7 @@ router.get("/exchange/listings/:id", async (req: Request<IdParams>, res: Respons
 router.post("/exchange/listings", async (req: Request, res: Response): Promise<void> => {
   const body = CreateListingBody.parse(req.body ?? {});
   try {
-    const listing = await chain.createListing(body);
+    const listing = await chainClient.createListing(body);
     res.status(201).json(listing);
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Failed to create listing" });
@@ -49,7 +61,7 @@ router.post("/exchange/listings", async (req: Request, res: Response): Promise<v
 router.post("/exchange/listings/:id/cancel", async (req: Request<IdParams>, res: Response): Promise<void> => {
   const body = CancelListingBody.parse(req.body ?? {});
   try {
-    const listing = await chain.cancelListing(req.params.id, body.sellerPrivateKey);
+    const listing = await chainClient.cancelListing(req.params.id, body.sellerPrivateKey);
     res.status(200).json(listing);
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Failed to cancel listing" });
@@ -66,11 +78,10 @@ router.post("/exchange/listings/:id/reserve", async (req: Request<IdParams>, res
     return;
   }
   try {
-    const listing = chain.reserveListing(req.params.id, body.buyerAddress);
+    const listing = await chainClient.reserveListing(req.params.id, body.buyerAddress);
     res.status(200).json(listing);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Could not reserve listing";
-    // 409 = already reserved by someone else
     const status = msg.includes("reserved by another buyer") ? 409 : 400;
     res.status(status).json({ error: msg });
   }
@@ -81,14 +92,14 @@ router.post("/exchange/listings/:id/buy", async (req: Request<IdParams>, res: Re
   const body = BuyListingBody.parse(req.body ?? {});
   const id = req.params.id;
 
-  // Synchronously lock the listing AND reserve the payment proof before any async work.
-  // Everything in one event-loop tick — atomicity via Node.js's single-threaded model.
-  let listing;
+  // Lock the listing on chain-node. chain-node's single-threaded event loop
+  // provides the same atomicity guarantee as the previous in-process call.
+  let listing: ListingView;
   try {
-    listing = chain.lockListingForFulfillment(id, body.paymentTxHash, body.buyerAddress);
+    listing = await chainClient.lockListingForFulfillment(id, body.paymentTxHash, body.buyerAddress) as ListingView;
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Listing not available";
-    if (msg.includes("already used")) {
+    if (msg.includes("already used") || (err instanceof chainClient.ChainClientError && (err as chainClient.ChainClientError).status === 409 && ((err as chainClient.ChainClientError).body as { code?: string })?.code === "DUPLICATE_PROOF")) {
       const existing = await getProofByTxHash(body.paymentTxHash);
       res.status(409).json({
         error: existing
@@ -116,7 +127,7 @@ router.post("/exchange/listings/:id/buy", async (req: Request<IdParams>, res: Re
 
   try {
     const result = await verifyPayment(
-      listing.currency,
+      listing.currency as import("@workspace/chain-core").ExchangeCurrency,
       body.paymentTxHash,
       receiveAddress,
       listing.priceAmount,
@@ -124,7 +135,7 @@ router.post("/exchange/listings/:id/buy", async (req: Request<IdParams>, res: Re
     );
 
     if (!result.valid) {
-      chain.unlockListing(id);
+      await chainClient.unlockListing(id);
       res.status(400).json({
         error: result.reason ?? "Payment verification failed",
         code: "PAYMENT_VERIFICATION_FAILED",
@@ -133,10 +144,10 @@ router.post("/exchange/listings/:id/buy", async (req: Request<IdParams>, res: Re
       return;
     }
 
-    const fulfilled = await chain.commitFulfillment(id, body.buyerAddress, body.paymentTxHash, selectedNetwork);
+    const fulfilled = await chainClient.commitFulfillment(id, body.buyerAddress, body.paymentTxHash, selectedNetwork);
     res.status(200).json(fulfilled);
   } catch (err) {
-    chain.unlockListing(id);
+    await chainClient.unlockListing(id).catch(() => {}); // best-effort unlock
     const msg = err instanceof Error ? err.message : "Fulfillment failed";
     const status = msg.startsWith("Payment proof already used") ? 409 : 500;
     res.status(status).json({ error: msg });

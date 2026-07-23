@@ -83,14 +83,14 @@ function StatCard({
 // ── main page ──────────────────────────────────────────────────────────────
 
 export default function BlockExplorer() {
-  const { data: chain } = useGetChainStatus({ query: { refetchInterval: 5000 } });
+  const { data: chain } = useGetChainStatus({ query: { refetchInterval: 10000 } });
   const { data: blocks, isLoading: blocksLoading } = useListBlocks(
     { limit: 10 },
-    { query: { refetchInterval: 5000 } },
+    { query: { refetchInterval: 10000 } },
   );
   const { data: txs, isLoading: txsLoading } = useListTransactions(
     { limit: 10 },
-    { query: { refetchInterval: 5000 } },
+    { query: { refetchInterval: 10000 } },
   );
 
   const latestBlock = blocks?.[0];
