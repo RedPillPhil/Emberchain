@@ -5,19 +5,31 @@
  * This middleware rejects any request that does not present the correct
  * shared bearer secret in the Authorization header.
  *
- * The secret is read from CHAIN_NODE_INTERNAL_SECRET at startup.
- * If the variable is unset, ALL internal requests are denied (fail-safe).
+ * The secret is derived at startup from SESSION_SECRET using HMAC-SHA256
+ * so that both chain-node and api-server (which share the same environment)
+ * compute the same value without any hardcoded or committed credential.
+ *
+ * If SESSION_SECRET is unset, ALL internal requests are denied (fail-safe).
  */
 
+import { createHmac } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
 
-const INTERNAL_SECRET = process.env["CHAIN_NODE_INTERNAL_SECRET"];
+function deriveInternalSecret(): string | null {
+  const sessionSecret = process.env["SESSION_SECRET"];
+  if (!sessionSecret) return null;
+  return createHmac("sha256", sessionSecret)
+    .update("chain-node-internal-v1")
+    .digest("hex");
+}
+
+const INTERNAL_SECRET = deriveInternalSecret();
 
 if (!INTERNAL_SECRET) {
   console.warn(
-    "[chain-node] CHAIN_NODE_INTERNAL_SECRET is not set — " +
+    "[chain-node] SESSION_SECRET is not set — " +
       "/api/internal/* endpoints will reject all requests. " +
-      "Set this variable to enable api-server → chain-node communication."
+      "Set SESSION_SECRET to enable api-server → chain-node communication."
   );
 }
 

@@ -155,7 +155,7 @@ router.post("/contracts/:address/read", async (req: Request, res: Response): Pro
     const calldata = encodeCall(abi, functionName, args);
     const result   = await chainClient.callContract({ to: address, data: calldata });
     if (!result.success) {
-      res.json({ success: false, error: result.error ?? "Reverted" });
+      res.json({ success: false, error: "Call reverted" });
       return;
     }
     const decoded = result.returnData && result.returnData !== "0x"
@@ -194,8 +194,8 @@ router.post("/contracts/:address/write", async (req: Request, res: Response): Pr
       value,
       data: calldata,
       gasLimit,
-    }) as { hash: string; status: string };
-    res.json({ success: true, txHash: tx.hash, status: tx.status });
+    });
+    res.json({ success: true, txHash: tx.hash, status: tx.blockNumber != null ? "confirmed" : "pending" });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }

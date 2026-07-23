@@ -37,6 +37,7 @@ export declare function submitTransaction(input: {
     to: string | null;
     value: string;
     blockNumber: number | null;
+    status: "pending" | "confirmed" | "failed";
 }>;
 export declare function submitRawEVMTransaction(params: {
     hash: string;
@@ -52,8 +53,10 @@ export declare function getTransaction(hash: string): Promise<{
     from: string;
     to: string | null;
     value: string;
+    data: string;
     blockNumber: number | null;
     status: "pending" | "confirmed" | "failed";
+    error?: string | null;
 } | undefined>;
 export declare function listWallets(): Promise<{
     address: string;

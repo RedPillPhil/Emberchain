@@ -9,8 +9,18 @@
  * The shared secret is read from CHAIN_NODE_INTERNAL_SECRET.
  */
 
+import { createHmac } from "node:crypto";
+
 const BASE_URL = (process.env["CHAIN_NODE_URL"] ?? "http://localhost:8082").replace(/\/$/, "");
-const INTERNAL_SECRET = process.env["CHAIN_NODE_INTERNAL_SECRET"];
+
+/** Derive the same internal bearer secret that chain-node computes from SESSION_SECRET. */
+function deriveInternalSecret(): string | null {
+  const s = process.env["SESSION_SECRET"];
+  if (!s) return null;
+  return createHmac("sha256", s).update("chain-node-internal-v1").digest("hex");
+}
+
+const INTERNAL_SECRET = deriveInternalSecret();
 
 class ChainClientError extends Error {
   status: number;
@@ -81,7 +91,7 @@ export async function submitTransaction(input: {
   value?: string;
   data?: string;
   gasLimit?: string;
-}): Promise<{ hash: string; from: string; to: string | null; value: string; blockNumber: number | null }> {
+}): Promise<{ hash: string; from: string; to: string | null; value: string; blockNumber: number | null; status: "pending" | "confirmed" | "failed" }> {
   return post("/api/internal/submit-transaction", input);
 }
 
@@ -102,11 +112,13 @@ export async function getTransaction(hash: string): Promise<{
   from: string;
   to: string | null;
   value: string;
+  data: string;
   blockNumber: number | null;
   status: "pending" | "confirmed" | "failed";
+  error?: string | null;
 } | undefined> {
   try {
-    return await get(`/api/internal/block-for-tx/${encodeURIComponent(hash)}`);
+    return await get(`/api/transactions/${encodeURIComponent(hash)}`);
   } catch (e) {
     if (e instanceof ChainClientError && e.status === 404) return undefined;
     throw e;

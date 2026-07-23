@@ -134,11 +134,11 @@ async function relayBaseToEmbr(
       const stored = await chainClient.submitTransaction({
         fromPrivateKey: relayerKey, to: emberBridgeAddress,
         value: "0", data: calldata, gasLimit: "300000",
-      }) as { hash: string; status: string };
+      });
 
       const deadline = Date.now() + 90_000;
       while (Date.now() < deadline) {
-        const tx = await chainClient.getTransaction(stored.hash) as { status: string; error?: string; hash: string } | null;
+        const tx = await chainClient.getTransaction(stored.hash);
         if (tx && tx.status !== "pending") {
           if (tx.status === "failed") {
             throw new Error(`releaseEMBR reverted on EMBR chain: ${tx.error ?? "unknown"}`);

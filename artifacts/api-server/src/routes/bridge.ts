@@ -230,9 +230,7 @@ router.post("/bridge/register", async (req: Request, res: Response): Promise<voi
 
   const nonceStr = String(nonce);
 
-  const tx = await chainClient.getTransaction(txHash) as {
-    status: string; to?: string | null; data: string; value: string; from?: string | null; error?: string;
-  } | null;
+  const tx = await chainClient.getTransaction(txHash);
   if (!tx) { res.status(404).json({ error: "Transaction not found on EMBR chain" }); return; }
 
   if (tx.status === "pending") {
