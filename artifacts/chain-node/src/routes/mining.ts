@@ -9,6 +9,29 @@ import { miningStatusCache, chainStatusCache } from "../lib/status-cache";
 const router = Router();
 
 /**
+ * When MINING_DISABLED=true this node refuses all mining requests immediately.
+ * Use this in production to prevent miner floods from touching the chain-node
+ * that serves the wallet — miners should point to the dedicated mining node.
+ */
+const MINING_DISABLED = process.env.MINING_DISABLED === "true";
+const MINING_REDIRECT  = process.env.MINING_NODE_URL ?? "https://emberchain.duckdns.org";
+
+if (MINING_DISABLED) {
+  const reject = (_req: Request, res: Response): void => {
+    res.status(503).json({
+      error: "Mining disabled on this node. Submit work to the dedicated mining endpoint.",
+      miningNode: MINING_REDIRECT,
+    });
+  };
+  router.get("/mining/status",   reject);
+  router.post("/mining/start",   reject);
+  router.post("/mining/stop",    reject);
+  router.get("/mining/template", reject);
+  router.post("/mining/submit",  reject);
+  router.post("/mining/share",   reject);
+}
+
+/**
  * Concurrency cap for share validation.
  * Rejects with 429 when too many shares are already in-flight so the event
  * loop always has headroom to serve health checks even under peak mining load.
