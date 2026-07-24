@@ -30,7 +30,6 @@ args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
 [services.production.run.env]
 PORT = "8080"
 NODE_ENV = "production"
-CHAIN_NODE_URL = "https://po-w-chain.replit.app/chain-node"
 MINING_NODE_URL = "https://emberchain.org"
 
 [services.production.health.startup]
