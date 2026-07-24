@@ -225,7 +225,22 @@ export class Blockchain {
     }
     if (persisted) {
       this.difficulty = BigInt(persisted.difficulty);
-      this.blocks = persisted.blocks;
+      // Deduplicate blocks on load — a race condition in applyBlock (concurrent
+      // mining submits) can push the same block hash twice into this.blocks,
+      // causing the same payouts to be credited twice on the mining node.
+      // Clean any duplicates now so the first restart after the fix heals the state.
+      {
+        const seen = new Set<string>();
+        this.blocks = persisted.blocks.filter(b => {
+          if (seen.has(b.hash)) return false;
+          seen.add(b.hash);
+          return true;
+        });
+        if (this.blocks.length < persisted.blocks.length) {
+          const removed = persisted.blocks.length - this.blocks.length;
+          console.log(`[chain] Removed ${removed} duplicate block(s) on load — will persist clean state`);
+        }
+      }
       // Backfill totalDifficulty for blocks loaded from pre-fork-choice persisted data
       {
         let accumulated = 0n;
@@ -865,8 +880,18 @@ export class Blockchain {
       cursor = this.blocksByHash.get(cursor.parentHash);
     }
 
+    // Deduplicate by hash: if the same block hash appears more than once in
+    // this.blocks (race-condition duplicate from concurrent mining submits),
+    // only the first occurrence is kept so peers don't apply payouts twice.
+    const seenHashes = new Set<string>();
     const slice = this.blocks
-      .filter((b) => b.number >= fromNumber && canonicalHashes.has(b.hash))
+      .filter((b) => {
+        if (b.number < fromNumber) return false;
+        if (!canonicalHashes.has(b.hash)) return false;
+        if (seenHashes.has(b.hash)) return false;
+        seenHashes.add(b.hash);
+        return true;
+      })
       .sort((a, b) => a.number - b.number)
       .slice(0, cap);
 
@@ -1404,6 +1429,14 @@ export class Blockchain {
     hash: PrefixedHexString,
   ): Promise<void> {
     return this.withEvmLock(async () => {
+    // Idempotency guard: two concurrent mining-submit requests can both pass the
+    // nonce check before either one acquires the EVM lock and pushes the block.
+    // Once the first call commits the block, the second must not credit miners again.
+    if (this.blocksByHash.has(hash)) {
+      console.log(`[chain] applyBlock: block ${hash.slice(0, 10)}… already committed — skipping duplicate`);
+      return;
+    }
+
     let totalFees = 0n;
 
     for (const tx of included) {
