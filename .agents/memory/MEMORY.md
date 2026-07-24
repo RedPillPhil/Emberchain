@@ -6,6 +6,7 @@
 - [EMBR chain contract deployment](embr-chain-contract-deployment.md) — requires server-side mining during deploy, deployer needs EMBR funded first, Hardhat needs DO_NOT_TRACK=1.
 - [EMBR chain EVM concurrency lock](embr-chain-evm-lock.md) — production chain hangs on eth_sendRawTransaction under mining load; fixed with withEvmLock() serialising applyBlock/callContract/estimateGas/submitRawEVMTransaction.
 - [EMBR chain production deployment pattern](embr-chain-prod-deploy-pattern.md) — external RPC eth_sendRawTransaction hangs on prod; use an internal server-side admin endpoint calling chain.submitRawEVMTransaction() directly to bypass HTTP timeouts.
+- [Chain snapshot partial-chain export](chain-snapshot-partial.md) — exportSnapshot must warn (not error) on pruned nodes; reorg chimera diagnosis + SQL rollback pattern; TD offset after bootstrap is harmless.
 
 - [Chain DB persistence strategy](db-persist-strategy.md) — shares use persist(false) to skip DB; only block closes and financial events hit the DB.
 
