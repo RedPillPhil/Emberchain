@@ -62,6 +62,12 @@ function internalHeaders(): Record<string, string> {
   };
 }
 
+/** Read response body: try JSON first, fall back to raw text. Never throws. */
+async function readBody(res: Response): Promise<unknown> {
+  const text = await res.text().catch(() => "");
+  try { return JSON.parse(text); } catch { return text; }
+}
+
 async function get<T>(path: string): Promise<T> {
   const headers = path.includes("/internal/") ? internalHeaders() : baseHeaders();
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -69,9 +75,12 @@ async function get<T>(path: string): Promise<T> {
     // @ts-expect-error — undici dispatcher is not in standard RequestInit types
     dispatcher: pool,
   });
-  const body = await res.json() as T;
-  if (!res.ok) throw new ChainClientError(res.status, body, path);
-  return body;
+  // Check res.ok BEFORE res.json() — if chain-node returns an HTML startup page or
+  // any non-JSON body (e.g. during a Replit container restart), calling res.json()
+  // first would throw a raw SyntaxError that bypasses ChainClientError and leaks
+  // the "Unexpected token '<'" message all the way to the end user.
+  if (!res.ok) throw new ChainClientError(res.status, await readBody(res), path);
+  return res.json() as Promise<T>;
 }
 
 async function post<T>(path: string, data?: unknown): Promise<T> {
@@ -83,9 +92,8 @@ async function post<T>(path: string, data?: unknown): Promise<T> {
     // @ts-expect-error — undici dispatcher is not in standard RequestInit types
     dispatcher: pool,
   });
-  const body = await res.json() as T;
-  if (!res.ok) throw new ChainClientError(res.status, body, path);
-  return body;
+  if (!res.ok) throw new ChainClientError(res.status, await readBody(res), path);
+  return res.json() as Promise<T>;
 }
 
 /** Re-export so callers can inspect chain-node error status */
