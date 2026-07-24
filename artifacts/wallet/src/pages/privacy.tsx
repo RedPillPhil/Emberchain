@@ -20,9 +20,16 @@ async function apiPost(path: string, body: object): Promise<unknown> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const json = await res.json();
-  if (!res.ok) throw new Error((json as { error?: string }).error ?? `HTTP ${res.status}`);
-  return json;
+  // Check res.ok BEFORE res.json() — non-JSON responses (HTML startup pages,
+  // proxy 500s) would otherwise throw a raw SyntaxError that bypasses the
+  // error handling below and shows "Unexpected token '<'" to the user.
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let msg = `HTTP ${res.status}`;
+    try { msg = (JSON.parse(text) as { error?: string }).error ?? text || msg; } catch { msg = text || msg; }
+    throw new Error(msg);
+  }
+  return res.json();
 }
 
 interface PrivateNoteInfo {
@@ -104,8 +111,13 @@ export default function PrivacyPage() {
     try {
       const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       const res = await fetch(`${base}/api/privacy/transactions?limit=50`);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        let msg = `HTTP ${res.status}`;
+        try { msg = (JSON.parse(text) as { error?: string }).error ?? text || msg; } catch { msg = text || msg; }
+        throw new Error(msg);
+      }
       const json = await res.json();
-      if (!res.ok) throw new Error((json as { error?: string }).error ?? `HTTP ${res.status}`);
       setLedger(json as ShieldedTxRecord[]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to fetch ledger");
