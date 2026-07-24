@@ -2,9 +2,9 @@
  * EmberChain node client with automatic peer discovery and failover.
  *
  * Discovery flow:
- *  1. Check user-set override node
- *  2. Try cached best node from last session
- *  3. Ping all bootstrap + cached peers in parallel, pick fastest
+ *  1. Check user-set override node (skip height check — user knows what they want)
+ *  2. Race all bootstrap + cached peers in parallel: fetch block height from each
+ *  3. Pick the node with the highest block height (latency as tiebreaker)
  *  4. Background-fetch the winning node's peer list to grow the cache
  *
  * All API calls auto-failover: if the active node goes down mid-session,
@@ -14,12 +14,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ── Constants ──────────────────────────────────────────────────────────────
-const BOOTSTRAP: string[] = ['https://emberchain.org', 'https://po-w-chain.replit.app'];
-const CACHE_NODE_KEY = 'embr_node_url';
+const BOOTSTRAP: string[] = [
+  'https://emberchain.org',
+  'https://po-w-chain.replit.app',
+  // DuckDNS / local nodes added here will be probed on every startup
+];
+const CACHE_NODE_KEY  = 'embr_node_url';
 const CACHE_PEERS_KEY = 'embr_peers';
-const OVERRIDE_KEY = 'embr_node_override';
-const CALL_TIMEOUT = 8000;
-const PING_TIMEOUT = 3000;
+const OVERRIDE_KEY    = 'embr_node_override';
+const CALL_TIMEOUT    = 8000;
+const PROBE_TIMEOUT   = 4000;  // tight — we probe all in parallel
 
 // ── Runtime state ──────────────────────────────────────────────────────────
 let _activeNode: string | null = null;
@@ -37,11 +41,18 @@ async function timedFetch(url: string, opts: RequestInit = {}, ms: number): Prom
   }
 }
 
-async function pingNode(base: string): Promise<number | null> {
+/**
+ * Probe a node: returns its current block height and latency, or null if unreachable.
+ * Uses /api/chain/status so we get height + health in a single round-trip.
+ */
+async function probeNode(base: string): Promise<{ height: number; latencyMs: number } | null> {
   const t0 = Date.now();
   try {
-    const res = await timedFetch(`${base}/api/healthz`, {}, PING_TIMEOUT);
-    return res.ok ? Date.now() - t0 : null;
+    const res = await timedFetch(`${base}/api/chain/status`, {}, PROBE_TIMEOUT);
+    if (!res.ok) return null;
+    const data = await res.json() as { height?: number };
+    const height = typeof data.height === 'number' ? data.height : 0;
+    return { height, latencyMs: Date.now() - t0 };
   } catch {
     return null;
   }
@@ -60,10 +71,10 @@ async function fetchPeerList(base: string): Promise<string[]> {
 
 // ── Peer discovery ─────────────────────────────────────────────────────────
 export async function discoverNode(force = false): Promise<string | null> {
-  // Already connected and healthy?
+  // Already connected — do a quick liveness check (not a full re-probe)
   if (!force && _activeNode) {
-    const latency = await pingNode(_activeNode);
-    if (latency !== null) return _activeNode;
+    const probe = await probeNode(_activeNode);
+    if (probe !== null) return _activeNode;
     _activeNode = null;
   }
 
@@ -72,35 +83,33 @@ export async function discoverNode(force = false): Promise<string | null> {
 
   _discoverInFlight = (async (): Promise<string | null> => {
     try {
-      // 1. User override
+      // 1. User override — honour it unconditionally (user chose it deliberately)
       const override = await AsyncStorage.getItem(OVERRIDE_KEY).catch(() => null);
       if (override) {
-        if ((await pingNode(override)) !== null) {
+        const probe = await probeNode(override);
+        if (probe !== null) {
           _activeNode = override;
           return override;
         }
+        // Override unreachable — fall through to auto-select
       }
 
-      // 2. Cached best from last session
-      if (!force) {
-        const cached = await AsyncStorage.getItem(CACHE_NODE_KEY).catch(() => null);
-        if (cached && (await pingNode(cached)) !== null) {
-          _activeNode = cached;
-          return cached;
-        }
-      }
-
-      // 3. Race all candidates
+      // 2. Race all candidates, pick the one with the highest block height
       const raw = await AsyncStorage.getItem(CACHE_PEERS_KEY).catch(() => null);
       const knownPeers: string[] = raw ? JSON.parse(raw) : [];
       const candidates = [...new Set([...BOOTSTRAP, ...knownPeers])];
 
-      const pings = await Promise.all(
-        candidates.map(async (url) => ({ url, ms: await pingNode(url) }))
+      const probes = await Promise.all(
+        candidates.map(async (url) => {
+          const result = await probeNode(url);
+          return result ? { url, height: result.height, latencyMs: result.latencyMs } : null;
+        })
       );
-      const live = pings
-        .filter((p) => p.ms !== null)
-        .sort((a, b) => (a.ms ?? 9999) - (b.ms ?? 9999));
+
+      const live = probes
+        .filter((p): p is { url: string; height: number; latencyMs: number } => p !== null)
+        // Sort: highest block height first; latency as tiebreaker within same height
+        .sort((a, b) => b.height - a.height || a.latencyMs - b.latencyMs);
 
       if (!live.length) return null;
 
@@ -108,7 +117,7 @@ export async function discoverNode(force = false): Promise<string | null> {
       _activeNode = best;
       await AsyncStorage.setItem(CACHE_NODE_KEY, best).catch(() => {});
 
-      // 4. Grow peer cache in background
+      // 3. Grow peer cache in background
       fetchPeerList(best).then(async (peers) => {
         if (peers.length) {
           _cachedPeers = peers;
