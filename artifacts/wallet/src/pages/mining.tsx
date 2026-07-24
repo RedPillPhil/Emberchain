@@ -266,22 +266,25 @@ export default function Mining() {
               const minerAddr = templateRef.current?.header.miner ?? activeWallet?.address;
               if (!minerAddr) { templateFetchingRef.current = false; return; }
 
-              fetchMiningTemplate(minerAddr).then((nt) => {
+              // Retry up to 8 times with back-off — the server can be briefly
+              // unavailable right after it commits a block under EVM lock.
+              (async () => {
+                for (let attempt = 1; attempt <= 8; attempt++) {
+                  if (!miningRef.current) { templateFetchingRef.current = false; return; }
+                  try {
+                    const addr = templateRef.current?.header.miner ?? activeWallet?.address;
+                    if (!addr) break;
+                    const nt = await fetchMiningTemplate(addr);
+                    templateFetchingRef.current = false;
+                    if (miningRef.current) spawnPool(nt);
+                    return;
+                  } catch {
+                    if (attempt < 8) await new Promise((r) => setTimeout(r, attempt * 300));
+                  }
+                }
                 templateFetchingRef.current = false;
-                if (!miningRef.current) return;
-                // Restart the whole pool on the new template
-                spawnPool(nt);
-              }).catch(() => {
-                templateFetchingRef.current = false;
-                setTimeout(() => {
-                  if (!miningRef.current) return;
-                  const addr = templateRef.current?.header.miner ?? activeWallet?.address;
-                  if (!addr) return;
-                  fetchMiningTemplate(addr)
-                    .then((nt) => { if (miningRef.current) spawnPool(nt); })
-                    .catch(() => stopWorker());
-                }, 2000);
-              });
+                stopWorker();
+              })();
             }
 
             // ── stopped ──────────────────────────────────────────────────────
@@ -333,15 +336,26 @@ export default function Mining() {
     setHashRate(0);
     const level = INTENSITY_LEVELS.find((l) => l.value === selectedIntensity) ?? INTENSITY_LEVELS[1]!;
     addLog(`IGNITE @ ${CORE_COUNT} cores × intensity ${selectedIntensity} (${level.label}) — mining for ${truncate(activeWallet.address)}`);
-    try {
-      const template = await fetchMiningTemplate(activeWallet.address);
+    // Retry template fetch on startup — transient server load is common right after
+    // a block is committed. Try up to 8 times before giving up.
+    let template = null;
+    for (let attempt = 1; attempt <= 8; attempt++) {
       if (!miningRef.current) return;
-      addLog(`Template: block #${template.header.number} · ${template.pendingTxHashes.length} pending txs · diff ${template.header.difficulty}`);
-      startWorkerWithTemplate(template, selectedIntensity);
-    } catch (err) {
-      addLog(`Failed to fetch template: ${(err as Error).message}`, "warn");
-      stopWorker();
+      try {
+        template = await fetchMiningTemplate(activeWallet.address);
+        break;
+      } catch {
+        if (attempt === 8) {
+          addLog(`Could not reach mining server after ${attempt} attempts — try again in a moment.`, "warn");
+          stopWorker();
+          return;
+        }
+        await new Promise((r) => setTimeout(r, attempt * 500));
+      }
     }
+    if (!template || !miningRef.current) return;
+    addLog(`Template: block #${template.header.number} · ${template.pendingTxHashes.length} pending txs · diff ${template.header.difficulty}`);
+    startWorkerWithTemplate(template, selectedIntensity);
   }, [activeWallet, selectedIntensity, addLog, startWorkerWithTemplate, stopWorker]);
 
   const handleStop = useCallback(() => {

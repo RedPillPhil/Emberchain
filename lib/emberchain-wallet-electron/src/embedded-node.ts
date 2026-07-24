@@ -8,7 +8,7 @@
 
 import { startServer, type ServerHandle } from "../../../artifacts/chain-node/src/server";
 import { addPeer, getPeers } from "../../../artifacts/chain-node/src/lib/peers";
-import { triggerSync, stopSyncLoop, getBestPeerHeight } from "../../../artifacts/chain-node/src/lib/sync-loop";
+import { triggerSync, stopSyncLoop, getBestPeerHeight, configureSyncLoop } from "../../../artifacts/chain-node/src/lib/sync-loop";
 import { chain } from "../../../artifacts/chain-node/src/lib/chain";
 import { mkdirSync, existsSync, writeFileSync, createWriteStream, renameSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
@@ -101,6 +101,10 @@ export async function startEmbeddedNode(options: {
   // Seed peers — SEED_PEERS env var is read at module-eval time (before main() sets it),
   // so we always seed manually here after the server is up.
   for (const peer of BOOTSTRAP_PEERS) addPeer(peer);
+
+  // Gentle sync settings for the desktop — smaller batches + inter-batch pause
+  // so the sync doesn't saturate the user's home connection.
+  configureSyncLoop({ batchSize: 250, batchDelayMs: 200 });
   triggerSync(); // don't wait 30 s for the first interval
 
   // Keep height cache fresh for status polling

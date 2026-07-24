@@ -41,7 +41,14 @@ function extractCanonicalSubchain(
   return result;
 }
 
-const BATCH_SIZE = 5000;
+let BATCH_SIZE = 5000;
+let BATCH_DELAY_MS = 0; // ms to sleep between batches (0 = full speed for server nodes)
+
+/** Call before startSyncLoop() to throttle sync (e.g. embedded desktop node). */
+export function configureSyncLoop(opts: { batchSize?: number; batchDelayMs?: number }): void {
+  if (opts.batchSize    !== undefined) BATCH_SIZE    = opts.batchSize;
+  if (opts.batchDelayMs !== undefined) BATCH_DELAY_MS = opts.batchDelayMs;
+}
 
 async function fetchBatch(
   peer: string,
@@ -191,6 +198,7 @@ async function syncOnce(): Promise<void> {
       console.log(`[${ts()}] [sync] ↑ ${ourHeight} (${remaining} remaining) …`);
       drainFrom = ourHeight + 1;
       if (ourHeight >= peerHeight) break;
+      if (BATCH_DELAY_MS > 0) await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
     } else {
       _stallCount++;
       console.warn(`[${ts()}] [sync] ⚠️  No progress at ${ourHeight} (stall #${_stallCount})`);
