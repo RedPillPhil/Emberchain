@@ -17,6 +17,16 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+// In Replit's production proxy the artifact is served at /chain-node, so the
+// full path arrives as /chain-node/api/... — strip the prefix so routes resolve.
+const ARTIFACT_PREFIX = "/chain-node";
+app.use((req, _res, next) => {
+  if (req.url.startsWith(ARTIFACT_PREFIX + "/") || req.url === ARTIFACT_PREFIX) {
+    req.url = req.url.slice(ARTIFACT_PREFIX.length) || "/";
+  }
+  next();
+});
+
 app.use("/api", router);
 
 // Simple root — identifies this as the chain node when accessed directly
