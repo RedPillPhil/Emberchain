@@ -10,6 +10,13 @@ import bridgeRouter from "./bridge";
 
 const router: IRouter = Router();
 
+// ── Root liveness probe ────────────────────────────────────────────────────────
+// Replit's platform pings GET /api (the artifact base path) as a continuous
+// liveness check, separate from the startup healthcheck at /api/healthz.
+// Without this, Express returns 404 which the platform treats as unhealthy
+// and eventually triggers a service restart.
+router.get("/", (_req, res) => res.json({ status: "ok" }));
+
 // ── Routes handled locally by api-server ──────────────────────────────────────
 
 router.use(healthRouter);
