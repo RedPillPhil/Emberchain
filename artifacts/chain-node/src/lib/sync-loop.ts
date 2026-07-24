@@ -51,6 +51,9 @@ let BATCH_SIZE = 5000;
 let BATCH_DELAY_MS = 0; // ms to sleep between batches (0 = full speed for server nodes)
 // Idle interval override — 0 means use the built-in adaptive constants above
 let IDLE_INTERVAL_OVERRIDE_MS = 0;
+// When true, skip the one-shot snapshot download and always use gradual batch sync.
+// Set this for embedded desktop/home nodes to avoid the large initial transfer.
+let SKIP_SNAPSHOT = false;
 
 /** Call before startSyncLoop() to throttle sync (e.g. embedded desktop node). */
 export function configureSyncLoop(opts: {
@@ -58,10 +61,17 @@ export function configureSyncLoop(opts: {
   batchDelayMs?: number;
   /** Override the idle polling interval (ms). Useful for embedded nodes on home connections. */
   idleIntervalMs?: number;
+  /**
+   * When true, skip the one-shot full-chain snapshot download on first launch.
+   * The node will sync gradually using the configured batch settings instead.
+   * Use this for embedded desktop nodes to prevent saturating a home connection.
+   */
+  skipSnapshot?: boolean;
 }): void {
-  if (opts.batchSize       !== undefined) BATCH_SIZE              = opts.batchSize;
-  if (opts.batchDelayMs    !== undefined) BATCH_DELAY_MS          = opts.batchDelayMs;
+  if (opts.batchSize       !== undefined) BATCH_SIZE               = opts.batchSize;
+  if (opts.batchDelayMs    !== undefined) BATCH_DELAY_MS           = opts.batchDelayMs;
   if (opts.idleIntervalMs  !== undefined) IDLE_INTERVAL_OVERRIDE_MS = opts.idleIntervalMs;
+  if (opts.skipSnapshot    !== undefined) SKIP_SNAPSHOT            = opts.skipSnapshot;
 }
 
 async function fetchBatch(
@@ -170,8 +180,10 @@ async function syncOnce(): Promise<void> {
 
     _isSynced = false; // actively downloading — keep fast interval
 
-    // Bootstrap from snapshot on a brand-new node
-    if (ourHeight <= 1) {
+    // Bootstrap from snapshot on a brand-new node (skipped for home/desktop nodes
+    // where the large one-shot download would saturate the connection — they use
+    // gradual batch sync instead, controlled by BATCH_SIZE / BATCH_DELAY_MS).
+    if (ourHeight <= 1 && !SKIP_SNAPSHOT) {
       const peer      = bestPeer.url;
       const peerShort = peer.replace(/^https?:\/\//, "");
       const ok = await snapshotBootstrap(peer, peerShort);

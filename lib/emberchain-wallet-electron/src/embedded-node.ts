@@ -104,10 +104,12 @@ export async function startEmbeddedNode(options: {
 
   // Gentle sync settings for the embedded desktop node so it doesn't saturate
   // a home internet connection:
-  //   50 blocks/batch × ~2 KB/block ≈ 100 KB per batch
-  //   3 000 ms inter-batch pause   → ~33 KB/s average during catch-up
+  //   skipSnapshot: true  → no large one-shot download on first launch (the main
+  //                         bandwidth killer — bypasses all batch throttling)
+  //   20 blocks/batch × ~2 KB/block ≈ 40 KB per fetch
+  //   5 000 ms inter-batch pause   → ~8 KB/s average during catch-up (~0.06 Mbps)
   //   60 s idle check once synced  → near-zero background traffic
-  configureSyncLoop({ batchSize: 50, batchDelayMs: 3000, idleIntervalMs: 60_000 });
+  configureSyncLoop({ batchSize: 20, batchDelayMs: 5000, idleIntervalMs: 60_000, skipSnapshot: true });
   triggerSync(); // don't wait 30 s for the first interval
 
   // Keep height cache fresh for status polling
