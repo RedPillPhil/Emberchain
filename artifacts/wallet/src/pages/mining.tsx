@@ -228,44 +228,19 @@ export default function Mining() {
                 pendingTxHashes: t.pendingTxHashes,
               };
 
-              // Race the block submit against a chain-height poller.
-              // Under EVM lock contention the VM can take 12s to return a 409 —
-              // the poller detects the chain advancing in ~1s and restarts immediately.
-              const watcherCtrl = new AbortController();
-              const submitResult = postMiningBlock(submitPayload).then(
-                () => "ok" as const,
-                (err: unknown) => ({ error: (err as { message?: string })?.message ?? "Submit failed" }),
-              );
-              const watcherResult = waitForChainAdvance(t.header.number, watcherCtrl.signal).then(
-                () => "advanced" as const,
-              );
-
-              const winner = await Promise.race([submitResult, watcherResult]);
-              watcherCtrl.abort(); // stop the poller either way
-
-              if (winner === "ok") {
-                setSessionBlocks((n) => n + 1);
-                addLog(`★ BLOCK FORGED! Fetching next template…`, "found");
-                // submit already done — let watcher resolve silently
-                submitResult.catch(() => {});
-              } else if (winner === "advanced") {
-                // Chain moved while submit was in flight — let it finish in background
-                addLog(`Chain advanced — restarting…`, "warn");
-                submitResult.then((r) => {
-                  if (r === "ok") setSessionBlocks((n) => n + 1);
-                }).catch(() => {});
-              } else {
-                // Submit returned an error before chain advanced
-                const msg = winner.error;
-                if (msg.includes("409") || msg.includes("Stale") || msg.includes("already")) {
-                  addLog(`Block beaten — chain advanced. Refreshing…`, "warn");
-                } else {
-                  addLog(`Submit error: ${msg}`, "warn");
-                }
-              }
+              // Fire submit in the background — don't block on it.
+              // 409s are normal in competitive mining (another miner won the race)
+              // and should never surface as errors to the user.
+              postMiningBlock(submitPayload).then(
+                () => { setSessionBlocks((n) => n + 1); },
+              ).catch(() => {
+                // 409 / Stale / network errors — silently ignore.
+                // The template fetch below already moves us to the next block.
+              });
 
               if (!miningRef.current) return;
-              // Fetch next template and restart workers.
+              // Fetch next template immediately in parallel with the submit above.
+              // Workers restart as soon as the template arrives (~200 ms) — no idle gap.
               let fetched = false;
               for (let attempt = 1; attempt <= 5 && miningRef.current; attempt++) {
                 try {
@@ -275,7 +250,6 @@ export default function Mining() {
                   fetched = true;
                   break;
                 } catch {
-                  addLog(`Template fetch attempt ${attempt}/5 failed — retrying…`, "warn");
                   await new Promise((r) => setTimeout(r, 500));
                 }
               }
