@@ -185,7 +185,16 @@ export default function SettingsScreen() {
   const handleSaveNode = async () => {
     setOverrideLoading(true);
     try {
-      const url = nodeOverride.trim() || null;
+      let raw = nodeOverride.trim();
+
+      // Normalise: add https:// if the user omitted the scheme, strip trailing slash
+      if (raw && !/^https?:\/\//i.test(raw)) {
+        raw = `https://${raw}`;
+        setNodeOverride(raw); // reflect normalised value in the input
+      }
+      raw = raw.replace(/\/+$/, '');
+
+      const url = raw || null;
       await nodeClient.setOverride(url);
       await reconnect();
 
@@ -197,7 +206,7 @@ export default function SettingsScreen() {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert(
           'Node unreachable',
-          `Could not reach ${url}.\n\nCheck that:\n• The node is running\n• Your phone and node are on the same network (or it has a public URL)\n• The URL has no trailing slash\n\nFalling back to ${active ?? 'default node'}.`,
+          `Could not reach ${url}.\n\nCommon causes:\n• If you're on the same WiFi as the node, try on mobile data instead — routers often block loopback to their own public IP\n• Make sure the URL starts with https://\n• No trailing slash\n\nFalling back to ${active ?? 'default node'}.`,
         );
       } else {
         // Cleared the override
@@ -298,7 +307,7 @@ export default function SettingsScreen() {
             <Feather name="link" size={16} color={colors.mutedForeground} style={styles.rowIcon} />
             <TextInput
               style={[styles.nodeInput, { color: colors.foreground }]}
-              placeholder="http://192.168.x.x:17545 (base URL, no /api/rpc)"
+              placeholder="emberchain.duckdns.org  or  https://..."
               placeholderTextColor={colors.mutedForeground}
               value={nodeOverride}
               onChangeText={setNodeOverride}
