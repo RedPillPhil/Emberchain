@@ -15,7 +15,12 @@ localPort = 18705
 run = "pnpm --filter @workspace/mobile-wallet run dev"
 
 [services.production]
-run = [ "node", "artifacts/mobile-wallet/server/health-only.js" ]
+
+[services.production.run]
+args = ["node", "artifacts/mobile-wallet/server/health-only.js"]
+
+[services.production.run.env]
+PORT = "18705"
 
 [services.production.health.startup]
 path = "/status"
