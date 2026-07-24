@@ -227,11 +227,9 @@ export default function Mining() {
               }
 
               if (!miningRef.current) return;
-              // Give the chain-node a moment to commit the new block before
-              // asking for the next template — avoids a race-condition stale fetch.
-              await new Promise((r) => setTimeout(r, 800));
-              if (!miningRef.current) return;
-              // Retry up to 5 times with backoff before giving up.
+              // The submit call only returns 200 after the block is committed,
+              // so the next template is available immediately — no delay needed.
+              // Retry up to 5 times with short backoff before giving up.
               let fetched = false;
               for (let attempt = 1; attempt <= 5 && miningRef.current; attempt++) {
                 try {
@@ -242,7 +240,7 @@ export default function Mining() {
                   break;
                 } catch {
                   addLog(`Template fetch attempt ${attempt}/5 failed — retrying…`, "warn");
-                  await new Promise((r) => setTimeout(r, attempt * 1000));
+                  await new Promise((r) => setTimeout(r, 500));
                 }
               }
               if (!fetched && miningRef.current) stopWorker();
