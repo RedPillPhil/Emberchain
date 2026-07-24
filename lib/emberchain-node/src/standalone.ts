@@ -27,9 +27,9 @@ import path     from "node:path";
 import { URL }  from "node:url";
 
 import { tryUPnP, getLocalIp } from "./upnp";
-import { startServer } from "../../../artifacts/api-server/src/server";
-import { addPeer } from "../../../artifacts/api-server/src/lib/peers";
-import { triggerSync } from "../../../artifacts/api-server/src/lib/sync-loop";
+import { startServer } from "../../../artifacts/chain-node/src/server";
+import { addPeer } from "../../../artifacts/chain-node/src/lib/peers";
+import { triggerSync } from "../../../artifacts/chain-node/src/lib/sync-loop";
 
 // ── Crash-safe logging ────────────────────────────────────────────────────────
 // Write every log line to a file AND stdout so the user can always read errors
