@@ -5,11 +5,16 @@ import {
   GetTransactionParams, GetTransactionResponse,
 } from "@workspace/api-zod";
 import { chain } from "../lib/chain";
+import { syncAndWait, isChainSynced } from "../lib/sync-loop";
 
 const router = Router();
 
 router.post("/transactions", async (req: Request, res: Response): Promise<void> => {
   const body = CreateTransactionBody.parse(req.body ?? {});
+  // Ensure the local chain is current before accepting the transaction.
+  // If we've been in idle-sync mode (60s interval) the tip could be stale.
+  // syncAndWait() completes within 5 s or proceeds anyway — never blocks the user.
+  if (!isChainSynced()) await syncAndWait(5_000);
   try {
     const tx = await chain.submitTransaction(body);
     res.status(201).json(CreateTransactionResponse.parse(tx));
