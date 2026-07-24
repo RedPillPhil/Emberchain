@@ -104,7 +104,10 @@ export async function startEmbeddedNode(options: {
 
   // Gentle sync settings for the desktop — smaller batches + inter-batch pause
   // so the sync doesn't saturate the user's home connection.
-  configureSyncLoop({ batchSize: 250, batchDelayMs: 200 });
+  // Gentle sync for embedded desktop node — doesn't saturate home connections.
+  // 250 blocks per batch × 800 ms pause = ~312 blocks/s peak, well under 1 MB/s.
+  // Once fully synced the adaptive loop drops to a 60 s idle check.
+  configureSyncLoop({ batchSize: 250, batchDelayMs: 800 });
   triggerSync(); // don't wait 30 s for the first interval
 
   // Keep height cache fresh for status polling
