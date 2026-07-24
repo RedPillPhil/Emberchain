@@ -15,7 +15,7 @@ import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import path from "node:path";
 
-const BOOTSTRAP_PEERS = ["https://emberchain.org"];
+const BOOTSTRAP_PEERS = ["https://emberchain.org", "https://po-w-chain.replit.app"];
 
 let serverHandle: ServerHandle | null = null;
 let embeddedPort = 17545;

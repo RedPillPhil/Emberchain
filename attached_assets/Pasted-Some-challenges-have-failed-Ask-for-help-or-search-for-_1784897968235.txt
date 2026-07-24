@@ -1,0 +1,35 @@
+Some challenges have failed.
+Ask for help or search for solutions at https://community.letsencrypt.org. See the logfile /var/log/letsencrypt/letsencrypt.log or re-run Certbot with -v for more details.
+root@emberchain-seed-1:~/Emberchain/lib/emberchain-node/dist/downloads# certbot --nginx -d emberchain.org --non-interactive --agree-tos -m admin@emberchain.org
+Saving debug log to /var/log/letsencrypt/letsencrypt.log
+Requesting a certificate for emberchain.org
+
+Successfully received certificate.
+Certificate is saved at: /etc/letsencrypt/live/emberchain.org/fullchain.pem
+Key is saved at:         /etc/letsencrypt/live/emberchain.org/privkey.pem
+This certificate expires on 2026-10-22.
+These files will be updated when the certificate renews.
+Certbot has set up a scheduled task to automatically renew this certificate in the background.
+
+Deploying certificate
+Successfully deployed certificate for emberchain.org to /etc/nginx/sites-enabled/emberchain-org
+Congratulations! You have successfully enabled HTTPS on https://emberchain.org
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+If you like Certbot, please consider supporting our work by:
+ * Donating to ISRG / Let's Encrypt:   https://letsencrypt.org/donate
+ * Donating to EFF:                    https://eff.org/donate-le
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+root@emberchain-seed-1:~/Emberchain/lib/emberchain-node/dist/downloads# certbot --nginx -d emberchain.org --non-interactive --agree-tos -m admin@emberchain.org
+Saving debug log to /var/log/letsencrypt/letsencrypt.log
+Certificate not yet due for renewal
+Deploying certificate
+Successfully deployed certificate for emberchain.org to /etc/nginx/sites-enabled/emberchain-org
+Congratulations! You have successfully enabled HTTPS on https://emberchain.org
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+If you like Certbot, please consider supporting our work by:
+ * Donating to ISRG / Let's Encrypt:   https://letsencrypt.org/donate
+ * Donating to EFF:                    https://eff.org/donate-le
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+root@emberchain-seed-1:~/Emberchain/lib/emberchain-node/dist/downloads#

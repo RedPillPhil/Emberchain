@@ -115,6 +115,13 @@ const server = http.createServer((req, res) => {
     pathname = pathname.slice(basePath.length) || '/';
   }
 
+  // Health check — Replit deployment monitor polls this path.
+  if (pathname === '/status' || pathname === '/healthz') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
   if (pathname === '/' || pathname === '/manifest') {
     const platform = req.headers['expo-platform'];
     if (platform === 'ios' || platform === 'android') {

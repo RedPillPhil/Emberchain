@@ -150,7 +150,7 @@ jobs:
           body: |
             ## EmberChain Desktop ${{ steps.tag.outputs.name }}
 
-            Full-node desktop wallet — embedded node starts automatically. No separate downloads needed.
+            Desktop wallet — connects to emberchain.org by default. No MetaMask, no Node.js, no command line.
 
             | Platform | Download | How to run |
             |----------|----------|------------|
@@ -161,7 +161,7 @@ jobs:
 
             ### What's included
             - **Wallet** — create/import wallets, send & receive EMBR
-            - **Node** — full embedded chain node syncs automatically
+            - **Node** — optional embedded node (start it from Settings if you want to run locally)
             - **Miner** — one-click mining from the app
             - **Private transactions** — shielded sends via the privacy pool
 

@@ -12,7 +12,7 @@ paths = ["/chain-node"]
 [services.env]
 PORT = "8082"
 NODE_URL = "https://emberchain.org"
-SEED_PEERS = "https://emberchain.duckdns.org"
+SEED_PEERS = "https://emberchain.org"
 
 [services.development]
 run = "pnpm --filter @workspace/chain-node run dev"
@@ -32,9 +32,8 @@ args = ["node", "--enable-source-maps", "artifacts/chain-node/dist/index.mjs"]
 PORT = "8082"
 NODE_ENV = "production"
 NODE_URL = "https://emberchain.org"
-SEED_PEERS = "https://emberchain.duckdns.org"
-MINING_DISABLED = "true"
-MINING_NODE_URL = "https://emberchain.duckdns.org"
+SEED_PEERS = "https://emberchain.org"
+MINING_NODE_URL = "https://emberchain.org"
 
 [services.production.health.startup]
 path = "/api/healthz"

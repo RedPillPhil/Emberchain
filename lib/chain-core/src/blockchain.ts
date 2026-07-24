@@ -798,7 +798,9 @@ export class Blockchain {
     const latest = this.blocks[this.blocks.length - 1];
 
     // Total supply: each mined block (blocks 1+) credits blockReward. Genesis (block 0) has no reward.
-    const minedBlocks = Math.max(0, this.blocks.length - 1);
+    // Use latest.number (canonical chain height) NOT this.blocks.length — snapshot nodes only
+    // hold recent blocks in memory, so blocks.length underreports the true chain height.
+    const minedBlocks = Math.max(0, latest.number);
     const totalSupply = (BigInt(minedBlocks) * BigInt(EMBERCHAIN_CONFIG.blockReward)).toString();
 
     // Average block time from the last 20 mined blocks.

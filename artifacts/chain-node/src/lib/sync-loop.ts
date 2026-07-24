@@ -194,7 +194,7 @@ async function syncOnce(): Promise<void> {
     } else {
       _stallCount++;
       console.warn(`[${ts()}] [sync] ⚠️  No progress at ${ourHeight} (stall #${_stallCount})`);
-      if (_stallCount >= 2 && peerHeight - ourHeight > 200) {
+      if (_stallCount >= 2) {
         console.warn(`[${ts()}] [sync] 🔄 Deep stall — downloading fresh snapshot`);
         const ok = await snapshotBootstrap(peer, peerShort);
         if (ok) {

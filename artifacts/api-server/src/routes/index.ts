@@ -51,8 +51,7 @@ router.post("/sync/submit-block",             proxyToNode);
 router.get("/chain/status",                   proxyToNode);
 router.get("/chain/blocks",                   proxyToNode);
 router.get("/chain/blocks/:number",           proxyToNode);
-// mining routes — routed to the dedicated mining node (duckdns in production)
-// so miner floods never touch the local chain-node that serves the wallet.
+// mining routes — proxied to dedicated mining node (duckdns)
 router.get("/mining/status",                  proxyToMiningNode);
 router.post("/mining/start",                  proxyToMiningNode);
 router.post("/mining/stop",                   proxyToMiningNode);

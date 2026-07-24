@@ -28,7 +28,8 @@ export interface ServerHandle {
 
 export async function startServer(port: number): Promise<ServerHandle> {
   const server = http.createServer(app);
-  const wss    = new WebSocketServer({ server, path: "/api/community/ws" });
+
+  const wss = new WebSocketServer({ server, path: "/api/community/ws" });
   setupCommunityWS(wss);
 
   // Listen immediately so health checks pass on startup.

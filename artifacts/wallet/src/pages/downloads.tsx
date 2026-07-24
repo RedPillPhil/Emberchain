@@ -1,7 +1,7 @@
 import { Download, Monitor, Apple, Tv2, Smartphone } from "lucide-react";
 
-const DESKTOP_RELEASE = "https://github.com/RedPillPhil/Emberchain/releases/tag/desktop-v1.0.23";
-const ANDROID_RELEASE = "https://github.com/RedPillPhil/Emberchain/releases/tag/android-v1.0.0";
+const DESKTOP_RELEASE = "https://github.com/RedPillPhil/Emberchain/releases/tag/desktop-v1.0.24";
+const ANDROID_RELEASE = "https://github.com/RedPillPhil/Emberchain/releases/tag/android-v1.0.1";
 
 export default function Downloads() {
   return (
@@ -30,7 +30,7 @@ export default function Downloads() {
                 EmberChain Desktop
               </span>
               <span className="text-xs text-primary font-mono bg-primary/10 border border-primary/30 px-2 py-0.5 rounded uppercase tracking-wide">
-                v1.0.22 · Latest
+                v1.0.24 · Latest
               </span>
             </div>
             <p className="text-muted-foreground font-sans text-sm leading-relaxed max-w-xl">
@@ -43,7 +43,7 @@ export default function Downloads() {
         {/* What's included */}
         <ul className="text-sm font-sans text-muted-foreground space-y-1 pl-9">
           {[
-            "Full embedded EmberChain node — starts automatically",
+            "Optional embedded node — start it from Settings if you want to run locally",
             "Wallet — send & receive EMBR publicly or privately",
             "Shielded pool — hide sender, receiver, and amount",
             "One-click browser mining",
@@ -102,7 +102,7 @@ export default function Downloads() {
         <p className="text-xs text-muted-foreground font-sans pl-1">
           All builds on{" "}
           <a href={DESKTOP_RELEASE} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
-            GitHub — desktop-v1.0.21
+            GitHub — desktop-v1.0.24
           </a>{" "}
           — no account required to download.
         </p>
@@ -120,7 +120,7 @@ export default function Downloads() {
                 EmberChain Android
               </span>
               <span className="text-xs text-green-400 font-mono bg-green-400/10 border border-green-400/30 px-2 py-0.5 rounded uppercase tracking-wide">
-                v1.0.0 · Live
+                v1.0.1 · Live
               </span>
             </div>
             <p className="text-muted-foreground font-sans text-sm leading-relaxed max-w-xl">
@@ -152,7 +152,7 @@ export default function Downloads() {
           className="inline-flex items-center gap-2 border border-green-500/50 bg-green-500/10 hover:bg-green-500/20 text-green-300 font-display font-bold uppercase tracking-widest text-sm px-5 py-3 rounded-sm transition-colors"
         >
           <Download className="w-4 h-4" />
-          Download APK — Android v1.0.0
+          Download APK — Android v1.0.1
         </a>
 
         {/* Install steps */}

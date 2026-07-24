@@ -1,0 +1,32 @@
+root@emberchain-seed-1:~/Emberchain/lib/emberchain-node/dist/downloads# systemctl status nginx
+● nginx.service - A high performance web server and a reverse proxy server
+     Loaded: loaded (/usr/lib/systemd/system/nginx.service; enabled; preset: enabled)
+     Active: active (running) since Thu 2026-07-23 14:54:16 UTC; 22h ago
+       Docs: man:nginx(8)
+    Process: 35406 ExecStartPre=/usr/sbin/nginx -t -q -g daemon on; master_process on; (code=exited, status=0/SUCCESS)
+    Process: 35408 ExecStart=/usr/sbin/nginx -g daemon on; master_process on; (code=exited, status=0/SUCCESS)
+    Process: 41327 ExecReload=/usr/sbin/nginx -g daemon on; master_process on; -s reload (code=exited, status=0/SUCCESS)
+   Main PID: 35409 (nginx)
+      Tasks: 2 (limit: 2315)
+     Memory: 884.3M (peak: 884.6M)
+        CPU: 37min 3.270s
+     CGroup: /system.slice/nginx.service
+             ├─35409 "nginx: master process /usr/sbin/nginx -g daemon on; master_process on;"
+             └─41368 "nginx: worker process"
+
+Jul 23 14:54:16 emberchain-seed-1 systemd[1]: Starting nginx.service - A high performance web server and a reverse proxy server>
+Jul 23 14:54:16 emberchain-seed-1 systemd[1]: Started nginx.service - A high performance web server and a reverse proxy server.
+Jul 24 12:52:48 emberchain-seed-1 systemd[1]: Reloading nginx.service - A high performance web server and a reverse proxy serve>
+Jul 24 12:52:48 emberchain-seed-1 nginx[41327]: 2026/07/24 12:52:48 [notice] 41327#41327: signal process started
+Jul 24 12:52:48 emberchain-seed-1 systemd[1]: Reloaded nginx.service - A high performance web server and a reverse proxy server.
+
+root@emberchain-seed-1:~/Emberchain/lib/emberchain-node/dist/downloads# ss -tlnp | grep ':443'
+LISTEN 512    511          0.0.0.0:443       0.0.0.0:*    users:(("nginx",pid=41368,fd=11),("nginx",pid=35409,fd=11))
+LISTEN 0      511             [::]:443          [::]:*    users:(("nginx",pid=41368,fd=12),("nginx",pid=35409,fd=12))
+root@emberchain-seed-1:~/Emberchain/lib/emberchain-node/dist/downloads# systemctl restart nginx && systemctl status nginx | head -5
+● nginx.service - A high performance web server and a reverse proxy server
+     Loaded: loaded (/usr/lib/systemd/system/nginx.service; enabled; preset: enabled)
+     Active: active (running) since Fri 2026-07-24 13:13:22 UTC; 20ms ago
+       Docs: man:nginx(8)
+    Process: 41443 ExecStartPre=/usr/sbin/nginx -t -q -g daemon on; master_process on; (code=exited, status=0/SUCCESS)
+root@emberchain-seed-1:~/Emberchain/lib/emberchain-node/dist/downloads#

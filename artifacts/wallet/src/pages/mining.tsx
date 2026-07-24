@@ -15,11 +15,22 @@ import type { FromWorkerMsg, ToWorkerMsg, WorkerErrorMsg } from "@/workers/minin
 // same-origin dev proxy so local testing still works.
 const MINING_NODE = (
   (import.meta.env.VITE_MINING_NODE_URL as string | undefined) ??
-  (import.meta.env.PROD ? "https://emberchain.duckdns.org" : "")
+  (import.meta.env.PROD ? "https://emberchain.org" : "")
 ).replace(/\/$/, "");
 
+/** fetch() with an AbortController timeout — prevents indefinite hangs after block commits. */
+async function timedFetch(url: string, opts: RequestInit = {}, ms = 6000): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(new Error(`Request timed out after ${ms}ms`)), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchMiningTemplate(minerAddress: string): Promise<MiningTemplate> {
-  const r = await fetch(
+  const r = await timedFetch(
     `${MINING_NODE}/api/mining/template?minerAddress=${encodeURIComponent(minerAddress)}`,
   );
   if (!r.ok) throw new Error(`Template fetch failed: ${r.status}`);
@@ -27,7 +38,7 @@ async function fetchMiningTemplate(minerAddress: string): Promise<MiningTemplate
 }
 
 async function postMiningShare(data: SubmitShareInput): Promise<SubmitShareResult> {
-  const r = await fetch(`${MINING_NODE}/api/mining/share`, {
+  const r = await timedFetch(`${MINING_NODE}/api/mining/share`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -37,11 +48,11 @@ async function postMiningShare(data: SubmitShareInput): Promise<SubmitShareResul
 }
 
 async function postMiningBlock(data: SubmitBlockInput): Promise<void> {
-  const r = await fetch(`${MINING_NODE}/api/mining/submit`, {
+  const r = await timedFetch(`${MINING_NODE}/api/mining/submit`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
-  });
+  }, 12000); // 12s — block submission can be slower under load
   if (!r.ok) throw new Error(`Block submit failed: ${r.status}`);
 }
 
@@ -164,6 +175,18 @@ export default function Mining() {
                   if (result.blockFound) {
                     addLog(`★ SHARE PROMOTED TO BLOCK #${t.header.number}!`, "found");
                     setSessionBlocks((n) => n + 1);
+                    // Template is now stale — fetch a fresh one so workers don't
+                    // keep grinding a block that's already been found.
+                    if (!templateFetchingRef.current && miningRef.current) {
+                      templateFetchingRef.current = true;
+                      setTimeout(() => {
+                        const addr = templateRef.current?.header.miner ?? activeWallet?.address;
+                        if (!addr || !miningRef.current) { templateFetchingRef.current = false; return; }
+                        fetchMiningTemplate(addr)
+                          .then((nt) => { templateFetchingRef.current = false; if (miningRef.current) spawnPool(nt); })
+                          .catch(() => { templateFetchingRef.current = false; });
+                      }, 500);
+                    }
                   }
                 }).catch(() => {
                   // Stale or duplicate shares are expected — silently ignore
@@ -204,19 +227,25 @@ export default function Mining() {
               }
 
               if (!miningRef.current) return;
-              try {
-                const newTemplate = await fetchMiningTemplate(t.header.miner);
-                if (!miningRef.current) return;
-                spawnPool(newTemplate);
-              } catch {
-                addLog("Failed to fetch next template — retrying in 2s…", "warn");
-                setTimeout(() => {
-                  if (!miningRef.current) return;
-                  fetchMiningTemplate(t.header.miner)
-                    .then((nt) => { if (miningRef.current) spawnPool(nt); })
-                    .catch(() => stopWorker());
-                }, 2000);
+              // Give the chain-node a moment to commit the new block before
+              // asking for the next template — avoids a race-condition stale fetch.
+              await new Promise((r) => setTimeout(r, 800));
+              if (!miningRef.current) return;
+              // Retry up to 5 times with backoff before giving up.
+              let fetched = false;
+              for (let attempt = 1; attempt <= 5 && miningRef.current; attempt++) {
+                try {
+                  const newTemplate = await fetchMiningTemplate(t.header.miner);
+                  if (!miningRef.current) break;
+                  spawnPool(newTemplate);
+                  fetched = true;
+                  break;
+                } catch {
+                  addLog(`Template fetch attempt ${attempt}/5 failed — retrying…`, "warn");
+                  await new Promise((r) => setTimeout(r, attempt * 1000));
+                }
               }
+              if (!fetched && miningRef.current) stopWorker();
             }
 
             // ── need template ────────────────────────────────────────────────
