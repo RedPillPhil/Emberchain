@@ -190,28 +190,32 @@ export default function SettingsScreen() {
       // Normalise: add https:// if the user omitted the scheme, strip trailing slash
       if (raw && !/^https?:\/\//i.test(raw)) {
         raw = `https://${raw}`;
-        setNodeOverride(raw); // reflect normalised value in the input
+        setNodeOverride(raw);
       }
       raw = raw.replace(/\/+$/, '');
 
-      const url = raw || null;
-      await nodeClient.setOverride(url);
-      await reconnect();
-
-      const active = nodeClient.getActiveNode();
-      if (url && active === url) {
+      if (!raw) {
+        // Clearing the override
+        await nodeClient.setOverride(null);
+        reconnect(); // fire-and-forget — let auto-discovery pick the best node
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('Node saved', `Connected to ${url}`);
-      } else if (url && active !== url) {
+        Alert.alert('Node reset', 'Auto-selecting best available node…');
+        return;
+      }
+
+      // Test the node directly — independent of wallet state and discovery races
+      const result = await nodeClient.testNode(raw);
+      if (result) {
+        await nodeClient.setOverride(raw);
+        reconnect(); // fire-and-forget refresh
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert('Node saved', `Connected ✓\n${raw}\nBlock: ${result.height.toLocaleString()}  •  ${result.latencyMs} ms`);
+      } else {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert(
           'Node unreachable',
-          `Could not reach ${url}.\n\nCommon causes:\n• If you're on the same WiFi as the node, try on mobile data instead — routers often block loopback to their own public IP\n• Make sure the URL starts with https://\n• No trailing slash\n\nFalling back to ${active ?? 'default node'}.`,
+          `Could not reach:\n${raw}\n\nTips:\n• Include https:// (added automatically if missing)\n• No trailing slash\n• If on home WiFi and the node is local, switch to mobile data\n• Timeout is 8 s — try again if your connection is slow`,
         );
-      } else {
-        // Cleared the override
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('Node reset', `Using auto-selected node: ${active ?? 'emberchain.org'}`);
       }
     } finally {
       setOverrideLoading(false);

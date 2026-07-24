@@ -218,6 +218,34 @@ export const nodeClient = {
     if (url) await AsyncStorage.setItem(OVERRIDE_KEY, url);
     else await AsyncStorage.removeItem(OVERRIDE_KEY);
     _activeNode = null;
+    // Cancel any in-flight discovery so the next call uses the new override
+    _discoverInFlight = null;
   },
   getOverride: () => AsyncStorage.getItem(OVERRIDE_KEY),
+
+  /**
+   * Directly probe a URL and return its block height, or null if unreachable.
+   * Used by the settings screen to test a node before saving it.
+   * Uses a longer timeout (8 s) than the background prober since this is
+   * user-initiated and mobile data can be slow.
+   */
+  testNode: async (url: string): Promise<{ height: number; latencyMs: number } | null> => {
+    const t0 = Date.now();
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      let res: Response;
+      try {
+        res = await fetch(`${url}/api/chain/status`, { signal: ctrl.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!res.ok) return null;
+      const data = await res.json() as { height?: number };
+      if (typeof data.height !== 'number') return null;
+      return { height: data.height, latencyMs: Date.now() - t0 };
+    } catch {
+      return null;
+    }
+  },
 };
