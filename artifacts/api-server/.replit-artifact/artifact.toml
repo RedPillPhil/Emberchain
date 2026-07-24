@@ -10,7 +10,8 @@ name = "API Server"
 paths = ["/api"]
 
 [services.env]
-CHAIN_NODE_URL = "http://localhost:8082"
+CHAIN_NODE_URL = "https://emberchain.duckdns.org"
+MINING_NODE_URL = "https://emberchain.duckdns.org"
 
 [services.development]
 run = "pnpm --filter @workspace/api-server run dev"
@@ -29,7 +30,7 @@ args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
 [services.production.run.env]
 PORT = "8080"
 NODE_ENV = "production"
-CHAIN_NODE_URL = "http://localhost:8082"
+CHAIN_NODE_URL = "https://emberchain.duckdns.org"
 MINING_NODE_URL = "https://emberchain.duckdns.org"
 
 [services.production.health.startup]
