@@ -16,8 +16,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // ── Constants ──────────────────────────────────────────────────────────────
 const BOOTSTRAP: string[] = [
   'https://emberchain.org',
+  'https://emberchain.duckdns.org',
   'https://po-w-chain.replit.app',
-  // DuckDNS / local nodes added here will be probed on every startup
 ];
 const CACHE_NODE_KEY  = 'embr_node_url';
 const CACHE_PEERS_KEY = 'embr_peers';
