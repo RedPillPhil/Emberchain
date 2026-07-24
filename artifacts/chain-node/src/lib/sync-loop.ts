@@ -9,7 +9,7 @@ import { getPeers, exchangePeers } from "./peers";
 import type { StoredBlock, StoredTransaction, PersistedChain } from "@workspace/chain-core";
 
 const SYNC_INTERVAL_MS      = 10_000;  // while catching up
-const IDLE_SYNC_INTERVAL_MS = 60_000;  // once fully in sync — gentle background check
+const IDLE_SYNC_INTERVAL_MS = 15_000;  // once fully in sync — blocks arrive every ~8s, check often
 const PEX_INTERVAL_MS       = 5 * 60_000;
 // How far back to re-scan when the sync loop stalls — must exceed any realistic
 // fork depth.  64 was too small for a 127-block fork; 512 gives comfortable
@@ -63,7 +63,7 @@ async function fetchBatch(
 ): Promise<Array<StoredBlock & { transactions: StoredTransaction[] }> | null> {
   try {
     const r = await fetch(`${peer}/api/sync/blocks?from=${from}&limit=${limit}`, {
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(15_000),  // was 60s — fail fast so we can try another peer
     });
     if (!r.ok) return null;
     const data = (await r.json()) as { blocks: Array<StoredBlock & { transactions: StoredTransaction[] }> };
@@ -124,30 +124,48 @@ async function syncOnce(): Promise<void> {
 
     const now = Date.now();
     const needRepoll = !_cachedBestPeer || (now - _lastPeerPollMs) > PEER_REPOLL_INTERVAL_MS;
-    let peerInfo: PeerInfo | null = null;
+
+    // Full sorted peer list — we keep this so we can fall back to alternates
+    // within the same cycle if the best peer's block fetch fails.
+    let sortedPeers: PeerInfo[] = [];
 
     if (!needRepoll && _cachedBestPeer) {
-      peerInfo = await queryPeer(_cachedBestPeer);
-      if (!peerInfo) { _cachedBestPeer = null; }
+      const cached = await queryPeer(_cachedBestPeer);
+      if (cached) {
+        sortedPeers = [cached];
+      } else {
+        _cachedBestPeer = null;
+      }
     }
 
-    if (!peerInfo) {
+    if (sortedPeers.length === 0) {
       const results = await Promise.all(peers.map(queryPeer));
-      const reachable = results.filter((p): p is PeerInfo => p !== null);
-      reachable.sort((a, b) => (b.td > a.td ? 1 : b.td < a.td ? -1 : 0));
-      if (reachable.length > 0) {
-        peerInfo = reachable[0]!;
-        _cachedBestPeer = peerInfo.url;
-        _lastPeerPollMs = now;
-      } else { return; }
+      sortedPeers = results
+        .filter((p): p is PeerInfo => p !== null)
+        .sort((a, b) => (b.td > a.td ? 1 : b.td < a.td ? -1 : 0));
+      if (sortedPeers.length === 0) return;
+      _cachedBestPeer = sortedPeers[0]!.url;
+      _lastPeerPollMs = now;
     }
 
-    if (peerInfo.height > _bestPeerHeight) _bestPeerHeight = peerInfo.height;
+    const bestPeer = sortedPeers[0]!;
+    if (bestPeer.height > _bestPeerHeight) _bestPeerHeight = bestPeer.height;
 
-    const peer      = peerInfo.url;
-    const peerShort = peer.replace(/^https?:\/\//, "");
+    // Check whether we're already in sync with the best peer
+    if (bestPeer.td <= ourTD && bestPeer.height <= ourHeight) {
+      _stallCount = 0;
+      _isSynced = true;
+      const peerShort = bestPeer.url.replace(/^https?:\/\//, "");
+      console.log(`[${ts()}] [sync] ✅ In sync with ${peerShort} (height ${ourHeight})`);
+      return;
+    }
 
+    _isSynced = false; // actively downloading — keep fast interval
+
+    // Bootstrap from snapshot on a brand-new node
     if (ourHeight <= 1) {
+      const peer      = bestPeer.url;
+      const peerShort = peer.replace(/^https?:\/\//, "");
       const ok = await snapshotBootstrap(peer, peerShort);
       if (ok) {
         const newStatus = await chain.getStatus().catch(() => null);
@@ -157,74 +175,81 @@ async function syncOnce(): Promise<void> {
       }
     }
 
-    const peerHeight = peerInfo.height;
-    const peerTD     = peerInfo.td;
+    // Drain blocks — try each peer in turn if the current one fails
+    for (const peerInfo of sortedPeers) {
+      const peer      = peerInfo.url;
+      const peerShort = peer.replace(/^https?:\/\//, "");
 
-    if (peerTD <= ourTD && peerHeight <= ourHeight) {
-      _stallCount = 0;
-      _isSynced = true;
-      console.log(`[${ts()}] [sync] ✅ In sync with ${peerShort} (height ${ourHeight})`);
-      return;
-    }
+      // Skip peers that aren't ahead of us
+      if (peerInfo.td <= ourTD && peerInfo.height <= ourHeight) continue;
 
-    _isSynced = false; // actively downloading — keep fast interval
+      const peerHeight = peerInfo.height;
+      console.log(`[${ts()}] [sync] 📥 ${peerShort} is ${peerHeight - ourHeight} blocks ahead — draining …`);
 
-    console.log(`[${ts()}] [sync] 📥 ${peerShort} is ${peerHeight - ourHeight} blocks ahead — draining …`);
+      let drainFrom = _stallCount > 0 ? Math.max(1, ourHeight - FORK_LOOKBACK) : ourHeight + 1;
+      let prefetch: Promise<Array<StoredBlock & { transactions: StoredTransaction[] }> | null> =
+        fetchBatch(peer, drainFrom);
 
-    let drainFrom = _stallCount > 0 ? Math.max(1, ourHeight - FORK_LOOKBACK) : ourHeight + 1;
-    let prefetch: Promise<Array<StoredBlock & { transactions: StoredTransaction[] }> | null> =
-      fetchBatch(peer, drainFrom);
-
-    while (true) {
-      const batchBlocks = await prefetch;
-      if (!batchBlocks || batchBlocks.length === 0) {
-        if (!batchBlocks) console.warn(`[${ts()}] [sync] ⚠️  ${peerShort} unreachable`);
-        break;
-      }
-
-      const canonical = extractCanonicalSubchain(batchBlocks);
-      const nextFrom  = (canonical[canonical.length - 1]?.number ?? drainFrom) + 1;
-      prefetch = nextFrom <= peerHeight ? fetchBatch(peer, nextFrom) : Promise.resolve(null);
-
-      const heightBefore = ourHeight;
-      let aborted = false;
-      for (const blockData of canonical) {
-        const { transactions, ...block } = blockData;
-        try {
-          await chain.importBlock(block as StoredBlock, transactions ?? []);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (msg.includes("Reorg aborted")) { aborted = true; break; }
-          if (!msg.includes("already")) console.warn(`[${ts()}] [sync] importBlock #${(block as StoredBlock).number}: ${msg}`);
+      let peerFailed = false;
+      while (true) {
+        const batchBlocks = await prefetch;
+        if (!batchBlocks || batchBlocks.length === 0) {
+          if (!batchBlocks) {
+            console.warn(`[${ts()}] [sync] ⚠️  ${peerShort} unreachable — trying next peer`);
+            peerFailed = true;
+            _cachedBestPeer = null; // force re-poll next cycle
+          }
+          break;
         }
-      }
-      if (aborted) break;
 
-      const newStatus = await chain.getStatus().catch(() => null);
-      ourHeight = newStatus?.height ?? ourHeight;
+        const canonical = extractCanonicalSubchain(batchBlocks);
+        const nextFrom  = (canonical[canonical.length - 1]?.number ?? drainFrom) + 1;
+        prefetch = nextFrom <= peerHeight ? fetchBatch(peer, nextFrom) : Promise.resolve(null);
 
-      if (ourHeight > heightBefore) {
-        _stallCount = 0;
-        const remaining = peerHeight - ourHeight;
-        if (remaining <= 0) { console.log(`[${ts()}] [sync] 🎉 Fully synced at ${ourHeight}`); break; }
-        console.log(`[${ts()}] [sync] ↑ ${ourHeight} (${remaining} remaining) …`);
-        drainFrom = ourHeight + 1;
-        if (ourHeight >= peerHeight) break;
-        if (BATCH_DELAY_MS > 0) await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
-      } else {
-        _stallCount++;
-        console.warn(`[${ts()}] [sync] ⚠️  No progress at ${ourHeight} (stall #${_stallCount})`);
-        if (_stallCount >= 2) {
-          console.warn(`[${ts()}] [sync] 🔄 Deep stall — downloading fresh snapshot`);
-          const ok = await snapshotBootstrap(peer, peerShort);
-          if (ok) {
-            _stallCount = 0;
-            const recovered = await chain.getStatus().catch(() => null);
-            console.log(`[${ts()}] [sync] ✅ Recovered via snapshot — now at block ${recovered?.height ?? "?"}`);
+        const heightBefore = ourHeight;
+        let aborted = false;
+        for (const blockData of canonical) {
+          const { transactions, ...block } = blockData;
+          try {
+            await chain.importBlock(block as StoredBlock, transactions ?? []);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes("Reorg aborted")) { aborted = true; break; }
+            if (!msg.includes("already")) console.warn(`[${ts()}] [sync] importBlock #${(block as StoredBlock).number}: ${msg}`);
           }
         }
-        break;
+        if (aborted) break;
+
+        const newStatus = await chain.getStatus().catch(() => null);
+        ourHeight = newStatus?.height ?? ourHeight;
+        ourTD     = chain.getTotalDifficulty();
+
+        if (ourHeight > heightBefore) {
+          _stallCount = 0;
+          const remaining = peerHeight - ourHeight;
+          if (remaining <= 0) { console.log(`[${ts()}] [sync] 🎉 Fully synced at ${ourHeight}`); break; }
+          console.log(`[${ts()}] [sync] ↑ ${ourHeight} (${remaining} remaining) …`);
+          drainFrom = ourHeight + 1;
+          if (ourHeight >= peerHeight) break;
+          if (BATCH_DELAY_MS > 0) await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
+        } else {
+          _stallCount++;
+          console.warn(`[${ts()}] [sync] ⚠️  No progress at ${ourHeight} (stall #${_stallCount})`);
+          if (_stallCount >= 2) {
+            console.warn(`[${ts()}] [sync] 🔄 Deep stall — downloading fresh snapshot`);
+            const ok = await snapshotBootstrap(peer, peerShort);
+            if (ok) {
+              _stallCount = 0;
+              const recovered = await chain.getStatus().catch(() => null);
+              console.log(`[${ts()}] [sync] ✅ Recovered via snapshot — now at block ${recovered?.height ?? "?"}`);
+            }
+          }
+          break;
+        }
       }
+
+      // Peer succeeded (or we're caught up) — stop trying alternates
+      if (!peerFailed) break;
     }
   } finally {
     // Always unblock any callers waiting on syncAndWait()
@@ -258,7 +283,9 @@ function scheduleNextSync(): void {
   if (!_syncLoopActive) return;
   const delay = _isSynced ? IDLE_SYNC_INTERVAL_MS : SYNC_INTERVAL_MS;
   syncTimer = setTimeout(async () => {
-    await syncOnce();
+    try { await syncOnce(); } catch (err) {
+      console.error(`[${ts()}] [sync] 💥 Unhandled error in syncOnce:`, err);
+    }
     scheduleNextSync();
   }, delay);
 }
