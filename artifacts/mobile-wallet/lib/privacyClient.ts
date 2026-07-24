@@ -61,6 +61,14 @@ async function apiPrivacy<T>(path: string, opts: RequestInit = {}): Promise<T> {
     try { msg = JSON.parse(body).error ?? body; } catch {}
     throw new Error(msg || `HTTP ${res.status}`);
   }
+  // Guard against HTML error pages (Replit proxy 200, nginx catch-all, etc.)
+  const ct = res.headers.get('content-type') ?? '';
+  if (!ct.includes('application/json')) {
+    throw new Error(
+      `The connected node (${base}) doesn't support private transactions. ` +
+      `Try connecting to po-w-chain.replit.app instead.`
+    );
+  }
   return res.json() as Promise<T>;
 }
 

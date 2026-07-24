@@ -149,6 +149,16 @@ async function apiCall<T>(path: string, opts: RequestInit = {}): Promise<T> {
       const err = Object.assign(new Error(`${res.status}: ${body.slice(0, 200)}`), { status: res.status });
       throw err;
     }
+    // Guard against HTML error pages (Replit proxy, nginx 404, etc.) that
+    // return status 200 with text/html — calling res.json() on those gives
+    // the cryptic "Unexpected token '<'" error.
+    const ct = res.headers.get('content-type') ?? '';
+    if (!ct.includes('application/json')) {
+      throw Object.assign(
+        new Error(`Node returned non-JSON response (${res.status} ${ct || 'no content-type'}). The node may be down or this endpoint is not supported.`),
+        { status: res.status }
+      );
+    }
     return res.json() as Promise<T>;
   }
 

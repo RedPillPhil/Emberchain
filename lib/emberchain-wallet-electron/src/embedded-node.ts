@@ -102,12 +102,12 @@ export async function startEmbeddedNode(options: {
   // so we always seed manually here after the server is up.
   for (const peer of BOOTSTRAP_PEERS) addPeer(peer);
 
-  // Gentle sync settings for the desktop — smaller batches + inter-batch pause
-  // so the sync doesn't saturate the user's home connection.
-  // Gentle sync for embedded desktop node — doesn't saturate home connections.
-  // 250 blocks per batch × 800 ms pause = ~312 blocks/s peak, well under 1 MB/s.
-  // Once fully synced the adaptive loop drops to a 60 s idle check.
-  configureSyncLoop({ batchSize: 250, batchDelayMs: 800 });
+  // Gentle sync settings for the embedded desktop node so it doesn't saturate
+  // a home internet connection:
+  //   50 blocks/batch × ~2 KB/block ≈ 100 KB per batch
+  //   3 000 ms inter-batch pause   → ~33 KB/s average during catch-up
+  //   60 s idle check once synced  → near-zero background traffic
+  configureSyncLoop({ batchSize: 50, batchDelayMs: 3000, idleIntervalMs: 60_000 });
   triggerSync(); // don't wait 30 s for the first interval
 
   // Keep height cache fresh for status polling

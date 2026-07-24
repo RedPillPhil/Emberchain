@@ -49,11 +49,19 @@ function extractCanonicalSubchain(
 
 let BATCH_SIZE = 5000;
 let BATCH_DELAY_MS = 0; // ms to sleep between batches (0 = full speed for server nodes)
+// Idle interval override — 0 means use the built-in adaptive constants above
+let IDLE_INTERVAL_OVERRIDE_MS = 0;
 
 /** Call before startSyncLoop() to throttle sync (e.g. embedded desktop node). */
-export function configureSyncLoop(opts: { batchSize?: number; batchDelayMs?: number }): void {
-  if (opts.batchSize    !== undefined) BATCH_SIZE    = opts.batchSize;
-  if (opts.batchDelayMs !== undefined) BATCH_DELAY_MS = opts.batchDelayMs;
+export function configureSyncLoop(opts: {
+  batchSize?: number;
+  batchDelayMs?: number;
+  /** Override the idle polling interval (ms). Useful for embedded nodes on home connections. */
+  idleIntervalMs?: number;
+}): void {
+  if (opts.batchSize       !== undefined) BATCH_SIZE              = opts.batchSize;
+  if (opts.batchDelayMs    !== undefined) BATCH_DELAY_MS          = opts.batchDelayMs;
+  if (opts.idleIntervalMs  !== undefined) IDLE_INTERVAL_OVERRIDE_MS = opts.idleIntervalMs;
 }
 
 async function fetchBatch(
@@ -281,7 +289,8 @@ const STARTUP_DELAY_MS = 5_000;
 
 function scheduleNextSync(): void {
   if (!_syncLoopActive) return;
-  const delay = _isSynced ? IDLE_SYNC_INTERVAL_MS : SYNC_INTERVAL_MS;
+  const idleMs = IDLE_INTERVAL_OVERRIDE_MS > 0 ? IDLE_INTERVAL_OVERRIDE_MS : IDLE_SYNC_INTERVAL_MS;
+  const delay = _isSynced ? idleMs : SYNC_INTERVAL_MS;
   syncTimer = setTimeout(async () => {
     try { await syncOnce(); } catch (err) {
       console.error(`[${ts()}] [sync] 💥 Unhandled error in syncOnce:`, err);
