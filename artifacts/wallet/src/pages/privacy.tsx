@@ -12,22 +12,30 @@ import {
 import { formatEmbr } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
-// Direct API calls (not using orval query hooks) so we can pass private key in POST body
+// The privacy/exchange API only runs on the primary api-server (po-w-chain.replit.app).
+// When the wallet is served from a different origin (e.g. emberchain.org, which only
+// runs chain-node and serves the static wallet but has no api-server), we must target
+// the api-server explicitly. CORS is wide-open on the api-server so this works cross-origin.
+// In dev mode we use a relative URL so the local api-server is hit instead.
+const API_SERVER = import.meta.env.DEV ? "" : "https://po-w-chain.replit.app";
+
 async function apiPost(path: string, body: object): Promise<unknown> {
-  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-  const res = await fetch(`${base}/api${path}`, {
+  const res = await fetch(`${API_SERVER}/api${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  // Check res.ok BEFORE res.json() — non-JSON responses (HTML startup pages,
-  // proxy 500s) would otherwise throw a raw SyntaxError that bypasses the
-  // error handling below and shows "Unexpected token '<'" to the user.
+  // Check res.ok BEFORE res.json() — a non-JSON body (HTML startup page, nginx
+  // SPA fallback, proxy error) would otherwise throw "Unexpected token '<'" raw.
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     let msg = `HTTP ${res.status}`;
     try { msg = (JSON.parse(text) as { error?: string }).error ?? text || msg; } catch { msg = text || msg; }
     throw new Error(msg);
+  }
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) {
+    throw new Error("Privacy API unavailable at this node — please try po-w-chain.replit.app");
   }
   return res.json();
 }
@@ -109,13 +117,16 @@ export default function PrivacyPage() {
     setLoading(true);
     reset();
     try {
-      const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-      const res = await fetch(`${base}/api/privacy/transactions?limit=50`);
+      const res = await fetch(`${API_SERVER}/api/privacy/transactions?limit=50`);
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         let msg = `HTTP ${res.status}`;
         try { msg = (JSON.parse(text) as { error?: string }).error ?? text || msg; } catch { msg = text || msg; }
         throw new Error(msg);
+      }
+      const ct = res.headers.get("content-type") ?? "";
+      if (!ct.includes("application/json")) {
+        throw new Error("Privacy API unavailable at this node — please try po-w-chain.replit.app");
       }
       const json = await res.json();
       setLedger(json as ShieldedTxRecord[]);
