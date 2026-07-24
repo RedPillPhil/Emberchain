@@ -56,6 +56,21 @@ async function postMiningBlock(data: SubmitBlockInput): Promise<void> {
   if (!r.ok) throw new Error(`Block submit failed: ${r.status}`);
 }
 
+/** Poll chain status until block height exceeds `aboveHeight`, then resolve. */
+async function waitForChainAdvance(aboveHeight: number, signal: AbortSignal): Promise<void> {
+  while (!signal.aborted) {
+    await new Promise((r) => setTimeout(r, 1000));
+    if (signal.aborted) return;
+    try {
+      const r = await timedFetch(`${MINING_NODE}/api/chain/status`, {}, 3000);
+      if (r.ok) {
+        const s = await r.json() as { height?: number };
+        if ((s.height ?? 0) > aboveHeight) return;
+      }
+    } catch { /* ignore transient errors */ }
+  }
+}
+
 // ── intensity levels ──────────────────────────────────────────────────────────
 
 const INTENSITY_LEVELS = [
@@ -213,23 +228,44 @@ export default function Mining() {
                 pendingTxHashes: t.pendingTxHashes,
               };
 
-              try {
-                await postMiningBlock(submitPayload);
+              // Race the block submit against a chain-height poller.
+              // Under EVM lock contention the VM can take 12s to return a 409 —
+              // the poller detects the chain advancing in ~1s and restarts immediately.
+              const watcherCtrl = new AbortController();
+              const submitResult = postMiningBlock(submitPayload).then(
+                () => "ok" as const,
+                (err: unknown) => ({ error: (err as { message?: string })?.message ?? "Submit failed" }),
+              );
+              const watcherResult = waitForChainAdvance(t.header.number, watcherCtrl.signal).then(
+                () => "advanced" as const,
+              );
+
+              const winner = await Promise.race([submitResult, watcherResult]);
+              watcherCtrl.abort(); // stop the poller either way
+
+              if (winner === "ok") {
                 setSessionBlocks((n) => n + 1);
                 addLog(`★ BLOCK FORGED! Fetching next template…`, "found");
-              } catch (err) {
-                const errorMsg = (err as { message?: string })?.message ?? "Submit failed";
-                if (errorMsg.includes("Stale")) {
-                  addLog(`Template stale — chain advanced. Refreshing…`, "warn");
+                // submit already done — let watcher resolve silently
+                submitResult.catch(() => {});
+              } else if (winner === "advanced") {
+                // Chain moved while submit was in flight — let it finish in background
+                addLog(`Chain advanced — restarting…`, "warn");
+                submitResult.then((r) => {
+                  if (r === "ok") setSessionBlocks((n) => n + 1);
+                }).catch(() => {});
+              } else {
+                // Submit returned an error before chain advanced
+                const msg = winner.error;
+                if (msg.includes("409") || msg.includes("Stale") || msg.includes("already")) {
+                  addLog(`Block beaten — chain advanced. Refreshing…`, "warn");
                 } else {
-                  addLog(`Submit error: ${errorMsg}`, "warn");
+                  addLog(`Submit error: ${msg}`, "warn");
                 }
               }
 
               if (!miningRef.current) return;
-              // The submit call only returns 200 after the block is committed,
-              // so the next template is available immediately — no delay needed.
-              // Retry up to 5 times with short backoff before giving up.
+              // Fetch next template and restart workers.
               let fetched = false;
               for (let attempt = 1; attempt <= 5 && miningRef.current; attempt++) {
                 try {

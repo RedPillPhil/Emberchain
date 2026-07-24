@@ -1,0 +1,45 @@
+Run node scripts/bundle-node-engine.mjs
+Building node-engine-bundle.cjs…
+X [ERROR] Could not resolve "../../../artifacts/api-server/src/lib/peers"
+
+    lib/emberchain-wallet-electron/src/embedded-node.ts:10:34:
+      10 │ ...er, getPeers } from "../../../artifacts/api-server/src/lib/peers";
+         ╵                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+X [ERROR] Could not resolve "../../../artifacts/api-server/src/lib/sync-loop"
+
+    lib/emberchain-wallet-electron/src/embedded-node.ts:11:61:
+      11 │ ...erHeight } from "../../../artifacts/api-server/src/lib/sync-loop";
+         ╵                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+X [ERROR] Could not resolve "../../../artifacts/api-server/src/lib/chain"
+
+    lib/emberchain-wallet-electron/src/embedded-node.ts:12:22:
+      12 │ import { chain } from "../../../artifacts/api-server/src/lib/chain";
+         ╵                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+3 errors
+D:\a\Emberchain\Emberchain\node_modules\.pnpm\esbuild@0.27.3\node_modules\esbuild\lib\main.js:1467
+  let error = new Error(text);
+              ^
+
+Error: Build failed with 3 errors:
+lib/emberchain-wallet-electron/src/embedded-node.ts:10:34: ERROR: Could not resolve "../../../artifacts/api-server/src/lib/peers"
+lib/emberchain-wallet-electron/src/embedded-node.ts:11:61: ERROR: Could not resolve "../../../artifacts/api-server/src/lib/sync-loop"
+lib/emberchain-wallet-electron/src/embedded-node.ts:12:22: ERROR: Could not resolve "../../../artifacts/api-server/src/lib/chain"
+    at failureErrorWithLog (D:\a\Emberchain\Emberchain\node_modules\.pnpm\esbuild@0.27.3\node_modules\esbuild\lib\main.js:1467:15)
+    at D:\a\Emberchain\Emberchain\node_modules\.pnpm\esbuild@0.27.3\node_modules\esbuild\lib\main.js:926:25
+    at D:\a\Emberchain\Emberchain\node_modules\.pnpm\esbuild@0.27.3\node_modules\esbuild\lib\main.js:878:52
+    at buildResponseToResult (D:\a\Emberchain\Emberchain\node_modules\.pnpm\esbuild@0.27.3\node_modules\esbuild\lib\main.js:924:7)
+    at D:\a\Emberchain\Emberchain\node_modules\.pnpm\esbuild@0.27.3\node_modules\esbuild\lib\main.js:951:16
+    at responseCallbacks.<computed> (D:\a\Emberchain\Emberchain\node_modules\.pnpm\esbuild@0.27.3\node_modules\esbuild\lib\main.js:603:9)
+    at handleIncomingPacket (D:\a\Emberchain\Emberchain\node_modules\.pnpm\esbuild@0.27.3\node_modules\esbuild\lib\main.js:658:12)
+    at Socket.readFromStdout (D:\a\Emberchain\Emberchain\node_modules\.pnpm\esbuild@0.27.3\node_modules\esbuild\lib\main.js:581:7)
+    at Socket.emit (node:events:519:28)
+    at addChunk (node:internal/streams/readable:561:12) {
+  errors: [Getter/Setter],
+  warnings: [Getter/Setter]
+}
+
+Node.js v22.23.1
+Error: Process completed with exit code 1.
