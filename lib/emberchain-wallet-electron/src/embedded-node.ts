@@ -6,10 +6,10 @@
  * so module-level code in chain.ts and peers.ts sees the right paths on first eval.
  */
 
-import { startServer, type ServerHandle } from "../../../artifacts/api-server/src/server";
-import { addPeer, getPeers } from "../../../artifacts/api-server/src/lib/peers";
-import { triggerSync, stopSyncLoop, getBestPeerHeight } from "../../../artifacts/api-server/src/lib/sync-loop";
-import { chain } from "../../../artifacts/api-server/src/lib/chain";
+import { startServer, type ServerHandle } from "../../../artifacts/chain-node/src/server";
+import { addPeer, getPeers } from "../../../artifacts/chain-node/src/lib/peers";
+import { triggerSync, stopSyncLoop, getBestPeerHeight } from "../../../artifacts/chain-node/src/lib/sync-loop";
+import { chain } from "../../../artifacts/chain-node/src/lib/chain";
 import { mkdirSync, existsSync, writeFileSync, createWriteStream, renameSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";

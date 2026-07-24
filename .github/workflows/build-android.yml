@@ -84,8 +84,8 @@ jobs:
           BUILD_ID="${{ steps.eas-build.outputs.build_id }}"
           echo "Waiting for build $BUILD_ID to complete..."
 
-          # Poll until done (max 40 min)
-          for i in $(seq 1 80); do
+          # Poll until done (max 90 min — EAS free tier queues can be long)
+          for i in $(seq 1 180); do
             STATUS_JSON=$(eas build:view "$BUILD_ID" --json 2>/dev/null)
             STATUS=$(echo "$STATUS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null)
             echo "[$i] Status: $STATUS"
