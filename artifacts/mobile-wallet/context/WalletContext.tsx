@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -50,6 +51,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [nodeStatus, setNodeStatus] = useState<NodeStatus>('searching');
   const [nodeUrl, setNodeUrl] = useState<string | null>(null);
   const [peerCount, setPeerCount] = useState(0);
+  const lastNodeRef = useRef<string | null>(null);
 
   const formattedBalance = formatEMBR(balance);
   const isSetup = address !== null;
@@ -77,6 +79,16 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     const iv = setInterval(() => refreshBalance(address), 15_000);
     return () => clearInterval(iv);
   }, [address]);
+
+  // ── Refresh balance immediately when the active node changes ─────────
+  // Covers both manual overrides from Settings and automatic failover.
+  // lastNodeRef prevents re-firing when refreshBalance itself updates nodeUrl.
+  useEffect(() => {
+    if (!address || !nodeUrl) return;
+    if (nodeUrl === lastNodeRef.current) return;
+    lastNodeRef.current = nodeUrl;
+    refreshBalance(address);
+  }, [nodeUrl, address]);
 
   // ── Helpers ──────────────────────────────────────────────────────────
   const connectAndRefresh = useCallback(async (addr: string) => {

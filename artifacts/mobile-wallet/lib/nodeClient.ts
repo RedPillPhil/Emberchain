@@ -15,9 +15,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const BOOTSTRAP: string[] = [
-  'https://emberchain.org',
+  // emberchain.org proxies the chain-node API under /chain-node — use that prefix
+  // so probeNode hits the right path on that server's nginx config.
+  'https://emberchain.org/chain-node',
   'https://emberchain.duckdns.org',
-  'https://po-w-chain.replit.app',  // last-resort fallback
+  'https://po-w-chain.replit.app',  // api-server proxies chain endpoints at root
 ];
 const CACHE_NODE_KEY  = 'embr_node_url';
 const CACHE_PEERS_KEY = 'embr_peers';
@@ -83,15 +85,15 @@ export async function discoverNode(force = false): Promise<string | null> {
 
   _discoverInFlight = (async (): Promise<string | null> => {
     try {
-      // 1. User override — honour it unconditionally (user chose it deliberately)
+      // 1. User override — trust it unconditionally.
+      //    The user already verified it via testNode (8 s timeout) before saving.
+      //    Re-probing here with a shorter PROBE_TIMEOUT would drop slow-but-valid
+      //    nodes and silently fall back to auto-discovery, ignoring the user's choice.
+      //    If the node is genuinely down, apiCall's failover will handle it.
       const override = await AsyncStorage.getItem(OVERRIDE_KEY).catch(() => null);
       if (override) {
-        const probe = await probeNode(override);
-        if (probe !== null) {
-          _activeNode = override;
-          return override;
-        }
-        // Override unreachable — fall through to auto-select
+        _activeNode = override;
+        return override;
       }
 
       // 2. Race all candidates, pick the one with the highest block height
