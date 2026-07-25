@@ -113,7 +113,7 @@ export async function startEmbeddedNode(options: {
   //
   //   During catch-up:
   //     500 blocks/batch × ~3 KB/block ≈ 1.5 MB per fetch
-  //     2 000 ms between cycles → ~750 KB/s average during active sync
+  //     500 ms between cycles → ~3 MB/s average during active sync
   //     Sequential peer queries (desktop mode) — one peer at a time, stops on
   //     first response — avoids the parallel-probe blast that causes bufferbloat.
   //
@@ -124,7 +124,7 @@ export async function startEmbeddedNode(options: {
   // catch-up, 20 s idle) controls the inter-request gap — no sleep inside the loop.
   configureSyncLoop({
     batchSize:      500,
-    batchDelayMs:   2_000,
+    batchDelayMs:   500,
     idleIntervalMs: 20_000,
     skipSnapshot:   true,
     disablePex:     true,
