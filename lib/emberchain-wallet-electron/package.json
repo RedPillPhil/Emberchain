@@ -1,6 +1,6 @@
 {
   "name": "emberchain-desktop",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "Emberchain desktop wallet",
   "main": "main.js",
   "private": true,
@@ -31,7 +31,7 @@
   "build": {
     "appId": "org.emberchain.desktop",
     "productName": "EmberChain Desktop",
-    "copyright": "Copyright © 2025 Emberchain",
+    "copyright": "Copyright \u00a9 2025 Emberchain",
     "directories": {
       "output": "dist",
       "buildResources": "build"
