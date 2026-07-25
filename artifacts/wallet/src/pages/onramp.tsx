@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { API_SERVER } from "@/lib/api-server";
 import { Shell } from "@/components/layout/shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -295,7 +296,7 @@ export default function OnRamp() {
   const matchingListings = listings.filter((l) => l.currency === selectedCurrency.id);
 
   useEffect(() => {
-    fetch("/api/onramp/config")
+    fetch(`${API_SERVER}/api/onramp/config`)
       .then((r) => r.json())
       .then((d) => { setConfig(d as OnrampConfig); setConfigLoading(false); })
       .catch(() => setConfigLoading(false));

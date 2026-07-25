@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { API_SERVER } from "@/lib/api-server";
 import { Shell } from "@/components/layout/shell";
 import { useParams, useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
@@ -93,7 +94,7 @@ function ReadFunctionRow({ address, fn }: { address: string; fn: Record<string, 
     setResult(null);
     setError(null);
     try {
-      const res = await fetch(`/api/contracts/${address}/read`, {
+      const res = await fetch(`${API_SERVER}/api/contracts/${address}/read`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ functionName: fn.name, args: args.map(parseArg) }),
@@ -188,7 +189,7 @@ function WriteFunctionRow({
         fromPrivateKey: activeWallet.privateKey,
       };
       if (isPayable && value) body.value = value;
-      const res = await fetch(`/api/contracts/${address}/write`, {
+      const res = await fetch(`${API_SERVER}/api/contracts/${address}/write`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -341,7 +342,7 @@ function VerifyPanel({ address, onVerified }: { address: string; onVerified: () 
     try {
       const body: Record<string, unknown> = { abi: parsed };
       if (name.trim()) body.name = name.trim();
-      const res = await fetch(`/api/contracts/${address}/register`, {
+      const res = await fetch(`${API_SERVER}/api/contracts/${address}/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -472,11 +473,11 @@ export default function TokenDetailPage() {
     setLoading(true);
     setError(null);
     // Try ERC-20 token endpoint first; fall back to generic contract endpoint
-    fetch(`/api/tokens/${address}`)
+    fetch(`${API_SERVER}/api/tokens/${address}`)
       .then((r) => r.ok ? r.json() : Promise.reject("not-token"))
       .then((data) => { setToken({ ...data, isToken: true }); setLoading(false); })
       .catch(() => {
-        fetch(`/api/contracts/${address}`)
+        fetch(`${API_SERVER}/api/contracts/${address}`)
           .then((r) => {
             if (!r.ok) throw new Error("Contract not found");
             return r.json();

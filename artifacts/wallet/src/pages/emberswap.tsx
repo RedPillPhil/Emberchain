@@ -644,10 +644,14 @@ async function findBestRoute(
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+// Bridge/swap routes live on the api-server; using an absolute URL ensures
+// they work when the wallet is served from emberchain.org or any other host.
+const API = import.meta.env.DEV ? "" : "https://po-w-chain.replit.app";
 
 async function apiFetch(path: string, opts?: RequestInit) {
   const r = await fetch(API + path, opts);
+  const ct = r.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) throw new Error(`Expected JSON from ${path} (got ${ct})`);
   const json = await r.json();
   if (!r.ok) throw new Error(json.error ?? `HTTP ${r.status}`);
   return json;
