@@ -1,6 +1,6 @@
 {
   "name": "emberchain-desktop",
-  "version": "2.0.12",
+  "version": "2.0.13",
   "description": "Emberchain desktop wallet",
   "main": "main.js",
   "private": true,

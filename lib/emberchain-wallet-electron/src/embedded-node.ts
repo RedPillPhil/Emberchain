@@ -7,7 +7,7 @@
  */
 
 import { startServer, type ServerHandle } from "../../../artifacts/chain-node/src/server";
-import { addPeer, getPeers } from "../../../artifacts/chain-node/src/lib/peers";
+import { addPeer, getPeers, setMaxPeers, announceSelf } from "../../../artifacts/chain-node/src/lib/peers";
 import { triggerSync, stopSyncLoop, getBestPeerHeight, configureSyncLoop } from "../../../artifacts/chain-node/src/lib/sync-loop";
 import { chain } from "../../../artifacts/chain-node/src/lib/chain";
 import { mkdirSync, existsSync, writeFileSync, createWriteStream, renameSync } from "node:fs";
@@ -99,9 +99,14 @@ export async function startEmbeddedNode(options: {
   serverHandle = await startServer(embeddedPort);
   console.log(`[embedded-node] Server running on port ${embeddedPort}`);
 
-  // Seed peers — SEED_PEERS env var is read at module-eval time (before main() sets it),
-  // so we always seed manually here after the server is up.
+  // Seed bootstrap peers — SEED_PEERS env var is read at module-eval time (before
+  // main() sets it), so we always seed manually here after the server is up.
   for (const peer of BOOTSTRAP_PEERS) addPeer(peer);
+
+  // Cap the peer list so sequential PEX stays cheap. Bootstrap peers are already
+  // in the list above; the cap only limits newly-discovered peers beyond those 3.
+  // 10 is enough to be meaningfully decentralised without making peer repolls slow.
+  setMaxPeers(10);
 
   // Sync settings for the embedded desktop node.
   //
@@ -127,7 +132,10 @@ export async function startEmbeddedNode(options: {
     batchDelayMs:   500,
     idleIntervalMs: 20_000,
     skipSnapshot:   true,
-    disablePex:     true,
+    // Gentle sequential PEX: queries one peer at a time, 15-min interval,
+    // stops when the list hits the MAX_PEERS cap.  Lets the node discover
+    // other desktop nodes over time without a parallel-probe blast.
+    gentlePex:      true,
   });
   triggerSync(); // don't wait 30 s for the first interval
 
@@ -135,6 +143,14 @@ export async function startEmbeddedNode(options: {
   heightTimer = setInterval(async () => {
     try { const s = await chain.getStatus(); cachedHeight = s.height; } catch { /* not ready */ }
   }, 3_000);
+}
+
+/**
+ * Announce this node's public URL to all known peers so the network can
+ * discover it.  main.js calls this once after UPnP succeeds.
+ */
+export async function announcePublicUrl(url: string): Promise<void> {
+  await announceSelf(url);
 }
 
 export async function stopEmbeddedNode(): Promise<void> {

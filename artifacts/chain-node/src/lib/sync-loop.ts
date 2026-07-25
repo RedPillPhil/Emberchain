@@ -5,7 +5,7 @@
  */
 
 import { chain } from "./chain";
-import { getPeers, exchangePeers } from "./peers";
+import { getPeers, exchangePeers, exchangePeersSequential } from "./peers";
 import type { StoredBlock, StoredTransaction, PersistedChain } from "@workspace/chain-core";
 
 const SYNC_INTERVAL_MS      = 10_000;  // while catching up
@@ -54,11 +54,13 @@ let IDLE_INTERVAL_OVERRIDE_MS = 0;
 // When true, skip the one-shot snapshot download and always use gradual batch sync.
 // Set this for embedded desktop/home nodes to avoid the large initial transfer.
 let SKIP_SNAPSHOT = false;
-// When true, disable the Peer Exchange (PEX) timer entirely.
-// Embedded desktop nodes don't need peer discovery — they only sync from a fixed
-// set of bootstrap peers and adding random discovered peers makes the peer list
-// grow unboundedly, worsening the parallel-probe problem on every repoll cycle.
-let DISABLE_PEX = false;
+// When true, use sequential PEX (one peer at a time, 15-min interval) instead of
+// the default parallel PEX (all peers at once, 5-min interval).
+// Desktop/home nodes set this so peer discovery works without the parallel-blast
+// that causes bufferbloat.  Sequential PEX + MAX_PEERS cap keeps the peer list
+// small and discovery cheap while still letting the network grow organically.
+let GENTLE_PEX = false;
+const GENTLE_PEX_INTERVAL_MS = 15 * 60_000; // 15 minutes between desktop PEX runs
 
 /** Call before startSyncLoop() to throttle sync (e.g. embedded desktop node). */
 export function configureSyncLoop(opts: {
@@ -73,19 +75,20 @@ export function configureSyncLoop(opts: {
    */
   skipSnapshot?: boolean;
   /**
-   * When true, disable the Peer Exchange (PEX) gossip timer.
-   * The PEX timer runs exchangePeers() every 5 minutes, which fires parallel
-   * HTTP requests to every known peer and adds newly-discovered peers.  For an
-   * embedded desktop node whose peer list is fixed to a few bootstrap nodes,
-   * PEX only grows the list and makes future parallel peer-repolls worse.
+   * When true, use gentle sequential PEX instead of parallel PEX.
+   * - Queries peers one at a time (no simultaneous connections)
+   * - Runs every 15 minutes instead of every 5
+   * - Stops early once the peer list hits its MAX_PEERS cap
+   * This lets desktop nodes participate in peer discovery without the parallel
+   * blast that causes bufferbloat on home routers.
    */
-  disablePex?: boolean;
+  gentlePex?: boolean;
 }): void {
   if (opts.batchSize       !== undefined) BATCH_SIZE               = opts.batchSize;
   if (opts.batchDelayMs    !== undefined) BATCH_DELAY_MS           = opts.batchDelayMs;
   if (opts.idleIntervalMs  !== undefined) IDLE_INTERVAL_OVERRIDE_MS = opts.idleIntervalMs;
   if (opts.skipSnapshot    !== undefined) SKIP_SNAPSHOT            = opts.skipSnapshot;
-  if (opts.disablePex      !== undefined) DISABLE_PEX              = opts.disablePex;
+  if (opts.gentlePex       !== undefined) GENTLE_PEX               = opts.gentlePex;
 }
 
 async function fetchBatch(
@@ -385,11 +388,16 @@ export function startSyncLoop(): void {
     scheduleNextSync();
   }, STARTUP_DELAY_MS);
 
-  // PEX is disabled for embedded desktop nodes (DISABLE_PEX=true) because:
-  // 1. They have a fixed set of bootstrap peers and don't need discovery.
-  // 2. exchangePeers() fires parallel requests to ALL peers and adds new ones,
-  //    making the peer list grow unboundedly and worsening future parallel repolls.
-  if (!DISABLE_PEX) {
+  if (GENTLE_PEX) {
+    // Desktop / home-connection mode: sequential PEX, longer interval.
+    // Queries one peer at a time, stops once the list is capped — no parallel
+    // blast that would saturate a home connection or router.
+    pexTimer = setTimeout(function pex() {
+      void exchangePeersSequential();
+      pexTimer = setTimeout(pex, GENTLE_PEX_INTERVAL_MS);
+    }, STARTUP_DELAY_MS + 5_000);
+  } else {
+    // Server / full-node mode: parallel PEX, standard 5-minute interval.
     pexTimer = setTimeout(function pex() {
       void exchangePeers();
       pexTimer = setTimeout(pex, PEX_INTERVAL_MS);
