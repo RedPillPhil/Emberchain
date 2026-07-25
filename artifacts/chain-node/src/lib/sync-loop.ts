@@ -269,7 +269,12 @@ async function syncOnce(): Promise<void> {
         } else {
           _stallCount++;
           console.warn(`[${ts()}] [sync] ⚠️  No progress at ${ourHeight} (stall #${_stallCount})`);
-          if (_stallCount >= 2) {
+          // Only attempt a full snapshot download on a deep stall AND only when
+          // the node is NOT configured for gentle/desktop mode (SKIP_SNAPSHOT).
+          // Downloading a snapshot on a home connection (~180 MB) saturates the
+          // link for minutes and makes the desktop wallet unusable.
+          // Desktop nodes back off and retry gradual batch sync instead.
+          if (_stallCount >= 2 && !SKIP_SNAPSHOT) {
             console.warn(`[${ts()}] [sync] 🔄 Deep stall — downloading fresh snapshot`);
             const ok = await snapshotBootstrap(peer, peerShort);
             if (ok) {
@@ -277,6 +282,12 @@ async function syncOnce(): Promise<void> {
               const recovered = await chain.getStatus().catch(() => null);
               console.log(`[${ts()}] [sync] ✅ Recovered via snapshot — now at block ${recovered?.height ?? "?"}`);
             }
+          } else if (_stallCount >= 2 && SKIP_SNAPSHOT) {
+            // Desktop/home node: reset stall count and let the next scheduled
+            // sync attempt try a different peer or a fresh fetch from further back.
+            console.warn(`[${ts()}] [sync] 🔄 Stall on desktop node — will retry next cycle (no snapshot download)`);
+            _stallCount = 0;
+            _cachedBestPeer = null; // force re-poll to try a different peer next cycle
           }
           break;
         }
