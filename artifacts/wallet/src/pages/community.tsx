@@ -84,12 +84,19 @@ function timeAgo(iso: string): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+// Community, exchange, bridge and privacy routes only exist on the api-server
+// (po-w-chain.replit.app).  When the wallet is served from emberchain.org or
+// any other host, relative /api/* calls return an HTML 404 page.  Point all
+// community API calls at the canonical api-server explicitly.
+const API_SERVER = import.meta.env.DEV ? "" : "https://po-w-chain.replit.app";
+
 function getWsUrl(): string {
+  const host = import.meta.env.DEV ? location.host : "po-w-chain.replit.app";
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${location.host}/api/community/ws`;
+  return `${proto}//${host}/api/community/ws`;
 }
 
-const BASE = "/api/community";
+const BASE = `${API_SERVER}/api/community`;
 
 // ── Author chip with hover tooltip ───────────────────────────────────────────
 

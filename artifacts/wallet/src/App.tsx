@@ -4,6 +4,21 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Route, Switch, Router as WouterRouter } from 'wouter';
 import { Loader2 } from 'lucide-react';
+import { setBaseUrl } from '@workspace/api-client-react';
+
+// Exchange, bridge, privacy and community routes only exist on the api-server,
+// which runs exclusively on po-w-chain.replit.app.  When the wallet is served
+// from any other host (e.g. emberchain.org, which only runs chain-node and
+// serves the static wallet build), relative /api/* calls would hit nginx and
+// get back an HTML 404 page — causing "Unexpected token '<'" JSON parse errors
+// and empty marketplace / trade-history screens.
+//
+// Pointing all api-client-react hooks at the canonical api-server host fixes
+// this for every page at once.  CORS is wide-open on the api-server, so
+// cross-origin requests from emberchain.org work without any extra headers.
+if (!import.meta.env.DEV) {
+  setBaseUrl('https://po-w-chain.replit.app');
+}
 
 // ── Lazy-load every page so only the current route's code is fetched ──────────
 // This prevents all 500KB+ of page source (emberswap, exchange, ledger, etc.)

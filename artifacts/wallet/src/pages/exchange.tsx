@@ -186,7 +186,7 @@ function useCountdown(until: number | null): number {
 // ── trade history ─────────────────────────────────────────────────────────────
 
 function TradeHistoryTab() {
-  const { data: fulfilled = [], isLoading } = useListExchangeListings({ status: "fulfilled" });
+  const { data: fulfilled = [], isLoading, isError } = useListExchangeListings({ status: "fulfilled" });
 
   const avgPrices = React.useMemo(() => {
     const byCurrency: Record<string, { totalPrice: number; totalEmbr: number; count: number }> = {};
@@ -210,6 +210,16 @@ function TradeHistoryTab() {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
         <Loader2 className="w-4 h-4 animate-spin" /> Loading history…
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+        <AlertTriangle className="w-12 h-12 text-destructive/40" />
+        <p className="text-muted-foreground font-bold uppercase">Could not load trade history</p>
+        <p className="text-sm text-muted-foreground">The exchange API is only available at <span className="text-foreground font-mono">po-w-chain.replit.app</span>. Reload the page to retry.</p>
       </div>
     );
   }
@@ -628,7 +638,7 @@ function fmtDate(iso: string | undefined | null): string {
 
 function MarketplaceTab() {
   const { activeWallet } = useActiveWallet();
-  const { data: listings = [], isLoading } = useListExchangeListings(
+  const { data: listings = [], isLoading, isError } = useListExchangeListings(
     { status: "open" },
     { query: { refetchInterval: 15_000 } },
   );
@@ -659,6 +669,16 @@ function MarketplaceTab() {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
         <Loader2 className="w-4 h-4 animate-spin" /> Loading listings…
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+        <AlertTriangle className="w-12 h-12 text-destructive/40" />
+        <p className="text-muted-foreground font-bold uppercase">Could not load marketplace</p>
+        <p className="text-sm text-muted-foreground">The exchange API is only available at <span className="text-foreground font-mono">po-w-chain.replit.app</span>. Reload the page to retry.</p>
       </div>
     );
   }
