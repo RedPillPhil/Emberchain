@@ -119,7 +119,17 @@ export async function startEmbeddedNode(options: {
   // IMPORTANT: each syncOnce() now processes ONE batch then returns immediately.
   // The 30 s gap is enforced by the scheduler timer between cycles, NOT by a sleep
   // inside a drain loop — so the connection is idle for 30 full seconds between fetches.
-  configureSyncLoop({ batchSize: 10, batchDelayMs: 30_000, idleIntervalMs: 60_000, skipSnapshot: true });
+  configureSyncLoop({
+    batchSize:     10,
+    batchDelayMs:  30_000,
+    idleIntervalMs: 60_000,
+    skipSnapshot:  true,
+    // Disable Peer Exchange gossip for the embedded desktop node.
+    // PEX fires parallel HTTP requests to every known peer every 5 minutes AND
+    // adds newly-discovered peers, making the list grow over time.  A desktop
+    // node only needs the fixed bootstrap peers above — no discovery needed.
+    disablePex:    true,
+  });
   triggerSync(); // don't wait 30 s for the first interval
 
   // Keep height cache fresh for status polling

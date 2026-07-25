@@ -54,6 +54,11 @@ let IDLE_INTERVAL_OVERRIDE_MS = 0;
 // When true, skip the one-shot snapshot download and always use gradual batch sync.
 // Set this for embedded desktop/home nodes to avoid the large initial transfer.
 let SKIP_SNAPSHOT = false;
+// When true, disable the Peer Exchange (PEX) timer entirely.
+// Embedded desktop nodes don't need peer discovery — they only sync from a fixed
+// set of bootstrap peers and adding random discovered peers makes the peer list
+// grow unboundedly, worsening the parallel-probe problem on every repoll cycle.
+let DISABLE_PEX = false;
 
 /** Call before startSyncLoop() to throttle sync (e.g. embedded desktop node). */
 export function configureSyncLoop(opts: {
@@ -67,11 +72,20 @@ export function configureSyncLoop(opts: {
    * Use this for embedded desktop nodes to prevent saturating a home connection.
    */
   skipSnapshot?: boolean;
+  /**
+   * When true, disable the Peer Exchange (PEX) gossip timer.
+   * The PEX timer runs exchangePeers() every 5 minutes, which fires parallel
+   * HTTP requests to every known peer and adds newly-discovered peers.  For an
+   * embedded desktop node whose peer list is fixed to a few bootstrap nodes,
+   * PEX only grows the list and makes future parallel peer-repolls worse.
+   */
+  disablePex?: boolean;
 }): void {
   if (opts.batchSize       !== undefined) BATCH_SIZE               = opts.batchSize;
   if (opts.batchDelayMs    !== undefined) BATCH_DELAY_MS           = opts.batchDelayMs;
   if (opts.idleIntervalMs  !== undefined) IDLE_INTERVAL_OVERRIDE_MS = opts.idleIntervalMs;
   if (opts.skipSnapshot    !== undefined) SKIP_SNAPSHOT            = opts.skipSnapshot;
+  if (opts.disablePex      !== undefined) DISABLE_PEX              = opts.disablePex;
 }
 
 async function fetchBatch(
@@ -157,13 +171,32 @@ async function syncOnce(): Promise<void> {
     }
 
     if (sortedPeers.length === 0) {
-      const results = await Promise.all(peers.map(queryPeer));
-      sortedPeers = results
-        .filter((p): p is PeerInfo => p !== null)
-        .sort((a, b) => (b.td > a.td ? 1 : b.td < a.td ? -1 : 0));
+      if (BATCH_DELAY_MS > 0) {
+        // Desktop / home-connection mode: query peers one at a time and stop as
+        // soon as a live one responds.  Avoids the parallel blast (Promise.all)
+        // that holds multiple TCP connections open simultaneously and causes
+        // bufferbloat / visible internet slowdown on home routers.
+        for (const url of peers) {
+          const result = await queryPeer(url);
+          if (result) {
+            sortedPeers = [result];
+            _cachedBestPeer = result.url;
+            _lastPeerPollMs = now;
+            break;
+          }
+        }
+      } else {
+        // Server mode: query all peers in parallel for the best result.
+        const results = await Promise.all(peers.map(queryPeer));
+        sortedPeers = results
+          .filter((p): p is PeerInfo => p !== null)
+          .sort((a, b) => (b.td > a.td ? 1 : b.td < a.td ? -1 : 0));
+        if (sortedPeers.length > 0) {
+          _cachedBestPeer = sortedPeers[0]!.url;
+          _lastPeerPollMs = now;
+        }
+      }
       if (sortedPeers.length === 0) return;
-      _cachedBestPeer = sortedPeers[0]!.url;
-      _lastPeerPollMs = now;
     }
 
     const bestPeer = sortedPeers[0]!;
@@ -352,10 +385,16 @@ export function startSyncLoop(): void {
     scheduleNextSync();
   }, STARTUP_DELAY_MS);
 
-  pexTimer = setTimeout(function pex() {
-    void exchangePeers();
-    pexTimer = setTimeout(pex, PEX_INTERVAL_MS);
-  }, STARTUP_DELAY_MS + 5_000);
+  // PEX is disabled for embedded desktop nodes (DISABLE_PEX=true) because:
+  // 1. They have a fixed set of bootstrap peers and don't need discovery.
+  // 2. exchangePeers() fires parallel requests to ALL peers and adds new ones,
+  //    making the peer list grow unboundedly and worsening future parallel repolls.
+  if (!DISABLE_PEX) {
+    pexTimer = setTimeout(function pex() {
+      void exchangePeers();
+      pexTimer = setTimeout(pex, PEX_INTERVAL_MS);
+    }, STARTUP_DELAY_MS + 5_000);
+  }
 }
 
 export function stopSyncLoop(): void {
