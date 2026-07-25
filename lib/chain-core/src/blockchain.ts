@@ -32,7 +32,7 @@ export const EMBERCHAIN_CONFIG: ChainConfig = {
   targetBlockTimeSeconds: 8,
   blockReward: "5000000000000000000", // 5 EMBR (18 decimals, like ether)
   genesisDifficulty: "60000",
-  difficultyAdjustmentWindow: 1,
+  difficultyAdjustmentWindow: 20,
   /** Shares are 64× easier to find than a full block. */
   shareDifficultyDivisor: 256,
 };
@@ -1120,6 +1120,33 @@ export class Blockchain {
    * this verbatim to the mining WebWorker and submit the winning nonce via
    * submitMinedBlock().  Does NOT remove transactions from the mempool.
    */
+
+  /**
+   * Returns the average block time (in seconds) over the last
+   * difficultyAdjustmentWindow blocks, using `this.blocks` which must already
+   * include the just-committed block.  Falls back to the target time if fewer
+   * than 2 blocks exist.  A single outlier (very fast or very slow block)
+   * contributes only 1/window weight, preventing the wild swings that happened
+   * with window = 1.
+   */
+  private averageRecentBlockTimeSec(): number {
+    const window = EMBERCHAIN_CONFIG.difficultyAdjustmentWindow;
+    const blocks = this.blocks;
+    if (blocks.length < 2) return EMBERCHAIN_CONFIG.targetBlockTimeSeconds;
+    // We need window+1 blocks to get window intervals
+    const count = Math.min(window, blocks.length - 1);
+    const slice = blocks.slice(-(count + 1));
+    let total = 0;
+    for (let i = 1; i < slice.length; i++) {
+      const dt =
+        (new Date(slice[i]!.timestamp).getTime() -
+          new Date(slice[i - 1]!.timestamp).getTime()) /
+        1000;
+      total += dt > 0 ? dt : EMBERCHAIN_CONFIG.targetBlockTimeSeconds;
+    }
+    return total / (slice.length - 1);
+  }
+
   async getMiningTemplate(minerAddress: string): Promise<{
     header: {
       number: number;
@@ -1226,9 +1253,10 @@ export class Blockchain {
 
     await this.applyBlock(minableHeader, included, nonce, hashHex);
     this.mining.blocksMinedThisSession += 1;
+    // Use rolling window average — this.blocks now includes the new block.
     this.difficulty = retargetDifficulty(
       this.difficulty,
-      actualBlockTimeSec > 0 ? actualBlockTimeSec : EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+      this.averageRecentBlockTimeSec(),
       EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
     );
     return this.blocks[this.blocks.length - 1];
@@ -1358,13 +1386,12 @@ export class Blockchain {
         if (wantSet.has(tx.hash)) { included.push(tx); return false; }
         return true;
       });
-      const parentTimestampMs = new Date(parent.timestamp).getTime();
-      const actualBlockTimeSec = (params.header.timestamp - parentTimestampMs) / 1000;
       await this.applyBlock(minableHeader, included, nonce, hashHex);
       this.mining.blocksMinedThisSession += 1;
+      // Use rolling window average — this.blocks now includes the new block.
       this.difficulty = retargetDifficulty(
         this.difficulty,
-        actualBlockTimeSec > 0 ? actualBlockTimeSec : EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+        this.averageRecentBlockTimeSec(),
         EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
       );
     }
@@ -1414,10 +1441,10 @@ export class Blockchain {
       await this.applyBlock(header, included, result.nonce, result.hash);
       this.mining.blocksMinedThisSession += 1;
 
-      const actualBlockTime = (Date.now() - startedAt) / 1000;
+      // Use rolling window average — this.blocks now includes the new block.
       this.difficulty = retargetDifficulty(
         this.difficulty,
-        actualBlockTime,
+        this.averageRecentBlockTimeSec(),
         EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
       );
     }
@@ -1731,12 +1758,10 @@ export class Blockchain {
     this.blocksByHash.set(block.hash, block);
     this.persist();
 
-    // Retarget difficulty
-    const actualBlockTimeSec =
-      (new Date(block.timestamp).getTime() - new Date(parent.timestamp).getTime()) / 1000;
+    // Retarget difficulty using rolling window — this.blocks now includes the new block.
     this.difficulty = retargetDifficulty(
       this.difficulty,
-      actualBlockTimeSec > 0 ? actualBlockTimeSec : EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+      this.averageRecentBlockTimeSec(),
       EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
     );
 
@@ -1902,18 +1927,14 @@ export class Blockchain {
       this.blocks       = newCanonical;
       this.blocksByHash = new Map(newCanonical.map((b) => [b.hash, b]));
 
-      // Retarget difficulty from the tip of the new canonical chain
+      // Retarget difficulty from the tip of the new canonical chain using
+      // rolling window average — this.blocks is already set to newCanonical above.
       const newTipBlock = newCanonical[newCanonical.length - 1]!;
-      const prevBlock   = newCanonical[newCanonical.length - 2];
-      if (prevBlock) {
-        const actualSec =
-          (new Date(newTipBlock.timestamp).getTime() - new Date(prevBlock.timestamp).getTime()) / 1000;
-        this.difficulty = retargetDifficulty(
-          BigInt(prevBlock.difficulty),
-          actualSec > 0 ? actualSec : EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
-          EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
-        );
-      }
+      this.difficulty = retargetDifficulty(
+        BigInt(newTipBlock.difficulty),
+        this.averageRecentBlockTimeSec(),
+        EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+      );
 
       // Clean up reorg'd blocks from orphan pool
       for (const b of forkChain) this.orphanPool.delete(b.hash);
