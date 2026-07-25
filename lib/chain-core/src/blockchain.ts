@@ -2679,4 +2679,11 @@ export class Blockchain {
     this.releaseExpiredReservations();
     return this.exchangeListings.get(id);
   }
+
+  /** DEV ONLY — directly credit an address without a transaction. Never call in production. */
+  async devFaucet(address: string, amountWei: bigint): Promise<void> {
+    if (process.env["NODE_ENV"] === "production") throw new Error("devFaucet disabled in production");
+    await this.whenReady();
+    await credit(this.stateManager, address as PrefixedHexString, amountWei);
+  }
 }

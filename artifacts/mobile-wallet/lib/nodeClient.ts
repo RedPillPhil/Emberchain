@@ -15,10 +15,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const BOOTSTRAP: string[] = [
-  // emberchain.org proxies the chain-node API under /chain-node — use that prefix
-  // so probeNode hits the right path on that server's nginx config.
-  'https://emberchain.org/chain-node',
+  // duckdns is the primary node — most up-to-date and what the website uses.
+  // MetaMask RPC: emberchain.duckdns.org/api/rpc  (chain-node at root /api/…)
   'https://emberchain.duckdns.org',
+  // emberchain.org proxies chain-node under /chain-node — use that prefix
+  // so probeNode hits /chain-node/api/chain/status, not /api/chain/status.
+  'https://emberchain.org/chain-node',
   'https://po-w-chain.replit.app',  // api-server proxies chain endpoints at root
 ];
 const CACHE_NODE_KEY  = 'embr_node_url';
@@ -94,6 +96,19 @@ export async function discoverNode(force = false): Promise<string | null> {
       if (override) {
         _activeNode = override;
         return override;
+      }
+
+      // 2. Last-known-good node — try it before a full race so repeat boots reconnect
+      //    to the same node instantly instead of re-probing all candidates.
+      //    Uses PROBE_TIMEOUT (4 s) — if it doesn't answer quickly it's likely down.
+      const lastKnown = await AsyncStorage.getItem(CACHE_NODE_KEY).catch(() => null);
+      if (lastKnown) {
+        const probe = await probeNode(lastKnown);
+        if (probe !== null) {
+          _activeNode = lastKnown;
+          return lastKnown;
+        }
+        // Node unreachable — fall through to full candidate race
       }
 
       // 2. Race all candidates, pick the one with the highest block height

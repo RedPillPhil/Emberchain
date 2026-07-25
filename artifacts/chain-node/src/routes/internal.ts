@@ -164,6 +164,17 @@ router.post("/submit-raw-evm-tx", async (req: Request, res: Response): Promise<v
   } catch (err) { res.status(400).json({ error: err instanceof Error ? err.message : "Failed" }); }
 });
 
+// Dev-only faucet — directly credits balance without a transaction.
+// Blocked in production by the chain.devFaucet() guard.
+router.post("/dev-faucet", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { address, amountWei } = req.body as { address: string; amountWei: string };
+    if (!address || !amountWei) { res.status(400).json({ error: "address and amountWei required" }); return; }
+    await chain.devFaucet(address, BigInt(amountWei));
+    res.json({ ok: true, address, amountWei });
+  } catch (err) { res.status(400).json({ error: err instanceof Error ? err.message : "Failed" }); }
+});
+
 // Resolve the block that contains a given transaction hash.
 // Blockchain has no getBlockForTx — derive it from getTransaction + getBlock.
 router.get("/block-for-tx/:hash", async (req: Request, res: Response): Promise<void> => {

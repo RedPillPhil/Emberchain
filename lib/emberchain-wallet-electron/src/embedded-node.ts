@@ -15,7 +15,13 @@ import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import path from "node:path";
 
-const BOOTSTRAP_PEERS = ["https://emberchain.org", "https://po-w-chain.replit.app"];
+// emberchain.org proxies chain-node under /chain-node — use that prefix so
+// sync endpoints (/chain-node/api/sync/blocks etc.) resolve correctly.
+const BOOTSTRAP_PEERS = [
+  "https://emberchain.duckdns.org",
+  "https://emberchain.org/chain-node",
+  "https://po-w-chain.replit.app/chain-node",
+];
 
 let serverHandle: ServerHandle | null = null;
 let embeddedPort = 17545;
@@ -103,13 +109,18 @@ export async function startEmbeddedNode(options: {
   for (const peer of BOOTSTRAP_PEERS) addPeer(peer);
 
   // Gentle sync settings for the embedded desktop node so it doesn't saturate
-  // a home internet connection:
-  //   skipSnapshot: true  → no large one-shot download on first launch (the main
-  //                         bandwidth killer — bypasses all batch throttling)
-  //   20 blocks/batch × ~2 KB/block ≈ 40 KB per fetch
-  //   5 000 ms inter-batch pause   → ~8 KB/s average during catch-up (~0.06 Mbps)
-  //   60 s idle check once synced  → near-zero background traffic
-  configureSyncLoop({ batchSize: 20, batchDelayMs: 5000, idleIntervalMs: 60_000, skipSnapshot: true });
+  // a home internet connection.
+  //
+  // IMPORTANT: batchDelayMs now controls the gap between consecutive HTTP fetches
+  // (the prefetch-then-sleep bug was fixed — delay now fires BEFORE the next fetch,
+  // not after).  Previous releases slept after the fetch had already started, so
+  // the delay only throttled processing time and did nothing for bandwidth.
+  //
+  //   skipSnapshot: true  → no large one-shot download on first launch
+  //   50 blocks/batch × ~3 KB/block ≈ 150 KB per fetch
+  //   2 000 ms inter-fetch gap     → ~75 KB/s peak (~0.6 Mbps) during catch-up
+  //   60 s idle interval once synced → near-zero background traffic
+  configureSyncLoop({ batchSize: 50, batchDelayMs: 2000, idleIntervalMs: 60_000, skipSnapshot: true });
   triggerSync(); // don't wait 30 s for the first interval
 
   // Keep height cache fresh for status polling

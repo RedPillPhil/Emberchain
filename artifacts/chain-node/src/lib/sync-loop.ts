@@ -224,7 +224,16 @@ async function syncOnce(): Promise<void> {
 
         const canonical = extractCanonicalSubchain(batchBlocks);
         const nextFrom  = (canonical[canonical.length - 1]?.number ?? drainFrom) + 1;
-        prefetch = nextFrom <= peerHeight ? fetchBatch(peer, nextFrom) : Promise.resolve(null);
+
+        // For server nodes (BATCH_DELAY_MS = 0) start the next fetch immediately so
+        // network I/O overlaps with block processing — preserves throughput.
+        // For desktop/home nodes (BATCH_DELAY_MS > 0) we do NOT start the fetch here;
+        // instead we start it AFTER the delay below.  The old code started it here then
+        // slept, which meant the delay only throttled processing time, not network
+        // activity — the connection was still saturated at full speed.
+        if (BATCH_DELAY_MS === 0) {
+          prefetch = nextFrom <= peerHeight ? fetchBatch(peer, nextFrom) : Promise.resolve(null);
+        }
 
         const heightBefore = ourHeight;
         let aborted = false;
@@ -251,7 +260,12 @@ async function syncOnce(): Promise<void> {
           console.log(`[${ts()}] [sync] ↑ ${ourHeight} (${remaining} remaining) …`);
           drainFrom = ourHeight + 1;
           if (ourHeight >= peerHeight) break;
-          if (BATCH_DELAY_MS > 0) await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
+          if (BATCH_DELAY_MS > 0) {
+            await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
+            // Start the fetch NOW — after the delay — so the sleep genuinely
+            // separates consecutive HTTP requests and caps bandwidth.
+            prefetch = drainFrom <= peerHeight ? fetchBatch(peer, drainFrom) : Promise.resolve(null);
+          }
         } else {
           _stallCount++;
           console.warn(`[${ts()}] [sync] ⚠️  No progress at ${ourHeight} (stall #${_stallCount})`);
