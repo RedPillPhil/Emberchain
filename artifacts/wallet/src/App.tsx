@@ -16,8 +16,13 @@ import { setBaseUrl } from '@workspace/api-client-react';
 // Pointing all api-client-react hooks at the canonical api-server host fixes
 // this for every page at once.  CORS is wide-open on the api-server, so
 // cross-origin requests from emberchain.org work without any extra headers.
+// Chain-node and wallet APIs are served directly from emberchain.org, which
+// always has the chain-node running.  po-w-chain.replit.app (api-server) does
+// NOT have CHAIN_NODE_URL set in production, so its /api/chain/blocks and
+// /api/wallets/* endpoints return "Chain node unavailable".  Using emberchain.org
+// as the base fixes balance display and the blocks page for all users.
 if (!import.meta.env.DEV) {
-  setBaseUrl('https://po-w-chain.replit.app');
+  setBaseUrl('https://emberchain.org');
 }
 
 // ── Lazy-load every page so only the current route's code is fetched ──────────

@@ -21,7 +21,7 @@
         <path d="M32 28c0 0-6 6-6 12a6 6 0 0012 0c0-3-1.5-5-1.5-5s-.5 3-2.5 4c0 0 1-4-2-11z" fill="#ffd580"/>
       </svg>
       <h1>EmberChain Desktop</h1>
-      <p class="setup-sub">Full Node · Wallet · Miner</p>
+      <p class="setup-sub">Wallet · Miner · Privacy</p>
     </div>
     <div class="setup-tabs">
       <button class="setup-tab active" data-setup="create">Create New Wallet</button>
@@ -74,9 +74,9 @@
 ════════════════════════════════════════════════════════════════════════ -->
 <div id="overlay-settings" class="overlay hidden">
   <div class="overlay-box">
-    <h3>Settings — Remote Node</h3>
-    <p class="hint" style="color:var(--accent2)">The embedded node is your primary connection. Use a remote node as fallback only.</p>
-    <label>Remote Node URL</label>
+    <h3>Settings — Node Connection</h3>
+    <p class="hint" style="color:var(--accent2)">Connect to any EmberChain node. Leave blank to use the default (emberchain.org).</p>
+    <label>Custom Node URL</label>
     <input id="settings-node-url" type="text" placeholder="https://emberchain.org/api">
     <p class="hint" style="margin-top:6px;">
       URL must end in <strong style="color:#f37021;">/api</strong> — e.g.
@@ -100,9 +100,9 @@
   background:#2a2a2a;border:1px solid #f37021;border-radius:8px;
   padding:12px 16px;color:#ccc;font-size:12px;
   max-width:320px;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.5);">
-  <strong style="color:#f37021;">⚡ Using backup node</strong><br>
+  <strong style="color:#f37021;">⚡ Switched node</strong><br>
   <span id="toast-fallback-url"></span><br>
-  <span style="color:#666;font-size:11px;">Primary node unreachable.</span>
+  <span style="color:#666;font-size:11px;">Primary node unreachable — using backup.</span>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════
@@ -140,11 +140,6 @@
           Transactions
         </a>
         <div class="nav-divider">— NETWORK —</div>
-        <a href="#" class="nav-link" data-tab="node">
-          <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="3"/><circle cx="3" cy="5" r="2"/><circle cx="17" cy="5" r="2"/><circle cx="3" cy="15" r="2"/><circle cx="17" cy="15" r="2"/><path d="M5 5.5l3 3M12 11.5l3 3M5 14.5l3-3M12 8.5l3-3"/></svg>
-          Node
-          <span id="node-nav-badge" class="node-badge"></span>
-        </a>
         <a href="#" class="nav-link" data-tab="mine">
           <svg viewBox="0 0 20 20"><path d="M4 16l9-9 3 3-9 9H4v-3z"/><path d="M13 3l4 4"/></svg>
           Mine
@@ -185,11 +180,6 @@
             <div class="balance-amount" id="balance-shielded">— EMBR</div>
             <button class="btn-small" id="btn-refresh-shielded">Check</button>
           </div>
-        </div>
-        <!-- Node status mini-card -->
-        <div id="overview-node-card" class="node-mini-card">
-          <span id="overview-node-dot" class="node-dot dot-stopped"></span>
-          <span id="overview-node-text">Node starting…</span>
         </div>
         <div class="section-title">Recent Transactions</div>
         <div id="recent-txs" class="tx-list">
@@ -242,149 +232,6 @@
         </div>
         <div id="tx-list-full" class="tx-list">
           <div class="tx-placeholder">Loading…</div>
-        </div>
-      </div>
-
-      <!-- ── Node ─────────────────────────────────────────────────── -->
-      <div id="tab-node" class="tab-panel hidden">
-        <div class="panel-header">
-          <h2>Embedded Node</h2>
-          <div style="display:flex;gap:8px;">
-            <button class="btn-small" id="btn-node-start">▶ Start</button>
-            <button class="btn-small" id="btn-node-stop">■ Stop</button>
-          </div>
-        </div>
-
-        <!-- Status card -->
-        <div class="node-status-card">
-          <div class="node-status-row">
-            <span id="node-status-dot" class="node-dot dot-stopped"></span>
-            <span id="node-status-label">Stopped</span>
-          </div>
-          <div id="node-downloading-msg" class="node-downloading hidden">
-            <span class="spinner">⟳</span> Downloading blockchain data from peers…
-          </div>
-          <!-- Sync progress -->
-          <div id="node-sync-section" class="hidden">
-            <div class="sync-label-row">
-              <span id="node-sync-label">Syncing…</span>
-              <span id="node-sync-pct">0%</span>
-            </div>
-            <div class="sync-bar-track">
-              <div class="sync-bar-fill" id="node-sync-bar"></div>
-            </div>
-            <div class="sync-detail" id="node-sync-detail"></div>
-          </div>
-        </div>
-
-        <!-- Stats grid -->
-        <div class="node-stats-grid">
-          <div class="node-stat">
-            <div class="node-stat-label">Block Height</div>
-            <div class="node-stat-val" id="node-height">—</div>
-          </div>
-          <div class="node-stat">
-            <div class="node-stat-label">Connected Peers</div>
-            <div class="node-stat-val" id="node-peers">—</div>
-          </div>
-          <div class="node-stat">
-            <div class="node-stat-label">Connection Type</div>
-            <div class="node-stat-val" id="node-conn-type">—</div>
-          </div>
-          <div class="node-stat">
-            <div class="node-stat-label">Node Port</div>
-            <div class="node-stat-val" id="node-port">17545</div>
-          </div>
-        </div>
-
-        <!-- URLs section -->
-        <div class="node-urls-section">
-          <div class="section-title">Connection URLs</div>
-          <div class="url-row">
-            <span class="url-label">MetaMask RPC</span>
-            <code id="node-rpc-url" class="url-value">https://emberchain.org/api/rpc</code>
-            <button class="btn-small" onclick="copyText('node-rpc-url')">Copy</button>
-          </div>
-          <div class="url-row">
-            <span class="url-label">Chain ID</span>
-            <code class="url-value">7773</code>
-          </div>
-          <div class="url-row">
-            <span class="url-label">Currency</span>
-            <code class="url-value">EMBR</code>
-          </div>
-          <div id="node-local-url-row" class="url-row hidden">
-            <span class="url-label">Local Node RPC</span>
-            <code id="node-local-url" class="url-value"></code>
-          </div>
-        </div>
-
-        <!-- Reachability / UPnP section -->
-        <div class="node-public-config" style="margin-top:12px;">
-          <div class="section-title">Network Reachability</div>
-
-          <!-- Node not running — explain UPnP benefit -->
-          <div id="node-upnp-idle">
-            <p class="hint">
-              ℹ️ When you start the node, EmberChain will automatically try to make it publicly
-              reachable via <strong>UPnP</strong> — the same technology used by Bitcoin and other
-              P2P apps. About <strong>70–80% of home routers</strong> support this with no
-              configuration needed.
-            </p>
-          </div>
-
-          <!-- UPnP in progress (shown immediately on node start, before result arrives) -->
-          <div id="node-upnp-checking" class="hidden">
-            <p class="hint" style="color:#aaa;">⏳ Checking router UPnP support…</p>
-          </div>
-
-          <!-- UPnP success: publicly reachable -->
-          <div id="node-upnp-success" class="hidden">
-            <p class="hint" style="color:#4caf50;font-weight:600;">
-              🌐 Publicly Reachable — your router automatically opened port 17545 via UPnP.
-            </p>
-            <p class="hint" style="margin-top:4px;">
-              Other EmberChain nodes can connect directly to your node. No router setup was needed.
-            </p>
-            <div id="node-public-url-row" class="url-row hidden" style="margin-top:8px;">
-              <span class="url-label">Your Public RPC</span>
-              <code id="node-public-url" class="url-value"></code>
-              <button class="btn-small" onclick="copyText('node-public-url')">Copy</button>
-            </div>
-          </div>
-
-          <!-- UPnP failed: outbound-only -->
-          <div id="node-upnp-outbound" class="hidden">
-            <p class="hint" id="node-outbound-hint" style="color:#e5a020;">
-              🔒 <strong>Outbound-Only</strong> — your node syncs the blockchain normally but other
-              nodes cannot initiate connections to you. This is fine for most users.
-            </p>
-            <p class="hint" style="margin-top:6px;color:#aaa;">
-              Your router doesn't appear to support UPnP (affects ~20–30% of users).
-              To become publicly reachable you have two options:
-            </p>
-            <p class="hint" style="margin-top:4px;color:#aaa;">
-              <strong>Option A — Enable UPnP on your router:</strong> Log in to your router admin
-              page (usually <code>192.168.1.1</code>) and look for "UPnP" or "NAT-PMP" under
-              Advanced / WAN settings. Enable it and restart the node.
-            </p>
-            <p class="hint" style="margin-top:4px;color:#aaa;">
-              <strong>Option B — Manual port forward:</strong> Forward TCP port 17545 to this
-              computer in your router settings, then enter your public IP below.
-            </p>
-            <!-- Manual public IP input (shown only in outbound-only mode) -->
-            <div class="form-row" style="margin-top:8px;">
-              <label>Your Public IP or Domain <span class="hint">(optional)</span></label>
-              <div style="display:flex;gap:6px;align-items:center;">
-                <input id="node-public-ip" class="mono" type="text"
-                  placeholder="e.g. http://203.0.113.5:17545 or https://mynode.com"
-                  style="flex:1;">
-                <button id="btn-save-public-url" class="btn-secondary btn-small">Save</button>
-                <button id="btn-clear-public-url" class="btn-secondary btn-small">Clear</button>
-              </div>
-              <p class="hint" id="node-public-ip-hint" style="margin-top:4px;"></p>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -510,9 +357,8 @@
 
   <!-- Status bar -->
   <div id="status-bar">
-    <span id="status-conn">⬤ Starting…</span>
+    <span id="status-conn">⬤ Connecting…</span>
     <span id="status-block"></span>
-    <span id="status-node-indicator"></span>
     <span id="status-address" class="mono"></span>
     <button id="btn-lock-small">🔒 Lock</button>
   </div>

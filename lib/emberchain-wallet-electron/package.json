@@ -1,6 +1,6 @@
 {
   "name": "emberchain-desktop",
-  "version": "2.0.15",
+  "version": "2.0.16",
   "description": "Emberchain desktop wallet",
   "main": "main.js",
   "private": true,
@@ -38,19 +38,14 @@
     },
     "files": [
       "main.js",
-      "upnp.js",
       "preload.js",
       "renderer/**/*",
-      "node-engine-bundle.cjs",
       "mining-worker.js",
-      "chain-snapshot.json",
       "package.json",
       "node_modules/**/*"
     ],
     "asarUnpack": [
-      "node-engine-bundle.cjs",
-      "mining-worker.js",
-      "chain-snapshot.json"
+      "mining-worker.js"
     ],
     "win": {
       "target": [
