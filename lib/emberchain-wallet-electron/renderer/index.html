@@ -317,28 +317,73 @@
             <span class="url-label">Local Node RPC</span>
             <code id="node-local-url" class="url-value"></code>
           </div>
-          <div id="node-public-url-row" class="url-row hidden">
-            <span class="url-label">Your Public RPC</span>
-            <code id="node-public-url" class="url-value"></code>
-          </div>
         </div>
 
-        <!-- Public IP config -->
+        <!-- Reachability / UPnP section -->
         <div class="node-public-config" style="margin-top:12px;">
-          <div class="section-title">Make Node Public</div>
-          <p class="hint" id="node-outbound-hint">
-            🔒 Port-forward <strong>17545</strong> is set up — now enter your public IP so peers can reach you.
-          </p>
-          <div class="form-row" style="margin-top:6px;">
-            <label>Your Public IP or Domain</label>
-            <div style="display:flex;gap:6px;align-items:center;">
-              <input id="node-public-ip" class="mono" type="text"
-                placeholder="e.g. http://203.0.113.5:17545 or https://mynode.com"
-                style="flex:1;">
-              <button id="btn-save-public-url" class="btn-secondary btn-small">Save</button>
-              <button id="btn-clear-public-url" class="btn-secondary btn-small">Clear</button>
+          <div class="section-title">Network Reachability</div>
+
+          <!-- Node not running — explain UPnP benefit -->
+          <div id="node-upnp-idle">
+            <p class="hint">
+              ℹ️ When you start the node, EmberChain will automatically try to make it publicly
+              reachable via <strong>UPnP</strong> — the same technology used by Bitcoin and other
+              P2P apps. About <strong>70–80% of home routers</strong> support this with no
+              configuration needed.
+            </p>
+          </div>
+
+          <!-- UPnP in progress (shown immediately on node start, before result arrives) -->
+          <div id="node-upnp-checking" class="hidden">
+            <p class="hint" style="color:#aaa;">⏳ Checking router UPnP support…</p>
+          </div>
+
+          <!-- UPnP success: publicly reachable -->
+          <div id="node-upnp-success" class="hidden">
+            <p class="hint" style="color:#4caf50;font-weight:600;">
+              🌐 Publicly Reachable — your router automatically opened port 17545 via UPnP.
+            </p>
+            <p class="hint" style="margin-top:4px;">
+              Other EmberChain nodes can connect directly to your node. No router setup was needed.
+            </p>
+            <div id="node-public-url-row" class="url-row hidden" style="margin-top:8px;">
+              <span class="url-label">Your Public RPC</span>
+              <code id="node-public-url" class="url-value"></code>
+              <button class="btn-small" onclick="copyText('node-public-url')">Copy</button>
             </div>
-            <p class="hint" id="node-public-ip-hint" style="margin-top:4px;"></p>
+          </div>
+
+          <!-- UPnP failed: outbound-only -->
+          <div id="node-upnp-outbound" class="hidden">
+            <p class="hint" id="node-outbound-hint" style="color:#e5a020;">
+              🔒 <strong>Outbound-Only</strong> — your node syncs the blockchain normally but other
+              nodes cannot initiate connections to you. This is fine for most users.
+            </p>
+            <p class="hint" style="margin-top:6px;color:#aaa;">
+              Your router doesn't appear to support UPnP (affects ~20–30% of users).
+              To become publicly reachable you have two options:
+            </p>
+            <p class="hint" style="margin-top:4px;color:#aaa;">
+              <strong>Option A — Enable UPnP on your router:</strong> Log in to your router admin
+              page (usually <code>192.168.1.1</code>) and look for "UPnP" or "NAT-PMP" under
+              Advanced / WAN settings. Enable it and restart the node.
+            </p>
+            <p class="hint" style="margin-top:4px;color:#aaa;">
+              <strong>Option B — Manual port forward:</strong> Forward TCP port 17545 to this
+              computer in your router settings, then enter your public IP below.
+            </p>
+            <!-- Manual public IP input (shown only in outbound-only mode) -->
+            <div class="form-row" style="margin-top:8px;">
+              <label>Your Public IP or Domain <span class="hint">(optional)</span></label>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <input id="node-public-ip" class="mono" type="text"
+                  placeholder="e.g. http://203.0.113.5:17545 or https://mynode.com"
+                  style="flex:1;">
+                <button id="btn-save-public-url" class="btn-secondary btn-small">Save</button>
+                <button id="btn-clear-public-url" class="btn-secondary btn-small">Clear</button>
+              </div>
+              <p class="hint" id="node-public-ip-hint" style="margin-top:4px;"></p>
+            </div>
           </div>
         </div>
       </div>

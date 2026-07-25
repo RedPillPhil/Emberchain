@@ -103,32 +103,31 @@ export async function startEmbeddedNode(options: {
   // so we always seed manually here after the server is up.
   for (const peer of BOOTSTRAP_PEERS) addPeer(peer);
 
-  // Gentle sync settings for the embedded desktop node so it doesn't saturate
-  // a home internet connection.
+  // Sync settings for the embedded desktop node.
   //
-  // IMPORTANT: batchDelayMs now controls the gap between consecutive HTTP fetches
-  // (the prefetch-then-sleep bug was fixed — delay now fires BEFORE the next fetch,
-  // not after).  Previous releases slept after the fetch had already started, so
-  // the delay only throttled processing time and did nothing for bandwidth.
+  // Design goals: sync noticeably fast without slowing the user's internet.
   //
   //   skipSnapshot: true  → no large one-shot download on first launch
-  //   10 blocks/batch × ~3 KB/block ≈ 30 KB per fetch
-  //   30 000 ms between cycles    → ~1 KB/s average — completely invisible on any connection
-  //   60 s idle interval once synced → near-zero background traffic
+  //   disablePex:   true  → no PEX gossip (peer list stays at 3 bootstrap nodes;
+  //                          PEX would grow the list and make peer repolls slower)
   //
-  // IMPORTANT: each syncOnce() now processes ONE batch then returns immediately.
-  // The 30 s gap is enforced by the scheduler timer between cycles, NOT by a sleep
-  // inside a drain loop — so the connection is idle for 30 full seconds between fetches.
+  //   During catch-up:
+  //     500 blocks/batch × ~3 KB/block ≈ 1.5 MB per fetch
+  //     2 000 ms between cycles → ~750 KB/s average during active sync
+  //     Sequential peer queries (desktop mode) — one peer at a time, stops on
+  //     first response — avoids the parallel-probe blast that causes bufferbloat.
+  //
+  //   Once synced:
+  //     20 000 ms idle check interval → near-zero background traffic
+  //
+  // Each syncOnce() processes ONE batch then returns. The scheduler timer (2 s
+  // catch-up, 20 s idle) controls the inter-request gap — no sleep inside the loop.
   configureSyncLoop({
-    batchSize:     10,
-    batchDelayMs:  30_000,
-    idleIntervalMs: 60_000,
-    skipSnapshot:  true,
-    // Disable Peer Exchange gossip for the embedded desktop node.
-    // PEX fires parallel HTTP requests to every known peer every 5 minutes AND
-    // adds newly-discovered peers, making the list grow over time.  A desktop
-    // node only needs the fixed bootstrap peers above — no discovery needed.
-    disablePex:    true,
+    batchSize:      500,
+    batchDelayMs:   2_000,
+    idleIntervalMs: 20_000,
+    skipSnapshot:   true,
+    disablePex:     true,
   });
   triggerSync(); // don't wait 30 s for the first interval
 
