@@ -121,7 +121,7 @@ export default function PrivacyPage() {
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         let msg = `HTTP ${res.status}`;
-        try { msg = (JSON.parse(text) as { error?: string }).error ?? text || msg; } catch { msg = text || msg; }
+        try { msg = (JSON.parse(text) as { error?: string }).error ?? (text || msg); } catch { msg = text || msg; }
         throw new Error(msg);
       }
       const ct = res.headers.get("content-type") ?? "";
