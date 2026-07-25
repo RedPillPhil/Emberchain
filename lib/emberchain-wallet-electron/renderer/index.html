@@ -70,25 +70,31 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════
-     SETTINGS OVERLAY
+     SETTINGS OVERLAY — Node picker
 ════════════════════════════════════════════════════════════════════════ -->
 <div id="overlay-settings" class="overlay hidden">
-  <div class="overlay-box">
-    <h3>Settings — Node Connection</h3>
-    <p class="hint" style="color:var(--accent2)">Connect to any EmberChain node. Leave blank to use the default (emberchain.org).</p>
-    <label>Custom Node URL</label>
-    <input id="settings-node-url" type="text" placeholder="https://emberchain.org/api">
-    <p class="hint" style="margin-top:6px;">
-      URL must end in <strong style="color:#f37021;">/api</strong> — e.g.
-      <code style="background:#2a2a2a;padding:1px 4px;border-radius:3px;">https://emberchain.org/api</code>
-    </p>
-    <div style="margin:10px 0;">
-      <button class="btn-secondary" id="btn-settings-test" style="width:100%;">Test Connection</button>
-      <p id="settings-test-result" class="hint" style="margin-top:6px;min-height:18px;"></p>
+  <div class="overlay-box" style="max-width:480px;width:92vw;">
+    <h3 style="margin:0 0 4px;">Node Connection</h3>
+    <p class="hint" style="margin:0 0 14px;">Choose a node or let the wallet pick the most up-to-date one automatically.</p>
+
+    <!-- Node list (populated by JS) -->
+    <div id="node-picker-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
+      <div class="node-probing">Probing nodes…</div>
     </div>
-    <p id="settings-active-node" class="hint" style="color:#f37021;margin-top:4px;"></p>
+
+    <!-- Custom URL row (revealed when "Custom" is selected) -->
+    <div id="node-custom-row" style="display:none;margin-bottom:10px;">
+      <label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">Custom node URL <span style="color:#555;">(must end in /api)</span></label>
+      <div style="display:flex;gap:6px;">
+        <input id="settings-node-url" type="text" placeholder="https://my-node.example.com/api"
+               style="flex:1;font-size:13px;font-family:monospace;">
+        <button class="btn-secondary" id="btn-settings-test" style="white-space:nowrap;padding:0 12px;">Test</button>
+      </div>
+      <p id="settings-test-result" class="hint" style="margin:6px 0 0;min-height:16px;"></p>
+    </div>
+
     <div class="overlay-actions">
-      <button class="btn-primary" id="btn-settings-save">Save</button>
+      <button class="btn-primary" id="btn-settings-save">Connect</button>
       <button class="btn-secondary" id="btn-settings-cancel">Cancel</button>
     </div>
   </div>
@@ -357,9 +363,10 @@
 
   <!-- Status bar -->
   <div id="status-bar">
-    <span id="status-conn">⬤ Connecting…</span>
+    <span id="status-conn" id="status-conn" title="Click to change node" style="cursor:pointer;">⬤ Connecting…</span>
     <span id="status-block"></span>
     <span id="status-address" class="mono"></span>
+    <button id="btn-settings-open" title="Node settings" style="background:none;border:1px solid #333;border-radius:5px;color:#888;font-size:12px;padding:2px 8px;cursor:pointer;margin-right:4px;">⚙ Node</button>
     <button id="btn-lock-small">🔒 Lock</button>
   </div>
 </div><!-- /screen-wallet -->
