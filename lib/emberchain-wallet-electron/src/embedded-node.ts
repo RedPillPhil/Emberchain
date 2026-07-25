@@ -87,19 +87,14 @@ export async function startEmbeddedNode(options: {
   const { dataDir } = options;
   mkdirSync(dataDir, { recursive: true });
 
-  const snapshotPath = path.join(dataDir, "chain.json");
-
-  // Download chain snapshot on first run
-  if (!existsSync(snapshotPath)) {
-    downloading = true;
-    downloadError = null;
-    try {
-      await downloadSnapshot(snapshotPath);
-    } catch (err) {
-      downloadError = err instanceof Error ? err.message : String(err);
-    }
-    downloading = false;
-  }
+  // NOTE: We intentionally do NOT download a full chain snapshot here.
+  // The old approach fetched the entire chain (~180 MB) in one HTTP request
+  // which saturated home connections and made the app unusable for minutes.
+  // The sync loop (configured below with batchSize=50, batchDelayMs=2000)
+  // catches up in small 50-block chunks with a 2-second gap between each
+  // request — roughly 0.6 Mbps peak, invisible on any modern connection.
+  // A fresh install starts from genesis and catches up gradually; existing
+  // installs resume from wherever they left off.
 
   serverHandle = await startServer(embeddedPort);
   console.log(`[embedded-node] Server running on port ${embeddedPort}`);

@@ -15,13 +15,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const BOOTSTRAP: string[] = [
-  // duckdns is the primary node — most up-to-date and what the website uses.
-  // MetaMask RPC: emberchain.duckdns.org/api/rpc  (chain-node at root /api/…)
+  // po-w is listed first — it is a Replit deployment with a maintained TLS
+  // cert and reliable uptime.  The duckdns and emberchain.org nodes are
+  // home-hosted; their Let's Encrypt certs need manual renewal every 90 days
+  // and can lapse without notice.  Android is strict on TLS — a failed
+  // handshake counts as unreachable, not a soft error.  Putting the most
+  // reliable node first means the wallet always connects even when the others
+  // have cert issues.
+  'https://po-w-chain.replit.app',
+  // duckdns — what the website & MetaMask RPC use.  May have cert lapses.
   'https://emberchain.duckdns.org',
-  // emberchain.org proxies chain-node under /chain-node — use that prefix
-  // so probeNode hits /chain-node/api/chain/status, not /api/chain/status.
+  // emberchain.org proxies chain-node under /chain-node.
   'https://emberchain.org/chain-node',
-  'https://po-w-chain.replit.app',  // api-server proxies chain endpoints at root
 ];
 const CACHE_NODE_KEY  = 'embr_node_url';
 const CACHE_PEERS_KEY = 'embr_peers';
