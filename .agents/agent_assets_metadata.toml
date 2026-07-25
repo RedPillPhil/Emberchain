@@ -24,3 +24,9 @@ id = "Wtx1BF0zCTNkUDEOqPZwu"
 uri = "file://attached_assets/miningscan_listing_request.txt"
 type = "text"
 title = "Mining Scan Listing Request — EMBR"
+
+[[outputs]]
+id = "Hu3n9eL2GKDLwn_Sm-Gkn"
+uri = "file://attached_assets/EMBER_WALLET_LITE_INTEGRATION_REFERENCE.md"
+type = "text"
+title = "Ember Wallet Lite — Privacy Integration Reference"

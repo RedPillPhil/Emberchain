@@ -112,10 +112,14 @@ export async function startEmbeddedNode(options: {
   // the delay only throttled processing time and did nothing for bandwidth.
   //
   //   skipSnapshot: true  → no large one-shot download on first launch
-  //   50 blocks/batch × ~3 KB/block ≈ 150 KB per fetch
-  //   2 000 ms inter-fetch gap     → ~75 KB/s peak (~0.6 Mbps) during catch-up
+  //   10 blocks/batch × ~3 KB/block ≈ 30 KB per fetch
+  //   30 000 ms between cycles    → ~1 KB/s average — completely invisible on any connection
   //   60 s idle interval once synced → near-zero background traffic
-  configureSyncLoop({ batchSize: 50, batchDelayMs: 2000, idleIntervalMs: 60_000, skipSnapshot: true });
+  //
+  // IMPORTANT: each syncOnce() now processes ONE batch then returns immediately.
+  // The 30 s gap is enforced by the scheduler timer between cycles, NOT by a sleep
+  // inside a drain loop — so the connection is idle for 30 full seconds between fetches.
+  configureSyncLoop({ batchSize: 10, batchDelayMs: 30_000, idleIntervalMs: 60_000, skipSnapshot: true });
   triggerSync(); // don't wait 30 s for the first interval
 
   // Keep height cache fresh for status polling

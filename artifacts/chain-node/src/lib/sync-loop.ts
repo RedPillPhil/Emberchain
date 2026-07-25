@@ -261,10 +261,12 @@ async function syncOnce(): Promise<void> {
           drainFrom = ourHeight + 1;
           if (ourHeight >= peerHeight) break;
           if (BATCH_DELAY_MS > 0) {
-            await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
-            // Start the fetch NOW — after the delay — so the sleep genuinely
-            // separates consecutive HTTP requests and caps bandwidth.
-            prefetch = drainFrom <= peerHeight ? fetchBatch(peer, drainFrom) : Promise.resolve(null);
+            // Desktop / home-connection mode: process ONE batch per syncOnce() call then
+            // return immediately.  The scheduler (scheduleNextSync) fires again after
+            // BATCH_DELAY_MS, so the inter-request gap is guaranteed by the timer, not
+            // by a sleep inside an infinite loop.  This keeps the drain loop from running
+            // continuously for 40+ minutes and saturating the home connection.
+            break;
           }
         } else {
           _stallCount++;
@@ -327,7 +329,11 @@ const STARTUP_DELAY_MS = 5_000;
 function scheduleNextSync(): void {
   if (!_syncLoopActive) return;
   const idleMs = IDLE_INTERVAL_OVERRIDE_MS > 0 ? IDLE_INTERVAL_OVERRIDE_MS : IDLE_SYNC_INTERVAL_MS;
-  const delay = _isSynced ? idleMs : SYNC_INTERVAL_MS;
+  // Desktop / home-connection mode: use BATCH_DELAY_MS as the gap between sync
+  // cycles during catch-up.  Each syncOnce() now processes only one batch then
+  // returns, so this timer IS the inter-request pause — not a sleep inside a loop.
+  const catchupMs = BATCH_DELAY_MS > 0 ? BATCH_DELAY_MS : SYNC_INTERVAL_MS;
+  const delay = _isSynced ? idleMs : catchupMs;
   syncTimer = setTimeout(async () => {
     try { await syncOnce(); } catch (err) {
       console.error(`[${ts()}] [sync] 💥 Unhandled error in syncOnce:`, err);
