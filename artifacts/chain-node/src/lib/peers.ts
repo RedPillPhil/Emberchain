@@ -88,7 +88,10 @@ export async function exchangePeersSequential(): Promise<void> {
   for (const peer of current) {
     if (peers.size >= _maxPeers) break; // list is full — no point asking for more
     try {
-      const r = await fetch(`${peer}/api/sync/peers`, { signal: AbortSignal.timeout(6000) });
+      // 3-second timeout (vs 6 s for parallel PEX) — we're sequential so offline
+      // peers add up; keeping the per-peer timeout short limits worst-case I/O to
+      // ~30 s for a full 10-peer list (all offline), < 0.5 s when all are live.
+      const r = await fetch(`${peer}/api/sync/peers`, { signal: AbortSignal.timeout(3_000) });
       if (!r.ok) continue;
       const data = (await r.json()) as { peers?: string[] };
       for (const p of data.peers ?? []) {

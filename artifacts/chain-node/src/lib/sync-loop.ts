@@ -129,9 +129,9 @@ async function snapshotBootstrap(peer: string, peerShort: string): Promise<boole
 
 type PeerInfo = { url: string; height: number; td: bigint };
 
-async function queryPeer(url: string): Promise<PeerInfo | null> {
+async function queryPeer(url: string, timeoutMs = 5_000): Promise<PeerInfo | null> {
   try {
-    const r = await fetch(`${url}/api/sync/status`, { signal: AbortSignal.timeout(5_000) });
+    const r = await fetch(`${url}/api/sync/status`, { signal: AbortSignal.timeout(timeoutMs) });
     if (!r.ok) return null;
     const ps = await r.json() as { latestBlock?: number; totalDifficulty?: string };
     return {
@@ -175,18 +175,25 @@ async function syncOnce(): Promise<void> {
 
     if (sortedPeers.length === 0) {
       if (BATCH_DELAY_MS > 0) {
-        // Desktop / home-connection mode: query peers one at a time and stop as
-        // soon as a live one responds.  Avoids the parallel blast (Promise.all)
-        // that holds multiple TCP connections open simultaneously and causes
-        // bufferbloat / visible internet slowdown on home routers.
+        // Desktop / home-connection mode: query all peers sequentially (no parallel
+        // blast) with a SHORT per-peer timeout so offline peers don't stall us long.
+        // We must check EVERY peer — not stop at the first live one — because the
+        // peer list file persists discovered user-nodes across restarts and they load
+        // before bootstrap peers in Set order.  A user-node that's also behind would
+        // get cached as "best peer" and the node would never discover the bootstrap
+        // nodes are ahead.  Collecting all results and taking the highest height
+        // guarantees we always sync from the true chain tip.
+        // Timeout: 2 s per peer (vs 5 s default).  10 peers × 2 s = 20 s worst-case
+        // (all offline); in practice < 0.5 s since online peers respond in < 100 ms.
+        const results: PeerInfo[] = [];
         for (const url of peers) {
-          const result = await queryPeer(url);
-          if (result) {
-            sortedPeers = [result];
-            _cachedBestPeer = result.url;
-            _lastPeerPollMs = now;
-            break;
-          }
+          const result = await queryPeer(url, 2_000);
+          if (result) results.push(result);
+        }
+        sortedPeers = results.sort((a, b) => (b.td > a.td ? 1 : b.td < a.td ? -1 : 0));
+        if (sortedPeers.length > 0) {
+          _cachedBestPeer = sortedPeers[0]!.url;
+          _lastPeerPollMs = now;
         }
       } else {
         // Server mode: query all peers in parallel for the best result.
@@ -390,12 +397,14 @@ export function startSyncLoop(): void {
 
   if (GENTLE_PEX) {
     // Desktop / home-connection mode: sequential PEX, longer interval.
-    // Queries one peer at a time, stops once the list is capped — no parallel
-    // blast that would saturate a home connection or router.
+    // First run is delayed to 2 minutes so the initial block catch-up finishes
+    // before we start adding new peers (avoids PEX traffic stacking on top of
+    // the initial sync burst).  Subsequent runs every 15 minutes.
+    const GENTLE_PEX_FIRST_DELAY_MS = 2 * 60_000; // 2 min after startup
     pexTimer = setTimeout(function pex() {
       void exchangePeersSequential();
       pexTimer = setTimeout(pex, GENTLE_PEX_INTERVAL_MS);
-    }, STARTUP_DELAY_MS + 5_000);
+    }, GENTLE_PEX_FIRST_DELAY_MS);
   } else {
     // Server / full-node mode: parallel PEX, standard 5-minute interval.
     pexTimer = setTimeout(function pex() {
