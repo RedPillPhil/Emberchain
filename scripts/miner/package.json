@@ -1,0 +1,12 @@
+{
+  "name": "emberchain-miner",
+  "version": "1.0.0",
+  "description": "Standalone CPU miner for EmberChain",
+  "type": "module",
+  "scripts": {
+    "mine": "node emberchain-miner.mjs"
+  },
+  "dependencies": {
+    "ethereum-cryptography": "^2.2.1"
+  }
+}

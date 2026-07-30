@@ -1,0 +1,30 @@
+kind = "mobile"
+previewPath = "/mobile-wallet/"
+title = "EmberChain Mobile Wallet"
+version = "1.0.0"
+id = "artifacts/mobile-wallet"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/mobile-wallet/" ]
+localPort = 18705
+
+[services.development]
+run = "pnpm --filter @workspace/mobile-wallet run dev"
+
+[services.production]
+
+[services.production.run]
+args = ["node", "artifacts/mobile-wallet/server/health-only.js"]
+
+[services.production.run.env]
+PORT = "18705"
+
+[services.production.health.startup]
+path = "/status"
+
+[services.env]
+PORT = "18705"
+BASE_PATH = "/mobile-wallet/"

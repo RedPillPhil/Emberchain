@@ -1,0 +1,27 @@
+{
+  "name": "@workspace/emberchain-node",
+  "version": "1.0.0",
+  "description": "Standalone Emberchain full node and CLI miner",
+  "type": "module",
+  "bin": {
+    "emberchain-node": "./dist/node.js",
+    "emberchain-miner": "./dist/miner.js"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "node": "tsx src/node.ts",
+    "miner": "tsx src/miner.ts"
+  },
+  "dependencies": {
+    "@workspace/chain-core": "workspace:*",
+    "ethereum-cryptography": "^3.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@yao-pkg/pkg": "^6.21.0",
+    "esbuild": "0.27.3",
+    "esbuild-plugin-pino": "^2.3.3",
+    "tsx": "catalog:",
+    "typescript": "^5.8.3"
+  }
+}

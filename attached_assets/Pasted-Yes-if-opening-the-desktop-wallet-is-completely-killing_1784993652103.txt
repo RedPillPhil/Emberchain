@@ -1,0 +1,255 @@
+Yes — if opening the desktop wallet is **completely killing your internet**, the wallet is almost certainly doing something far more aggressive than "checking balance."
+
+Fetching 10 blocks every 30 seconds is **not necessarily the right fix**, because the issue may not be the number of blocks — it may be **how the wallet sync is implemented**.
+
+The likely causes:
+
+### 1. It is downloading the entire blockchain history
+
+If the wallet is doing something like:
+
+```
+getBlock(1)
+getBlock(2)
+getBlock(3)
+...
+getBlock(current)
+```
+
+or:
+
+```
+eth_getBlockByNumber(..., true)
+```
+
+with full transactions enabled, it can hammer your connection.
+
+A chain with tens of thousands of blocks can create:
+
+* thousands of RPC requests
+* huge JSON responses
+* constant upload/download traffic
+* CPU processing while parsing blocks
+
+---
+
+### 2. It may be requesting full blocks instead of headers
+
+This is a big one.
+
+Bad:
+
+```javascript
+eth_getBlockByNumber
+[
+ "0x12345",
+ true
+]
+```
+
+The `true` means:
+
+> include every transaction in the block
+
+That can be massive.
+
+Better:
+
+```javascript
+eth_getBlockByNumber
+[
+ "0x12345",
+ false
+]
+```
+
+Only get the header.
+
+---
+
+### 3. It may be running sync too aggressively
+
+A common mistake:
+
+```javascript
+while(currentBlock < latestBlock){
+
+  await fetchBlock(currentBlock)
+
+  currentBlock++
+
+}
+```
+
+This creates a nonstop download loop.
+
+---
+
+## What I would tell Replit to change
+
+I would have them implement a **light wallet sync mode**.
+
+Something like:
+
+```
+Desktop Wallet Light Sync
+
+- Never download full chain
+- Never download full transactions
+- Limit RPC requests
+- Batch sync slowly
+- Pause between batches
+- Only scan required blocks
+```
+
+The prompt:
+
+```
+The desktop wallet is destroying internet bandwidth during sync.
+
+Implement a bandwidth-safe light sync mode.
+
+Requirements:
+
+1. Never request full blocks with transactions.
+Use:
+eth_getBlockByNumber(blockNumber, false)
+
+Never use:
+eth_getBlockByNumber(blockNumber, true)
+
+
+2. Sync in small batches.
+
+Example:
+- fetch maximum 10 blocks
+- wait 30 seconds
+- fetch next 10 blocks
+
+Do not continuously loop.
+
+
+3. Add a sync throttle.
+
+Maximum:
+- 1 RPC request every 2-3 seconds
+
+The wallet must prioritize user internet usage over syncing.
+
+
+4. Cache synced height locally.
+
+Store:
+lastSyncedBlock
+
+When reopening wallet:
+resume from that point.
+
+Do not restart from genesis.
+
+
+5. Only sync data required for this wallet.
+
+Do not download:
+- entire blockchain
+- unrelated transactions
+- full blocks
+
+
+6. Add a low bandwidth mode toggle:
+
+Normal:
+10 blocks / 10 seconds
+
+Low bandwidth:
+5 blocks / 60 seconds
+
+
+The wallet should remain usable while syncing.
+```
+
+---
+
+## The better long-term Emberchain solution
+
+A desktop wallet should **not sync the entire chain**.
+
+You want a model closer to:
+
+### Light wallet:
+
+```
+Wallet opens
+      |
+      v
+Ask node:
+"What is current height?"
+      |
+      v
+Download only new headers
+      |
+      v
+Check wallet-related transactions
+      |
+      v
+Update balance
+```
+
+Not:
+
+```
+Download:
+Block 1
+Block 2
+Block 3
+...
+Block 100000
+```
+
+---
+
+## Also check this immediately
+
+Ask Replit to search the desktop wallet code for:
+
+```
+sync
+```
+
+```
+getBlock
+```
+
+```
+eth_getBlockByNumber
+```
+
+```
+while
+```
+
+```
+setInterval
+```
+
+```
+poll
+```
+
+I would specifically look for:
+
+```javascript
+setInterval(sync, 1000)
+```
+
+or:
+
+```javascript
+while(true)
+```
+
+because either of those could absolutely destroy a home connection.
+
+---
+
+My suspicion from your description: the wallet is probably **replaying the chain scan too aggressively every launch**, not just fetching "a little too much." The fix is to add a **persistent sync checkpoint + throttled batch scanning**. That will make it behave like a real lightweight wallet instead of a mini node.

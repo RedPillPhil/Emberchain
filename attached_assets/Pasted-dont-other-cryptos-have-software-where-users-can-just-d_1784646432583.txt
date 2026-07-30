@@ -1,0 +1,64 @@
+dont other cryptos have software where users can just download a program to run the node from their own computer?
+
+Yes. In fact, that's exactly how most decentralized cryptocurrencies work.
+
+Here are some examples:
+
+Bitcoin Core: You download the software, run it on your PC or a server, and it becomes a full node. It downloads and validates the entire blockchain and relays blocks and transactions to other peers.
+Ethereum: You can run clients like Geth, Nethermind, Besu, or Erigon. Each is an independent implementation that participates in the network.
+Monero: You download monerod, run it, and it syncs the blockchain and participates as a full node.
+Litecoin, Dogecoin, Ravencoin, and many others all work the same way.
+
+The important part is that these node programs are equal peers. There is no "main server." Anyone can run one.
+
+So what should EmberChain have?
+
+Ideally, EmberChain would ship with something like:
+
+EmberChain/
+├── emberchain-node.exe      <-- Full node
+├── emberchain-wallet.exe    <-- Desktop wallet
+├── emberchain-miner.exe     <-- Miner (or built into wallet)
+└── config.json
+
+A user could:
+
+Download emberchain-node.exe.
+Run it.
+It automatically discovers peers.
+It syncs the blockchain.
+It validates every block itself.
+It accepts incoming peer connections (if publicly reachable).
+It helps relay blocks and transactions to the network.
+
+The desktop wallet could then connect to localhost if the user is running their own node, or connect to another public node if they aren't.
+
+The only catch
+
+Even Bitcoin nodes aren't automatically reachable from the internet.
+
+If you're behind a typical home router, your node can usually make outgoing connections just fine, but other peers can't initiate incoming connections to you unless:
+
+you configure port forwarding,
+use UPnP (if supported),
+or run the node on a VPS or server with a public IP.
+
+That's normal and not unique to EmberChain. The Bitcoin network still works because thousands of nodes are publicly reachable, while many others only make outbound connections.
+
+Where EmberChain is today
+
+From Replit's explanation, it sounds like you've already started down this path:
+
+✔️ A node program exists.
+✔️ It can sync and validate blocks.
+✔️ It can exchange peers.
+✔️ It can mine.
+
+What's still missing is the robustness you'd expect from a mature blockchain:
+
+a proper fork-choice rule based on cumulative work,
+chain reorganization support,
+multiple bootstrap peers,
+and some additional decentralization features.
+
+Once those pieces are in place, users downloading and running emberchain-node on their own computers is exactly the model you'd want for a decentralized Layer 1 blockchain.

@@ -1,0 +1,44 @@
+{
+  "name": "ember-node-desktop",
+  "version": "1.0.0",
+  "description": "Emberchain desktop node — one-click blockchain node for your own computer",
+  "private": true,
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev":     "electron-vite dev",
+    "build":   "electron-vite build",
+    "preview": "electron-vite preview",
+    "dist":    "npm run build && electron-builder",
+    "dist:mac":   "npm run build && electron-builder --mac",
+    "dist:win":   "npm run build && electron-builder --win",
+    "dist:linux": "npm run build && electron-builder --linux"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "cors": "^2.8.6",
+    "ethers": "^6.17.0",
+    "express": "^5.2.1",
+    "pino": "^9.14.0",
+    "pino-http": "^10.5.0",
+    "@ethereumjs/tx": "^10.1.2",
+    "@ethereumjs/util": "10.1.2"
+  },
+  "devDependencies": {
+    "@electron-toolkit/preload": "^3.0.1",
+    "@electron-toolkit/utils": "^4.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^3.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.3.5"
+  }
+}

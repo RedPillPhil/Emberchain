@@ -1,0 +1,135 @@
+For EVM chains, the same private key can be reused because all EVM networks use the same cryptographic system and address derivation method (secp256k1 + Ethereum address format). The same private key will always produce the same public address across Ethereum, Base, Arbitrum, Optimism, Polygon, Emberchain, etc.
+
+For non-EVM chains, it depends on the blockchain's cryptography and address format.
+
+The bridge system should not assume that every chain can use the same private key. Instead, it should use a chain adapter system.
+
+The adapter determines:
+
+* What cryptographic algorithm the chain uses
+* How public keys are derived
+* How addresses are formatted
+* How transactions are signed
+* How transactions are broadcast through RPC
+
+For many Bitcoin-based PoW chains (Bitcoin forks, Litecoin forks, Dogecoin forks, etc.), the same underlying private key can often be used because they use the same secp256k1 cryptography. However, the address generation is different because each chain has different address prefixes and encoding rules.
+
+Example:
+
+Same private key:
+
+PRIVATE KEY → PUBLIC KEY
+
+Then:
+
+Bitcoin adapter:
+PUBLIC KEY → Bitcoin address
+
+Litecoin adapter:
+PUBLIC KEY → Litecoin address
+
+Dogecoin adapter:
+PUBLIC KEY → Dogecoin address
+
+The private key is the same, but the generated wallet address is different.
+
+For chains that use different cryptography (such as Monero-based privacy coins), the same private key cannot be used. Those chains require their own native wallet generation process. In those cases, the server would generate a new native wallet, securely store the private keys/secrets, and use that wallet as the bridge escrow wallet.
+
+The listing form should collect enough technical information for the server to determine which adapter to use.
+
+Required information from the project:
+
+1. Blockchain name
+
+2. Chain type:
+
+* EVM
+* Bitcoin/UTXO-based
+* Monero/privacy-based
+* Custom
+
+3. Consensus:
+
+* Proof of Work
+* Proof of Stake
+* Other
+
+4. Cryptography:
+   Examples:
+
+* secp256k1
+* ed25519
+* other
+
+5. Address format:
+   Examples:
+
+* Ethereum hex address (0x...)
+* Base58
+* Bech32
+* Custom
+
+6. Transaction model:
+
+* Account-based (Ethereum style)
+* UTXO-based (Bitcoin style)
+* Privacy model
+
+7. RPC endpoint
+
+8. Block explorer/API endpoint if available
+
+9. Decimals
+
+10. Confirmation requirement for deposits
+
+The server would then select the correct wallet adapter.
+
+Example:
+
+If the project submits:
+
+Cryptography:
+secp256k1
+
+Transaction model:
+UTXO
+
+Address format:
+Base58
+
+The server loads a Bitcoin-style adapter and derives the escrow address from the bridge key.
+
+If the project submits:
+
+Cryptography:
+ed25519
+
+Privacy:
+Yes
+
+The server knows it needs a specialized wallet adapter and cannot use the universal EVM/private key system.
+
+Long term, the architecture should use separate adapters:
+
+/adapters
+
+/evm
+
+* ethereum
+* base
+* emberchain
+
+/utxo
+
+* bitcoin
+* litecoin
+* dogecoin
+* custom forks
+
+/privacy
+
+* monero
+* privacy forks
+
+Each adapter handles secure address generation, transaction creation, monitoring, and withdrawals for that blockchain.

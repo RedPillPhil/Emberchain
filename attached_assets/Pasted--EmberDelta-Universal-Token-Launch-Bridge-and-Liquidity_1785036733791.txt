@@ -1,0 +1,440 @@
+# EmberDelta Universal Token Launch, Bridge, and Liquidity Infrastructure
+
+We are building a feature inside EmberDelta that allows any blockchain project to easily bring their native coin into the Base ecosystem.
+
+The goal is:
+
+A blockchain project pays a launch fee, and EmberDelta automatically creates the infrastructure needed to:
+
+1. Create a wrapped version of their native token on Base.
+2. Create bridge functionality between their native chain and Base.
+3. Automatically create trading markets on EmberDelta.
+4. Provide liquidity infrastructure.
+5. Allow their community to trade their asset through EmberDelta.
+
+This is designed especially for smaller and newer Proof-of-Work chains that struggle with exchange listings, bridges, and liquidity.
+
+---
+
+# Token Launch Flow
+
+## Step 1: Project submits a launch request
+
+The project owner enters:
+
+* Blockchain name
+* Token name
+* Token symbol
+* Native chain RPC URL
+* Chain ID (if EVM)
+* Explorer/API information
+* Decimals
+* Blockchain type:
+
+  * EVM
+  * UTXO/Bitcoin-style
+  * Privacy/custom chain
+
+The user enters the normal symbol only.
+
+Example:
+
+Input:
+
+```
+EMBR
+```
+
+System creates:
+
+```
+wEMBR
+```
+
+The user should never manually add the "w".
+
+---
+
+# Step 2: Launch Fee Payment
+
+The launch fee is paid in Base ETH.
+
+Example:
+
+Launch fee:
+
+$20 worth of ETH
+
+The website calculates the current ETH amount based on the ETH/USD price.
+
+The payment contract receives the ETH.
+
+The payment is split:
+
+1. Contract deployment/gas costs.
+2. Remaining ETH goes into the liquidity treasury.
+
+The liquidity treasury is used to strengthen EmberDelta liquidity.
+
+---
+
+# Step 3: Create Wrapped Token on Base
+
+After payment confirmation:
+
+A wrapped ERC-20 token is automatically created on Base.
+
+Example:
+
+Native token:
+
+```
+ABC
+```
+
+Created token:
+
+```
+wABC
+```
+
+The wrapped token is controlled by the bridge system.
+
+The system records:
+
+* Native chain
+* Native token
+* Wrapped token address
+* Bridge contract
+* Reserve model
+
+---
+
+# Step 4: Automatic EmberDelta Listing
+
+After token creation, EmberDelta automatically creates markets:
+
+```
+wABC / ETH
+
+wABC / wEMBR
+```
+
+The token immediately receives a trading page.
+
+The exchange is based on an EtherDelta-style order book model.
+
+The exchange should support:
+
+* Limit orders
+* Buy/sell orders
+* Order matching
+* Settlement contracts
+* Trading fees
+
+---
+
+# Step 5: Bridge Infrastructure
+
+## EVM Chains
+
+For EVM-compatible chains:
+
+The system deploys or registers the bridge automatically.
+
+The project provides:
+
+* RPC endpoint
+* Chain ID
+* Gas requirements
+
+The bridge deployment wallet is funded by the project with enough native gas tokens.
+
+Example:
+
+The project sends:
+
+```
+0.5 ABC
+```
+
+to the deployment wallet.
+
+The server verifies the balance.
+
+Then it deploys the bridge contract on the native chain.
+
+The Base side uses a universal bridge contract that supports multiple wrapped tokens.
+
+---
+
+# EVM Bridge Flow
+
+Native Chain:
+
+```
+ABC
+ |
+ |
+Bridge Contract
+```
+
+Base:
+
+```
+wABC
+ |
+ |
+ERC20 Token
+```
+
+User deposits:
+
+```
+100 ABC
+```
+
+Bridge verifies deposit.
+
+Bridge mints:
+
+```
+100 wABC
+```
+
+Withdrawal:
+
+User burns:
+
+```
+100 wABC
+```
+
+Bridge releases:
+
+```
+100 ABC
+```
+
+---
+
+# Bridge Fees
+
+Every bridge transaction charges a fee.
+
+Example:
+
+User bridges:
+
+```
+100 ABC
+```
+
+Fee:
+
+```
+0.5 ABC
+```
+
+User receives:
+
+```
+99.5 ABC
+```
+
+The bridge fee is sent to:
+
+```
+0xa8f6efc25896c24ac6c9441f9f693c14517aa818
+```
+
+The fee asset depends on the chain being bridged.
+
+---
+
+# Non-EVM Chain Support
+
+For non-EVM chains that cannot run smart contracts, the bridge uses an escrow model.
+
+Examples:
+
+* Bitcoin forks
+* Litecoin forks
+* Dogecoin forks
+* Pepecoin
+* Other PoW chains
+
+The project provides:
+
+* RPC information
+* Chain type
+* Cryptography type
+* Address format
+* Transaction information
+
+---
+
+# Non-EVM Bridge Flow
+
+Example:
+
+Pepecoin:
+
+Project creates listing.
+
+System creates:
+
+```
+wPEPE
+```
+
+on Base.
+
+The bridge uses an escrow wallet.
+
+Example:
+
+Escrow wallet holds:
+
+```
+1,000,000 PEPE
+```
+
+This backs:
+
+```
+1,000,000 wPEPE
+```
+
+The wrapped supply must always be backed 1:1.
+
+---
+
+Deposit:
+
+User sends:
+
+```
+1000 PEPE
+```
+
+to escrow wallet.
+
+Server waits for confirmations.
+
+Server verifies deposit.
+
+Server mints:
+
+```
+1000 wPEPE
+```
+
+on Base.
+
+---
+
+Withdrawal:
+
+User burns:
+
+```
+1000 wPEPE
+```
+
+Server detects burn.
+
+Server sends:
+
+```
+1000 PEPE
+```
+
+from escrow wallet.
+
+---
+
+# Multi-Chain Wallet Adapter System
+
+The bridge backend uses adapters.
+
+For compatible chains:
+
+The same underlying private key can be reused.
+
+Examples:
+
+EVM:
+
+Same private key creates the same address on:
+
+* Ethereum
+* Base
+* Arbitrum
+* Emberchain
+
+Bitcoin-style chains:
+
+Same private key can often be used, but the adapter changes:
+
+* Address format
+* Prefix
+* Encoding
+* Transaction creation
+
+For incompatible chains:
+
+Example:
+
+Monero-based chains.
+
+The adapter generates a native wallet and stores the encrypted secret securely.
+
+---
+
+# Required Chain Information
+
+To securely create bridge wallets, the project must provide:
+
+* Chain name
+* Chain type
+* Consensus type
+* Cryptography:
+
+  * secp256k1
+  * ed25519
+  * other
+* Address format:
+
+  * Ethereum hex
+  * Base58
+  * Bech32
+  * custom
+* Transaction model:
+
+  * Account-based
+  * UTXO
+  * Privacy
+* RPC endpoint
+* Explorer/API endpoint
+* Decimal places
+* Confirmation requirements
+
+The bridge system uses this information to load the correct adapter.
+
+---
+
+# Overall Vision
+
+EmberDelta becomes a universal liquidity gateway.
+
+A new blockchain project can:
+
+1. Pay a launch fee.
+2. Receive a wrapped token on Base.
+3. Receive bridge infrastructure.
+4. Automatically get EmberDelta trading pairs.
+5. Build liquidity through platform mechanisms.
+6. Connect their community to the larger DeFi ecosystem.
+
+The goal is to make it easy for emerging and low-volume blockchain projects to gain access to liquidity without needing to build their own bridge, exchange integration, or infrastructure.

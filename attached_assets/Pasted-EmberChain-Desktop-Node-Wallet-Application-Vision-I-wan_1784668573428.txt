@@ -1,0 +1,207 @@
+EmberChain Desktop Node + Wallet Application Vision
+
+I want to transform the current EmberChain node into a user-friendly desktop application similar to how Bitcoin Core, Monero GUI, or other cryptocurrency desktop clients work.
+
+The goal is to create a Windows .exe application that an average user can download, open, and participate in the EmberChain network without needing command-line knowledge.
+
+The application should have a modern cryptocurrency wallet-style interface.
+
+User Experience
+
+When a user opens EmberChain Desktop, they should see:
+
+EmberChain logo/branding
+Wallet balance
+Current block height
+Network status
+Number of connected peers
+Sync progress
+Mining status
+Node status
+
+Example:
+
+🔥 EmberChain
+
+Wallet Balance:
+125.50 EMBR
+
+Network:
+Connected
+
+Blockchain:
+52,341 / 52,341 blocks synced
+
+Peers:
+12 connected nodes
+
+Node Status:
+✓ Active and participating
+
+[ Start Node ]
+[ Stop Node ]
+[ Enable Mining ]
+Core Functionality
+1. Full Node Integration
+
+The desktop app should include the EmberChain node engine internally.
+
+A user should be able to:
+
+Click "Start Node"
+Automatically start the EmberChain daemon
+Connect to peers
+Download missing blocks
+Validate blocks
+Stay synchronized with the network
+Accept incoming peer connections when possible
+
+No terminal commands should be required.
+
+2. Automatic Blockchain Synchronization
+
+The node should automatically:
+
+Detect the current chain height
+Compare against connected peers
+Download missing blocks
+Validate every downloaded block
+Switch to the strongest valid chain if a better chain exists
+
+The user should see:
+
+Syncing blockchain...
+
+Downloaded:
+45,320 / 50,000 blocks
+
+Progress:
+90%
+
+Connected peers:
+8
+3. Peer Discovery System
+
+Implement proper decentralized peer discovery.
+
+The node should not require users to manually enter IP addresses.
+
+Add:
+
+Bootstrap nodes
+Seed nodes
+Peer discovery
+Peer persistence
+Automatic reconnection
+
+A new EmberChain node should automatically find existing nodes and join the network.
+
+Example:
+
+Connecting to EmberChain network...
+
+Found peers:
+node1.emberchain.com
+node2.emberchain.com
+192.168.x.x
+
+Connected:
+5 peers
+4. Public Node Participation
+
+The application should attempt to make users full network participants.
+
+Implement:
+
+UPnP/NAT-PMP automatic port forwarding
+External IP detection
+Public node advertisement
+Peer handshake announcing:
+node ID
+version
+block height
+supported features
+
+If inbound connections are impossible:
+
+Show:
+
+Outbound Only
+
+Your node is syncing and validating,
+but other nodes cannot connect.
+
+Enable port forwarding for full participation.
+5. Wallet Integration
+
+Integrate the existing EmberChain wallet functionality:
+
+Create wallet
+Import wallet
+Send EMBR
+Receive EMBR
+QR codes
+Transaction history
+Address book
+
+The node and wallet should work together.
+
+6. Desktop Application
+
+Package everything as a Windows application:
+
+Preferred:
+
+Electron or Tauri frontend
+React UI
+Embedded EmberChain node backend
+One-click installer
+
+The final user experience should be:
+
+Download:
+
+EmberChain-Setup.exe
+
+Install.
+
+Open:
+
+EmberChain.exe
+
+Click:
+
+START NODE
+
+The user becomes part of the EmberChain network.
+
+Technical Requirements
+
+Before building the GUI, make sure the underlying node supports:
+
+✅ Peer discovery
+✅ Bootstrap nodes
+✅ Chain synchronization
+✅ Block downloading
+✅ Fork choice
+✅ Chain reorganization
+✅ Peer management
+✅ Persistent blockchain database
+✅ Automatic reconnect
+✅ Node identity
+✅ Network health monitoring
+
+Add detailed logging for:
+
+connected peers
+peer block heights
+local block height
+sync progress
+failed connections
+chain reorganizations
+
+The final goal is:
+
+"Make EmberChain as easy to run as Bitcoin Core. A user downloads one application, clicks Start Node, and their computer becomes a decentralized EmberChain network participant."
+
+One thing I would add separately to Replit after it acknowledges this: do not have it build the UI first. Make it finish the P2P/networking layer first. The pretty wallet is the easy part; the thing that makes it a real blockchain is the ability for nodes to discover, sync, and communicate with each other.

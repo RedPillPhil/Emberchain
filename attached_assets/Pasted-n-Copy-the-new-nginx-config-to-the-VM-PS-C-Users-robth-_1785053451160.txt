@@ -1,0 +1,43 @@
+n> # Copy the new nginx config to the VM
+PS C:\Users\robth\Downloads\Emberchain-desktop-v2.0.8\Emberchain-desktop-v2.0.8\lib\emberchain-wallet-electron\Emberchain> scp scripts/deploy-vm/nginx-emberchain.conf root@159.203.190.93:/etc/nginx/sites-available/emberchain
+Enter passphrase for key 'C:\Users\robth/.ssh/id_ed25519':
+nginx-emberchain.conf                                                                 100% 4031   112.5KB/s   00:00
+PS C:\Users\robth\Downloads\Emberchain-desktop-v2.0.8\Emberchain-desktop-v2.0.8\lib\emberchain-wallet-electron\Emberchain>
+PS C:\Users\robth\Downloads\Emberchain-desktop-v2.0.8\Emberchain-desktop-v2.0.8\lib\emberchain-wallet-electron\Emberchain> # Reload nginx
+PS C:\Users\robth\Downloads\Emberchain-desktop-v2.0.8\Emberchain-desktop-v2.0.8\lib\emberchain-wallet-electron\Emberchain> ssh root@159.203.190.93 "nginx -t && systemctl reload nginx"
+Enter passphrase for key 'C:\Users\robth/.ssh/id_ed25519':
+2026/07/26 08:11:10 [warn] 436552#436552: conflicting server name "emberchain.org" on 0.0.0.0:80, ignored
+2026/07/26 08:11:10 [warn] 436552#436552: conflicting server name "www.emberchain.org" on 0.0.0.0:80, ignored
+2026/07/26 08:11:10 [warn] 436552#436552: conflicting server name "emberchain.org" on 0.0.0.0:443, ignored
+2026/07/26 08:11:10 [warn] 436552#436552: conflicting server name "www.emberchain.org" on 0.0.0.0:443, ignored
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+PS C:\Users\robth\Downloads\Emberchain-desktop-v2.0.8\Emberchain-desktop-v2.0.8\lib\emberchain-wallet-electron\Emberchain> git clone https://github.com/RedPillPhil/Emberchain.git
+Cloning into 'Emberchain'...
+remote: Enumerating objects: 3964, done.
+remote: Counting objects: 100% (348/348), done.
+remote: Compressing objects: 100% (111/111), done.
+remote: Total 3964 (delta 284), reused 271 (delta 233), pack-reused 3616 (from 2)
+Receiving objects: 100% (3964/3964), 110.75 MiB | 39.17 MiB/s, done.
+Resolving deltas: 100% (2380/2380), done.
+Filtering content: 100% (1/1), 73.79 MiB | 21.00 MiB/s, done.
+PS C:\Users\robth\Downloads\Emberchain-desktop-v2.0.8\Emberchain-desktop-v2.0.8\lib\emberchain-wallet-electron\Emberchain> cd Emberchainscp scripts/deploy-vm/nginx-emberchain.conf root@159.203.190.93:/etc/nginx/sites-available/emberchain
+Set-Location : A positional parameter cannot be found that accepts argument 'scripts/deploy-vm/nginx-emberchain.conf'.
+At line:1 char:1
++ cd Emberchainscp scripts/deploy-vm/nginx-emberchain.conf root@159.203 ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidArgument: (:) [Set-Location], ParameterBindingException
+    + FullyQualifiedErrorId : PositionalParameterNotFound,Microsoft.PowerShell.Commands.SetLocationCommand
+
+PS C:\Users\robth\Downloads\Emberchain-desktop-v2.0.8\Emberchain-desktop-v2.0.8\lib\emberchain-wallet-electron\Emberchain> scp scripts/deploy-vm/nginx-emberchain.conf root@159.203.190.93:/etc/nginx/sites-available/emberchain
+Enter passphrase for key 'C:\Users\robth/.ssh/id_ed25519':
+nginx-emberchain.conf                                                                 100% 4031   123.0KB/s   00:00
+PS C:\Users\robth\Downloads\Emberchain-desktop-v2.0.8\Emberchain-desktop-v2.0.8\lib\emberchain-wallet-electron\Emberchain> ssh root@159.203.190.93 "nginx -t && systemctl reload nginx"
+Enter passphrase for key 'C:\Users\robth/.ssh/id_ed25519':
+2026/07/26 08:12:28 [warn] 436938#436938: conflicting server name "emberchain.org" on 0.0.0.0:80, ignored
+2026/07/26 08:12:28 [warn] 436938#436938: conflicting server name "www.emberchain.org" on 0.0.0.0:80, ignored
+2026/07/26 08:12:28 [warn] 436938#436938: conflicting server name "emberchain.org" on 0.0.0.0:443, ignored
+2026/07/26 08:12:28 [warn] 436938#436938: conflicting server name "www.emberchain.org" on 0.0.0.0:443, ignored
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+PS C:\Users\robth\Downloads\Emberchain-desktop-v2.0.8\Emberchain-desktop-v2.0.8\lib\emberchain-wallet-electron\Emberchain>

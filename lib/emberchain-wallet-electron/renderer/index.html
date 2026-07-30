@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+  <title>EmberChain Desktop</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SETUP SCREEN (first run)
+════════════════════════════════════════════════════════════════════════ -->
+<div id="screen-setup" class="screen">
+  <div class="setup-box">
+    <div class="setup-logo">
+      <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="EmberChain">
+        <circle cx="32" cy="32" r="32" fill="#1a1a1a"/>
+        <path d="M32 8C32 8 20 22 20 34c0 6.627 5.373 12 12 12s12-5.373 12-12c0-4-2-7-2-7s-1 4-4 6c0 0 2-6-6-16z" fill="#f37021"/>
+        <path d="M32 28c0 0-6 6-6 12a6 6 0 0012 0c0-3-1.5-5-1.5-5s-.5 3-2.5 4c0 0 1-4-2-11z" fill="#ffd580"/>
+      </svg>
+      <h1>EmberChain Desktop</h1>
+      <p class="setup-sub">Wallet · Miner · Privacy</p>
+    </div>
+    <div class="setup-tabs">
+      <button class="setup-tab active" data-setup="create">Create New Wallet</button>
+      <button class="setup-tab" data-setup="import">Import Wallet</button>
+    </div>
+    <div id="setup-create" class="setup-panel active">
+      <label>Choose a password to encrypt your keystore</label>
+      <input type="password" id="create-pwd" placeholder="Password (min 8 chars)">
+      <input type="password" id="create-pwd2" placeholder="Confirm password">
+      <button class="btn-primary" id="btn-create">Create Wallet</button>
+      <div id="create-mnemonic" class="mnemonic-box hidden">
+        <p class="warn">⚠ Write down your seed phrase and keep it safe. It will not be shown again.</p>
+        <div id="mnemonic-words" class="mnemonic-words"></div>
+        <button class="btn-primary" id="btn-mnemonic-done">I've saved my seed phrase →</button>
+      </div>
+      <div id="create-error" class="error-msg hidden"></div>
+    </div>
+    <div id="setup-import" class="setup-panel hidden">
+      <label>Private key or 12/24-word seed phrase</label>
+      <textarea id="import-key" rows="3" placeholder="Paste private key (0x…) or seed phrase…"></textarea>
+      <label>New password to encrypt your keystore</label>
+      <input type="password" id="import-pwd" placeholder="Password (min 8 chars)">
+      <input type="password" id="import-pwd2" placeholder="Confirm password">
+      <button class="btn-primary" id="btn-import">Import Wallet</button>
+      <div id="import-error" class="error-msg hidden"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     UNLOCK SCREEN
+════════════════════════════════════════════════════════════════════════ -->
+<div id="screen-unlock" class="screen hidden">
+  <div class="setup-box unlock-box">
+    <svg width="56" height="56" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="32" cy="32" r="32" fill="#1a1a1a"/>
+      <path d="M32 8C32 8 20 22 20 34c0 6.627 5.373 12 12 12s12-5.373 12-12c0-4-2-7-2-7s-1 4-4 6c0 0 2-6-6-16z" fill="#f37021"/>
+      <path d="M32 28c0 0-6 6-6 12a6 6 0 0012 0c0-3-1.5-5-1.5-5s-.5 3-2.5 4c0 0 1-4-2-11z" fill="#ffd580"/>
+    </svg>
+    <h2>EmberChain Desktop</h2>
+    <p id="unlock-address" class="mono dim"></p>
+    <input type="password" id="unlock-pwd" placeholder="Enter password…" autofocus>
+    <button class="btn-primary" id="btn-unlock">Unlock</button>
+    <div id="unlock-error" class="error-msg hidden"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SETTINGS OVERLAY — Node picker
+════════════════════════════════════════════════════════════════════════ -->
+<div id="overlay-settings" class="overlay hidden">
+  <div class="overlay-box" style="max-width:480px;width:92vw;">
+    <h3 style="margin:0 0 4px;">Node Connection</h3>
+    <p class="hint" style="margin:0 0 14px;">Choose a node or let the wallet pick the most up-to-date one automatically.</p>
+
+    <!-- Node list (populated by JS) -->
+    <div id="node-picker-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
+      <div class="node-probing">Probing nodes…</div>
+    </div>
+
+    <!-- Custom URL row (revealed when "Custom" is selected) -->
+    <div id="node-custom-row" style="display:none;margin-bottom:10px;">
+      <label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">Custom node URL <span style="color:#555;">(must end in /api)</span></label>
+      <div style="display:flex;gap:6px;">
+        <input id="settings-node-url" type="text" placeholder="https://my-node.example.com/api"
+               style="flex:1;font-size:13px;font-family:monospace;">
+        <button class="btn-secondary" id="btn-settings-test" style="white-space:nowrap;padding:0 12px;">Test</button>
+      </div>
+      <p id="settings-test-result" class="hint" style="margin:6px 0 0;min-height:16px;"></p>
+    </div>
+
+    <div class="overlay-actions">
+      <button class="btn-primary" id="btn-settings-save">Connect</button>
+      <button class="btn-secondary" id="btn-settings-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Fallback-node toast -->
+<div id="toast-fallback" class="hidden" style="
+  position:fixed;bottom:20px;right:20px;
+  background:#2a2a2a;border:1px solid #f37021;border-radius:8px;
+  padding:12px 16px;color:#ccc;font-size:12px;
+  max-width:320px;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.5);">
+  <strong style="color:#f37021;">⚡ Switched node</strong><br>
+  <span id="toast-fallback-url"></span><br>
+  <span style="color:#666;font-size:11px;">Primary node unreachable — using backup.</span>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     MAIN WALLET
+════════════════════════════════════════════════════════════════════════ -->
+<div id="screen-wallet" class="screen hidden">
+  <div id="wallet-shell">
+
+    <!-- Sidebar -->
+    <nav id="sidebar">
+      <div id="sidebar-logo">
+        <svg width="36" height="36" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="32" cy="32" r="32" fill="#2a2a2a"/>
+          <path d="M32 8C32 8 20 22 20 34c0 6.627 5.373 12 12 12s12-5.373 12-12c0-4-2-7-2-7s-1 4-4 6c0 0 2-6-6-16z" fill="#f37021"/>
+          <path d="M32 28c0 0-6 6-6 12a6 6 0 0012 0c0-3-1.5-5-1.5-5s-.5 3-2.5 4c0 0 1-4-2-11z" fill="#ffd580"/>
+        </svg>
+        <span>EMBR</span>
+      </div>
+      <div id="nav-links">
+        <div class="nav-divider">— WALLET —</div>
+        <a href="#" class="nav-link active" data-tab="overview">
+          <svg viewBox="0 0 20 20"><rect x="2" y="2" width="7" height="7" rx="1"/><rect x="11" y="2" width="7" height="7" rx="1"/><rect x="2" y="11" width="7" height="7" rx="1"/><rect x="11" y="11" width="7" height="7" rx="1"/></svg>
+          Overview
+        </a>
+        <a href="#" class="nav-link" data-tab="send">
+          <svg viewBox="0 0 20 20"><path d="M2 10h16M12 4l6 6-6 6"/></svg>
+          Send
+        </a>
+        <a href="#" class="nav-link" data-tab="receive">
+          <svg viewBox="0 0 20 20"><path d="M18 10H2M8 16l-6-6 6-6"/></svg>
+          Receive
+        </a>
+        <a href="#" class="nav-link" data-tab="transactions">
+          <svg viewBox="0 0 20 20"><path d="M3 5h14M3 10h14M3 15h9"/></svg>
+          Transactions
+        </a>
+        <div class="nav-divider">— NETWORK —</div>
+        <a href="#" class="nav-link" data-tab="mine">
+          <svg viewBox="0 0 20 20"><path d="M4 16l9-9 3 3-9 9H4v-3z"/><path d="M13 3l4 4"/></svg>
+          Mine
+        </a>
+        <div class="nav-divider">— SHIELDED —</div>
+        <a href="#" class="nav-link" data-tab="shield">
+          <svg viewBox="0 0 20 20"><path d="M10 2l7 3v5c0 4-3 7-7 8-4-1-7-4-7-8V5z"/></svg>
+          Shield
+        </a>
+        <a href="#" class="nav-link" data-tab="private-send">
+          <svg viewBox="0 0 20 20"><path d="M10 2l7 3v5c0 4-3 7-7 8-4-1-7-4-7-8V5z"/><path d="M7 10l2 2 4-4"/></svg>
+          Private Send
+        </a>
+        <a href="#" class="nav-link" data-tab="unshield">
+          <svg viewBox="0 0 20 20"><path d="M10 18l-7-3V10c0-4 3-7 7-8 4 1 7 4 7 8v5z"/></svg>
+          Unshield
+        </a>
+      </div>
+    </nav>
+
+    <!-- Main area -->
+    <main id="main-area">
+
+      <!-- ── Overview ──────────────────────────────────────────────── -->
+      <div id="tab-overview" class="tab-panel active">
+        <div class="panel-header">
+          <h2>Overview</h2>
+          <button class="btn-icon" id="btn-refresh" title="Refresh">↻</button>
+        </div>
+        <div class="overview-grid">
+          <div class="balance-card">
+            <div class="balance-label">Available Balance</div>
+            <div class="balance-amount" id="balance-embr">— EMBR</div>
+            <div class="balance-address mono" id="overview-address"></div>
+          </div>
+          <div class="balance-card shielded-card">
+            <div class="balance-label">🔒 Shielded Balance</div>
+            <div class="balance-amount" id="balance-shielded">— EMBR</div>
+            <button class="btn-small" id="btn-refresh-shielded">Check</button>
+          </div>
+        </div>
+        <div class="section-title">Recent Transactions</div>
+        <div id="recent-txs" class="tx-list">
+          <div class="tx-placeholder">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Send ─────────────────────────────────────────────────── -->
+      <div id="tab-send" class="tab-panel hidden">
+        <div class="panel-header"><h2>Send EMBR</h2></div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Recipient Address</label>
+            <input id="send-to" class="mono" type="text" placeholder="0x…">
+          </div>
+          <div class="form-row">
+            <label>Amount (EMBR)</label>
+            <div class="input-row">
+              <input id="send-amount" type="number" min="0" step="0.000001" placeholder="0.0">
+              <span class="input-suffix">EMBR</span>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Gas Limit <span class="hint">(default 21 000 for simple transfer)</span></label>
+            <input id="send-gas" type="number" value="21000" min="21000">
+          </div>
+          <div class="form-actions"><button class="btn-primary" id="btn-send">Send →</button></div>
+          <div id="send-result" class="result-box hidden"></div>
+        </div>
+      </div>
+
+      <!-- ── Receive ───────────────────────────────────────────────── -->
+      <div id="tab-receive" class="tab-panel hidden">
+        <div class="panel-header"><h2>Receive EMBR</h2></div>
+        <div class="receive-box">
+          <p class="hint">Share this address to receive EMBR.</p>
+          <img id="receive-qr" class="qr-code" alt="QR code" width="220" height="220">
+          <div class="receive-address-wrap">
+            <span id="receive-address" class="mono receive-address"></span>
+            <button class="btn-small" id="btn-copy-address">Copy</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Transactions ──────────────────────────────────────────── -->
+      <div id="tab-transactions" class="tab-panel hidden">
+        <div class="panel-header">
+          <h2>Transactions</h2>
+          <button class="btn-icon" id="btn-refresh-txs" title="Refresh">↻</button>
+        </div>
+        <div id="tx-list-full" class="tx-list">
+          <div class="tx-placeholder">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Mine ─────────────────────────────────────────────────── -->
+      <div id="tab-mine" class="tab-panel hidden">
+        <div class="panel-header"><h2>Mining</h2></div>
+
+        <div class="mine-config">
+          <div class="form-row">
+            <label>Mining Address <span class="hint">(auto-filled from your wallet)</span></label>
+            <input id="mine-address" class="mono" type="text" placeholder="0x…">
+          </div>
+          <div class="form-row">
+            <label>Intensity — <span id="mine-intensity-label">3 — Balanced</span></label>
+            <input id="mine-intensity" type="range" min="1" max="10" value="3">
+            <p class="hint" id="mine-intensity-desc">~6,000 hashes / batch (recommended)</p>
+          </div>
+        </div>
+
+        <button class="btn-mine" id="btn-mine">
+          <span id="btn-mine-icon">▶</span>
+          <span id="btn-mine-label">START MINING</span>
+        </button>
+
+        <!-- Stats -->
+        <div class="mine-stats">
+          <div class="mine-stat">
+            <div class="mine-stat-label">Hashrate</div>
+            <div class="mine-stat-val" id="mine-hashrate">— H/s</div>
+          </div>
+          <div class="mine-stat">
+            <div class="mine-stat-label">Shares Found</div>
+            <div class="mine-stat-val" id="mine-shares">0</div>
+          </div>
+          <div class="mine-stat">
+            <div class="mine-stat-label">Blocks Found</div>
+            <div class="mine-stat-val" id="mine-blocks">0</div>
+          </div>
+          <div class="mine-stat">
+            <div class="mine-stat-label">Block</div>
+            <div class="mine-stat-val" id="mine-blocknum">—</div>
+          </div>
+        </div>
+
+        <!-- Hashrate bar -->
+        <div class="hashbar-wrap">
+          <div class="hashbar-track">
+            <div class="hashbar-fill" id="hashbar-fill"></div>
+          </div>
+          <span id="hashbar-pct" class="hashbar-pct">0%</span>
+          <span class="hint">of network</span>
+        </div>
+
+        <!-- Log -->
+        <div class="mine-log-header">
+          <span class="section-title">Activity Log</span>
+          <button class="btn-small" id="btn-mine-clear">Clear</button>
+        </div>
+        <div id="mine-log" class="mine-log"></div>
+      </div>
+
+      <!-- ── Shield ───────────────────────────────────────────────── -->
+      <div id="tab-shield" class="tab-panel hidden">
+        <div class="panel-header"><h2>Shield Funds</h2></div>
+        <div class="privacy-explainer">
+          Move public EMBR into the shielded pool. Amounts and sender are cryptographically hidden using Pedersen commitments and ring signatures.
+        </div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Amount to Shield (EMBR)</label>
+            <div class="input-row">
+              <input id="shield-amount" type="number" min="0.000001" step="0.000001" placeholder="0.0">
+              <span class="input-suffix">EMBR</span>
+            </div>
+          </div>
+          <div class="form-actions"><button class="btn-primary" id="btn-shield">Shield →</button></div>
+          <div id="shield-result" class="result-box hidden"></div>
+        </div>
+      </div>
+
+      <!-- ── Private Send ──────────────────────────────────────────── -->
+      <div id="tab-private-send" class="tab-panel hidden">
+        <div class="panel-header"><h2>Private Send</h2></div>
+        <div class="privacy-explainer">
+          Send EMBR from your shielded balance. The transaction is hidden — no public record of the amount or sender.
+        </div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Recipient Address</label>
+            <input id="psend-to" class="mono" type="text" placeholder="0x…">
+          </div>
+          <div class="form-row">
+            <label>Amount (EMBR)</label>
+            <div class="input-row">
+              <input id="psend-amount" type="number" min="0.000001" step="0.000001" placeholder="0.0">
+              <span class="input-suffix">EMBR</span>
+            </div>
+          </div>
+          <div class="form-actions"><button class="btn-primary" id="btn-psend">Send Private →</button></div>
+          <div id="psend-result" class="result-box hidden"></div>
+        </div>
+      </div>
+
+      <!-- ── Unshield ──────────────────────────────────────────────── -->
+      <div id="tab-unshield" class="tab-panel hidden">
+        <div class="panel-header"><h2>Unshield Funds</h2></div>
+        <div class="privacy-explainer">Move funds from the shielded pool back to your public address.</div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Amount to Unshield (EMBR)</label>
+            <div class="input-row">
+              <input id="unshield-amount" type="number" min="0.000001" step="0.000001" placeholder="0.0">
+              <span class="input-suffix">EMBR</span>
+            </div>
+          </div>
+          <div class="form-actions"><button class="btn-primary" id="btn-unshield">Unshield →</button></div>
+          <div id="unshield-result" class="result-box hidden"></div>
+        </div>
+      </div>
+
+    </main>
+  </div><!-- /wallet-shell -->
+
+  <!-- Status bar -->
+  <div id="status-bar">
+    <span id="status-conn" id="status-conn" title="Click to change node" style="cursor:pointer;">⬤ Connecting…</span>
+    <span id="status-block"></span>
+    <span id="status-address" class="mono"></span>
+    <button id="btn-settings-open" title="Node settings" style="background:none;border:1px solid #333;border-radius:5px;color:#888;font-size:12px;padding:2px 8px;cursor:pointer;margin-right:4px;">⚙ Node</button>
+    <button id="btn-lock-small">🔒 Lock</button>
+  </div>
+</div><!-- /screen-wallet -->
+
+<script src="app.js"></script>
+</body>
+</html>

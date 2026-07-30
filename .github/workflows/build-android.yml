@@ -1,0 +1,155 @@
+name: Build EmberChain Android
+
+on:
+  push:
+    tags:
+      - "android-v*"
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "EAS build profile (preview = APK, production = AAB)"
+        required: false
+        default: "preview"
+
+jobs:
+  build:
+    name: EAS Build — Android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Expo + EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Initialize EAS project
+        working-directory: artifacts/mobile-wallet
+        run: eas init --non-interactive --force
+
+      - name: Build APK via EAS
+        id: eas-build
+        working-directory: artifacts/mobile-wallet
+        run: |
+          PROFILE="${{ github.event.inputs.profile || 'preview' }}"
+          echo "Building profile: $PROFILE"
+
+          # Redirect stderr to log, stdout (JSON) to file — keeps them separate
+          eas build \
+            --platform android \
+            --profile "$PROFILE" \
+            --non-interactive \
+            --json \
+            --no-wait \
+            > /tmp/build-meta.json 2>/tmp/build-stderr.log
+          cat /tmp/build-stderr.log
+          cat /tmp/build-meta.json
+
+          # Extract build ID from clean JSON stdout
+          BUILD_ID=$(python3 -c "
+          import sys, json
+          try:
+              data = json.load(open('/tmp/build-meta.json'))
+              builds = data if isinstance(data, list) else [data]
+              print(builds[0]['id'])
+          except Exception as e:
+              print('PARSE_ERROR: ' + str(e), file=sys.stderr)
+              sys.exit(1)
+          ")
+
+          echo "Build ID: $BUILD_ID"
+          echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
+
+      - name: Wait for build and download APK
+        working-directory: artifacts/mobile-wallet
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          BUILD_ID="${{ steps.eas-build.outputs.build_id }}"
+          echo "Waiting for build $BUILD_ID to complete..."
+
+          # Poll until done (max 90 min — EAS free tier queues can be long)
+          for i in $(seq 1 180); do
+            STATUS_JSON=$(eas build:view "$BUILD_ID" --json 2>/dev/null)
+            STATUS=$(echo "$STATUS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null)
+            echo "[$i] Status: $STATUS"
+
+            if [ "$STATUS" = "FINISHED" ]; then
+              ARTIFACT_URL=$(echo "$STATUS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['artifacts']['buildUrl'])" 2>/dev/null)
+              echo "Artifact URL: $ARTIFACT_URL"
+              curl -L "$ARTIFACT_URL" -o emberchain-android.apk
+              ls -lh emberchain-android.apk
+              break
+            elif [ "$STATUS" = "ERRORED" ] || [ "$STATUS" = "CANCELLED" ]; then
+              echo "Build failed with status: $STATUS"
+              echo "$STATUS_JSON"
+              exit 1
+            fi
+
+            sleep 30
+          done
+
+          if [ ! -f emberchain-android.apk ]; then
+            echo "Timed out waiting for build"; exit 1
+          fi
+
+      - name: Determine release tag
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=android-v1.0.0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: "EmberChain Android v1.0.0"
+          draft: false
+          prerelease: false
+          files: artifacts/mobile-wallet/emberchain-android.apk
+          body: |
+            ## EmberChain Android v1.0.0
+
+            The EmberChain mobile wallet for Android — your full EMBR wallet in your pocket.
+
+            ### Install
+
+            1. Download `emberchain-android.apk` below
+            2. On your Android device: **Settings → Security → Install unknown apps** → enable for your browser
+            3. Open the downloaded APK and tap **Install**
+            4. Launch **EmberChain** from your app drawer
+
+            ### Features
+            - Create or restore an EMBR wallet (BIP-39 seed phrase compatible)
+            - Send and receive public EMBR transactions
+            - Shield EMBR into the private pool — send without revealing sender, receiver, or amount
+            - Browser-based mining to your wallet address
+            - Community chat and forum
+            - PIN lock for in-app security
+
+            ### Requirements
+            - Android 8.0 (Oreo) or later
+            - ~50 MB storage
+
+            > **Desktop?** Get the all-in-one desktop app from the [Desktop release](../../releases).
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

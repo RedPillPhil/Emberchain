@@ -1,0 +1,22 @@
+ot@emberchain-seed-1:~/Emberchain/lib/emberchain-node/dist/downloads# grep -rn "getStatus\|totalSupply\|blocks\.length" ~/Emberchain/lib/ --include="*.ts" | grep -v "node_modules\|\.d\.ts" | head -20
+/root/Emberchain/lib/emberchain-wallet-electron/src/embedded-node.ts:108:    try { const s = await chain.getStatus(); cachedHeight = s.height; } catch { /* not ready */ }
+/root/Emberchain/lib/api-client-react/src/generated/api.schemas.ts:46:  totalSupply: string;
+/root/Emberchain/lib/chain-core/src/blockchain.payout.test.ts:44:  const parent = blocks[blocks.length - 1];
+/root/Emberchain/lib/chain-core/src/blockchain.payout.test.ts:252:    const parent = blocks[blocks.length - 1];
+/root/Emberchain/lib/chain-core/src/blockchain.payout.test.ts:303:    const parent = blocks[blocks.length - 1];
+/root/Emberchain/lib/chain-core/src/blockchain.payout.test.ts:331:    const parent = blocks[blocks.length - 1];
+/root/Emberchain/lib/chain-core/src/blockchain.payout.test.ts:357:    const parent = blocks[blocks.length - 1];
+/root/Emberchain/lib/chain-core/src/blockchain.payout.test.ts:384:    const parent = blocks[blocks.length - 1];
+/root/Emberchain/lib/chain-core/src/blockchain.ts:239:        if (this.blocks.length < persisted.blocks.length) {
+/root/Emberchain/lib/chain-core/src/blockchain.ts:240:          const removed = persisted.blocks.length - this.blocks.length;
+/root/Emberchain/lib/chain-core/src/blockchain.ts:341:      console.log(`[chain] 📦 Importing snapshot (${data.blocks.length} blocks) …`);
+/root/Emberchain/lib/chain-core/src/blockchain.ts:391:      const tip = this.blocks[this.blocks.length - 1]!;
+/root/Emberchain/lib/chain-core/src/blockchain.ts:457:    const fileBlocks = this.blocks.length > Blockchain.MAX_FILE_BLOCKS
+/root/Emberchain/lib/chain-core/src/blockchain.ts:796:  async getStatus() {
+/root/Emberchain/lib/chain-core/src/blockchain.ts:798:    const latest = this.blocks[this.blocks.length - 1];
+/root/Emberchain/lib/chain-core/src/blockchain.ts:801:    const minedBlocks = Math.max(0, this.blocks.length - 1);
+/root/Emberchain/lib/chain-core/src/blockchain.ts:802:    const totalSupply = (BigInt(minedBlocks) * BigInt(EMBERCHAIN_CONFIG.blockReward)).toString();
+/root/Emberchain/lib/chain-core/src/blockchain.ts:806:    if (this.blocks.length >= 3) {
+/root/Emberchain/lib/chain-core/src/blockchain.ts:833:      totalSupply,
+/root/Emberchain/lib/chain-core/src/blockchain.ts:876:    let cursor: StoredBlock | undefined = this.blocks[this.blocks.length - 1];
+root@emberchain-seed-1:~/Emberchain/lib/emberchain-node/dist/downloads#

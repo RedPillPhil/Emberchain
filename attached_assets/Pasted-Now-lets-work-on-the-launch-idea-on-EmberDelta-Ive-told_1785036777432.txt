@@ -1,0 +1,13 @@
+Now lets work on the launch idea on EmberDelta.
+
+Ive told you the idea I believe, but I will go over it again.
+
+A User who represents another blockchain can list their token on our dex. They pay a fee that will auto be added to a liquidity pair for wEMBR/ETH on base, the pair already exists, also contract creation gas fees will be taken from this.
+
+After they pay the fee, we will do the same things we did for ember/wEMBR... we will create wrapped ??? for them, automatically create the pair page on our dex wrapped ??? /ETH and wrapped ??? / wEMBR we will use the same and bridge contracts for these newly create tokens that we use for wEMBR, if we can. If we cant use the same bridge contracts.. create a new one on base that can be multi use for multiple tokens to be bridged through..then obviously once we get their chainrpc, we will have to launch the bridge contract on their side as well, on their chain. We ill also need the user to perfrom another transaction sending the address that the servers uses to launch the contracts gas to do so.. Is this everything we need? I think this is everything for that. For every bridge tx the bridge should take a fee in the gas token that goes to 0xa8f6efc25896c24ac6c9441f9f693c14517aa818
+
+Which btw does Ember Delta take fees? does it have tx fees that go to an address?
+
+Now for non evm coins, we will have to have the server handle escrow.. The user to list a non evm coin will still have to pay the fee in eth to list but instead of a smart contract bridge on the non evm side, we will just have to use escrow on the server. User pays fee to lis their coin, we make a wrapped version of it, we create the bridge on base side. since there is no bridge smart contract on their side we will use a server. A User will send PEPE coin for example to a wallet that is stored as the servers escrow wallet.. once the server receives it with multiple confirms, it will then mint the wrapped version on the server.. once the user wants to bridge back, the server will see that the user submitted the request to bridge off of base, and once the wrapped tokens ar burnt and tx completed, the server will then send the coins to the wallet the user requested.. now the hardest thing is how would the server be able to get a secure address on these custom non evm chains? if its an evm chain, the same private key and public address can be used for all chains, but can the same private key be used to create a public wallet on all other chains? how would the server know how to create this type of address securely? what info would the user that is listing his coin have to input so our server would know securely what kind of private key to generate to get a public address?
+
+I think this is the answer

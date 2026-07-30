@@ -1,0 +1,166 @@
+# Pokemon NFT MMO game
+
+## User
+
+take this github repo. it is a game built with rpg maker. We want to create a new game that has pokemon catch em type mechanics and battle mechanics. scripts like this already exist for rpg maker, so you should be able to create them fairly well. Pokemon should be an nft
+
+heres the idea we want
+
+A Pokemon style game, catch em, monster battle.
+With AI powered npcs
+NFT blockchain tech, pokemon, pokleballs etc are nfts
+also MMO, capable of real time playing with otehrs
+
+## Assistant
+
+This is a large vision — I'll start by exploring the repo structure and any existing RPG Maker scripts or plugins so we can map what’s already there and plan the catch/battle/NFT/MMO pieces.
+
+### Tool Glob File Search
+
+```
+{"targetDirectory":"C:\\Users\\robth\\Downloads\\gamebo-main","globPattern":"**/*"}
+```
+
+### Tool Read File V2
+
+```
+{}
+```
+
+### Tool Read File V2
+
+```
+{"path":"C:\\Users\\robth\\Downloads\\gamebo-main\\gamebo-main\\package.json"}
+```
+
+### Tool Read File V2
+
+```
+{"path":"C:\\Users\\robth\\Downloads\\gamebo-main\\gamebo-main\\js\\plugins.js"}
+```
+
+### Tool Read File V2
+
+```
+{"path":"C:\\Users\\robth\\Downloads\\gamebo-main\\gamebo-main\\data\\System.json","limit":80}
+```
+
+### Tool Read File V2
+
+```
+{"path":"C:\\Users\\robth\\Downloads\\gamebo-main\\gamebo-main\\index.html"}
+```
+
+### Tool Read File V2
+
+```
+{"path":"C:\\Users\\robth\\Downloads\\gamebo-main\\gamebo-main\\data\\Enemies.json","limit":50}
+```
+
+### Tool Read File V2
+
+```
+{"path":"C:\\Users\\robth\\Downloads\\gamebo-main\\gamebo-main\\data\\Actors.json","limit":30}
+```
+
+### Tool Read File V2
+
+```
+{"path":"C:\\Users\\robth\\Downloads\\gamebo-main\\gamebo-main\\data\\Items.json","limit":40}
+```
+
+## Assistant
+
+Found an RPG Maker MZ project ("CAPS: The Wasteland"). Building the foundation: core catch/battle plugins, MMO client, NFT bridge, AI NPC layer, and a backend server.
+
+### Tool Todo Write
+
+### Tool Edit File V2
+
+### Tool Edit File V2
+
+### Tool Edit File V2
+
+## Assistant
+
+Fixing a bug in the battle turn logic, then adding the MMO, NFT, and AI plugins.
+
+### Tool Edit File V2
+
+### Tool Edit File V2
+
+### Tool Edit File V2
+
+### Tool Edit File V2
+
+### Tool Edit File V2
+
+### Tool Edit File V2
+
+### Tool Edit File V2
+
+### Tool Edit File V2
+
+### Tool Edit File V2
+
+### Tool Edit File V2
+
+### Tool Read File V2
+
+```
+{"path":"C:\\Users\\robth\\Downloads\\gamebo-main\\gamebo-main\\data\\Skills.json","limit":30}
+```
+
+### Tool Read File V2
+
+```
+{"path":"C:\\Users\\robth\\Downloads\\gamebo-main\\gamebo-main\\data\\Skills.json"}
+```
+
+### Tool Read File V2
+
+```
+{"path":"C:\\Users\\robth\\Downloads\\gamebo-main\\gamebo-main\\data\\Items.json"}
+```
+
+### Tool Edit File V2
+
+### Tool Edit File V2
+
+### Tool Edit File V2
+
+### Tool Edit File V2
+
+### Tool Edit File V2
+
+### Tool Run Terminal Command V2
+
+### Tool Todo Write
+
+### Tool Run Terminal Command V2
+
+### Tool Await
+
+```
+{"taskId":"769108","blockUntilMs":60000,"regex":"added|exit_code|ERR!"}
+```
+
+### Tool Read File V2
+
+```
+{"path":"C:\\Users\\robth\\.cursor\\projects\\c-Users-robth-Downloads-gamebo-main\\terminals\\769108.txt"}
+```
+
+### Tool Await
+
+```
+{"taskId":"769108","blockUntilMs":120000,"regex":"added|exit_code|ERR!"}
+```
+
+### Tool Glob File Search
+
+```
+{"targetDirectory":"C:\\Users\\robth\\Downloads\\gamebo-main\\server","globPattern":"**/node_modules/**"}
+```
+
+### Tool Run Terminal Command V2

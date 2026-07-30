@@ -1,0 +1,13 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  "include": ["electron.vite.config.*", "src/main/**/*", "src/preload/**/*"],
+  "compilerOptions": {
+    "composite": true,
+    "types": ["electron-vite/node"],
+    "paths": {
+      "@workspace/chain-core": ["../../lib/chain-core/src/index.ts"],
+      "@workspace/api-zod":    ["../../lib/api-zod/src/index.ts"],
+      "@ember-daemon/*":       ["../../lib/ember-daemon/src/*"]
+    }
+  }
+}

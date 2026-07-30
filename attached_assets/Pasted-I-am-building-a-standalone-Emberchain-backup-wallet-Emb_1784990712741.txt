@@ -1,0 +1,169 @@
+I am building a standalone Emberchain backup wallet (Ember Wallet Lite) that connects directly to the Emberchain RPC. I need you to analyze the existing Emberchain codebase and provide the exact information needed to integrate the privacy/shielding features into a separate wallet frontend.
+
+Please do not give general explanations. I need the actual implementation details from the code.
+
+Find and report:
+
+1. Privacy transaction RPC methods
+
+Locate all custom JSON-RPC methods related to privacy, shielding, private transfers, stealth addresses, ring signatures, commitments, or confidential transactions.
+
+For each method provide:
+
+Exact RPC method name
+File location where it is implemented
+Required parameters
+Parameter order
+Example JSON-RPC request
+Example JSON-RPC response
+Any required authentication or special headers
+
+Example format:
+
+Method:
+ember_sendPrivateTransaction
+
+Location:
+src/rpc/xxxxx.ts
+
+Parameters:
+{
+  from:
+  to:
+  amount:
+  ...
+}
+
+Example:
+{
+ "jsonrpc":"2.0",
+ "method":"...",
+ "params":[...],
+ "id":1
+}
+2. Stealth address system
+
+Find the stealth address implementation.
+
+Tell me:
+
+How a wallet generates a stealth address
+Whether there is a public/private viewing key system
+Required inputs
+Required cryptographic libraries
+How a recipient detects incoming stealth payments
+Which RPC methods expose stealth transactions
+
+Provide example calls if they exist.
+
+3. Ring signature / LSAG implementation
+
+Find the ring signature code.
+
+Provide:
+
+File location
+Function names
+Inputs required to create a ring signature
+Number of decoys supported
+Default ring size
+How the wallet selects decoy outputs
+Whether the wallet creates the signature or the node creates it
+
+Example:
+
+Ring size:
+5
+
+Decoys:
+4
+
+Created by:
+wallet/node
+
+Function:
+createLSAGSignature()
+4. Pedersen commitment / confidential amount system
+
+Find the commitment implementation.
+
+Explain:
+
+How amounts are committed
+How commitments are generated
+How the wallet creates a private amount transaction
+Whether amounts are hidden on-chain
+How verification works
+
+Provide:
+
+Function names
+File paths
+RPC methods
+Required parameters
+5. Transaction creation flow
+
+Trace the full private transaction lifecycle:
+
+Example:
+
+Wallet
+ ↓
+Create stealth address
+ ↓
+Create commitment
+ ↓
+Create ring signature
+ ↓
+Submit RPC
+ ↓
+Node validates
+ ↓
+Block inclusion
+
+Give the actual functions/files involved.
+
+6. Existing wallet implementation
+
+Search the existing Emberchain wallet/frontend.
+
+Find:
+
+How the current website wallet creates transactions
+How it calls RPC
+Whether privacy features are already exposed anywhere
+Existing UI components we can reuse
+
+Provide file paths.
+
+7. Required additions for Ember Wallet Lite
+
+Based on the current code, tell me exactly what the standalone wallet needs:
+
+Example:
+
+Required frontend functions:
+
+createStealthAddress()
+generateCommitment()
+buildPrivateTransaction()
+submitPrivateTransaction()
+
+Required RPC methods:
+
+method1
+method2
+method3
+
+The goal is to build a lightweight emergency Emberchain wallet that supports:
+
+✅ Create wallet
+✅ Import private key
+✅ Show balance
+✅ Send normal EMBR
+✅ Receive EMBR
+✅ Private/shielded transactions
+✅ Stealth addresses
+✅ Ring signature privacy
+
+Please return the findings with exact filenames, functions, RPC names, and example payloads so another developer can implement the wallet without needing to understand the entire Emberchain node codebase.

@@ -1,0 +1,196 @@
+That error is actually useful. It means the node did receive the RPC call, but the address string it parsed was wrong.
+
+I see what happened: when you copied the command, the shell likely mangled the address variable or the quotes. Let's do it simpler with the exact address.
+
+Copy/paste this exactly:
+
+Emberchain.org
+curl -s -X POST https://emberchain.org/api/rpc \
+-H "Content-Type: application/json" \
+-d '{"jsonrpc":"2.0","method":"eth_getBalance","params":["0xa8F6eFC25896c24ac6c9441f9f693C14517aa818","0xc409"],"id":1}'
+DuckDNS
+curl -s -X POST https://emberchain.duckdns.org/api/rpc \
+-H "Content-Type: application/json" \
+-d '{"jsonrpc":"2.0","method":"eth_getBalance","params":["0xa8F6eFC25896c24ac6c9441f9f693C14517aa818","0xc409"],"id":1}'
+
+Do not change anything in the address.
+
+Also, one correction from my previous message: the stateRoot matching the block hash is unusual for a traditional Ethereum client, but since Emberchain is a custom EVM chain, that may be intentional. The important part is:
+
+block hash matches ✅
+height matches ✅
+parent hash matches ✅
+stateRoot matches ✅
+
+So the remaining mystery is why the RPC balance lookup disagrees.
+
+After the balance test, let's also check whether the two nodes are returning the same account data by querying the nonce:
+
+curl -s -X POST https://emberchain.org/api/rpc \
+-H "Content-Type: application/json" \
+-d '{"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["0xa8F6eFC25896c24ac6c9441f9f693C14517aa818","0xc409"],"id":1}'
+
+and the same against DuckDNS.
+
+If nonce differs too, we know the account state layer is different. If nonce matches but balance differs, it points more specifically toward reward/account balance handling.
+
+-H "Content-Type: application/json" \
+-d '{"jsonrpc":"2.0","method":"eth_getBalance","params":["0xa8F6eFC25896c24ac6c9441f9f693C14517aa818","0xc409"],"id":1}'
+{"jsonrpc":"2.0","id":1,"result":"0x8c7d9e6e0d93cccc9e4"}root@emberchaincurl -s -X POST https://emberchain.duckdns.org/api/rpc \ curl -s -X POST https://emberchain.duckdns.org/api/rpc \
+-H "Content-Type: application/json" \
+-d '{"jsonrpc":"2.0","method":"eth_getBalance","params":["0xa8F6eFC25896c24ac6c9441f9f693C14517aa818","0xc409"],"id":1}'
+{"jsonrpc":"2.0","id":1,"result":"0x8ca6772461e40549321"}root@emberchain-seed-1:~/Emberchain/lib/emberchain-node/dist/downloads#
+
+Okay, this confirms the problem is real.
+
+Same exact query:
+
+Address:
+0xa8F6eFC25896c24ac6c9441f9f693C14517aa818
+
+Block:
+0xc409
+
+Results:
+
+emberchain.org:
+0x8c7d9e6e0d93cccc9e4
+
+duckdns:
+0x8ca6772461e40549321
+
+Different balances.
+
+So we have:
+
+✅ Same block number
+✅ Same block hash
+✅ Same parentHash
+✅ Same reported stateRoot
+❌ Different account state returned by RPC
+
+This is not a normal sync issue. The nodes are agreeing on the chain tip but disagreeing when reading account state.
+
+The next thing I would check is whether this is affecting all accounts or just this one.
+
+Try the genesis/miner address from the block you showed:
+
+0x39040986a0e74b41c857f056ff05715ae969024f
+
+Run both:
+
+curl -s -X POST https://emberchain.org/api/rpc \
+-H "Content-Type: application/json" \
+-d '{"jsonrpc":"2.0","method":"eth_getBalance","params":["0x39040986a0e74b41c857f056ff05715ae969024f","0xc409"],"id":1}'
+
+and:
+
+curl -s -X POST https://emberchain.duckdns.org/api/rpc \
+-H "Content-Type: application/json" \
+-d '{"jsonrpc":"2.0","method":"eth_getBalance","params":["0x39040986a0e74b41c857f056ff05715ae969024f","0xc409"],"id":1}'
+
+Also, I want to check something important: your earlier output showed:
+
+[chain] State loaded from local file.
+
+That tells me Emberchain may not be rebuilding state from the chain every time. It may be storing a separate state.json/database.
+
+The likely scenario now:
+
+DuckDNS had its own state file.
+Replit had its own state file.
+They synced blocks.
+They did NOT sync the state database.
+
+The fix is probably not "resync blocks." It is probably:
+
+Pick the authoritative node (probably the one with the correct balances).
+Export/import or rebuild state.
+Make all nodes derive state from the same source.
+
+Before touching anything, let's find out if this is isolated or global.
+
+Run that miner address test next. If that differs too, we know the entire state database diverged. If only this address differs, we investigate transactions/rewards involving this wallet.
+
+-H "Content-Type: application/json" \
+-d '{"jsonrpc":"2.0","method":"eth_getBalance","params":["0x39040986a0e74b41c857f056ff05715ae969024f","0xc409"],"id":1}'
+{"jsonrpc":"2.0","id":1,"result":"0x10e3bd7a4b07a66f35"}root@emberchain-curl -s -X POST https://emberchain.duckdns.org/api/rpc \curl -s -X POST https://emberchain.duckdns.org/api/rpc \
+-H "Content-Type: application/json" \
+-d '{"jsonrpc":"2.0","method":"eth_getBalance","params":["0x39040986a0e74b41c857f056ff05715ae969024f","0xc409"],"id":1}'
+{"jsonrpc":"2.0","id":1,"result":"0x1116a37cddeead093f"}root@emberchain-seed-1:~/Emberchain/lib/emberchain-node/dist/downloads#
+
+Okay, this is now definitely a state database divergence, not a single wallet issue.
+
+We tested a completely different address:
+
+Miner address:
+0x39040986a0e74b41c857f056ff05715ae969024f
+
+Block:
+0xc409
+
+Results:
+
+emberchain.org:
+0x10e3bd7a4b07a66f35
+
+duckdns:
+0x1116a37cddeead093f
+
+Different again.
+
+So the pattern is:
+
+Check	Result
+Block height	✅ same
+Block hash	✅ same
+Parent hash	✅ same
+State root field	✅ same
+Account balances	❌ different
+
+That means the block synchronization is working, but the account state synchronization is not.
+
+What likely happened
+
+When the second node was brought online, it synced blocks:
+
+Block 1
+Block 2
+Block 3
+...
+Block 50100
+
+But Emberchain's balances are probably stored separately:
+
+chain.json        ✅ synced
+state.json/db     ❌ different
+
+The nodes are effectively saying:
+
+"We agree on the history, but we have different bank ledgers."
+
+Before changing anything, let's identify the authoritative node
+
+The question is:
+
+Which node has the correct state?
+
+Since your wallet UI was acting weird before and the Replit node was having issues, I would not assume either one yet.
+
+We need one more check:
+
+Pick a known wallet that you personally mined with. Check:
+
+wallet balance shown in the UI
+eth_getBalance from emberchain.org
+eth_getBalance from duckdns
+
+Whichever matches your actual expected balance tells us which state is correct.
+
+Also, send this to Replit:
+
+We discovered that block synchronization is working but state synchronization is not. Both nodes have identical block hash and height at block 0xc409, but eth_getBalance returns different balances for the same address at the same block. This indicates the sync system is exchanging blocks but not rebuilding/transferring account state. Need to investigate state persistence/state database synchronization.
+
+Do not wipe either node yet.
+
+The good news: this is actually a much better problem than a chain fork. The consensus layer appears healthy. We need to fix the state layer so every node derives the same balances.

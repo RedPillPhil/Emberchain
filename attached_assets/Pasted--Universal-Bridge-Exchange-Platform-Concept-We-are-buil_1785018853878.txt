@@ -1,0 +1,246 @@
+# Universal Bridge & Exchange Platform Concept
+
+We are building a new product (separate from Emberchain's existing DEX) that combines a decentralized exchange, bridge factory, and liquidity platform for new and low-volume blockchains.
+
+The exchange will be modeled after EtherDelta (or potentially built from a SwitchDEX fork), using an order-book style exchange rather than a traditional AMM.
+
+## Purpose
+
+The goal is to allow any blockchain project to bridge their native coin onto Base as a wrapped ERC-20 asset, giving them access to liquidity, trading, and the wider EVM ecosystem without requiring them to build and maintain their own bridge infrastructure.
+
+The platform should support both:
+
+* EVM-compatible blockchains
+* Non-EVM blockchains (Bitcoin-like/UTXO PoW chains)
+
+using different bridge architectures.
+
+---
+
+# EVM Chain Support
+
+The user submits a launch request including:
+
+* Blockchain name
+* Native token name
+* Native token symbol (do NOT include the "w")
+* RPC endpoint
+* Chain ID
+
+The platform automatically creates the wrapped token.
+
+Example:
+
+User enters:
+
+Symbol:
+EMBR
+
+The platform creates:
+
+wEMBR
+
+The user should never manually include the "w".
+
+---
+
+## Launch Fee
+
+The launch fee is:
+
+$20 worth of Base ETH.
+
+The website should automatically calculate the correct ETH amount based on the current ETH/USD price.
+
+When the user pays the launch fee:
+
+* The payment covers bridge deployment costs.
+* Gas costs for creating the wrapped token and bridge are deducted from the payment.
+* The remaining ETH is sent into a liquidity treasury contract.
+
+---
+
+## Automatic Liquidity
+
+Instead of keeping platform fees as profit, launch fees and trading fees are used to build liquidity.
+
+The liquidity contract accumulates ETH collected from:
+
+* Launch fees
+* Platform trading fees
+
+Once a configurable threshold is reached, the contract automatically adds liquidity for the wrapped token against ETH.
+
+Example:
+
+ETH collected
++
+wTOKEN
+
+↓
+
+Automatically create or increase the wTOKEN/ETH liquidity pool.
+
+The goal is for every project using the platform to continuously build deeper liquidity over time.
+
+---
+
+## Bridge Deployment
+
+The server maintains a dedicated bridge address.
+
+The user supplies:
+
+* RPC endpoint
+* Chain ID
+
+The server connects to the chain.
+
+The user must fund the bridge address with enough native tokens to pay deployment gas on their chain.
+
+Once the server verifies sufficient funds, it automatically deploys:
+
+* Bridge contracts
+* Lock contracts
+* Required infrastructure
+
+After deployment, users can bridge assets between the native chain and Base.
+
+---
+
+# Non-EVM Chain Support
+
+Non-EVM chains (Bitcoin forks, Litecoin forks, Pepecoin, Dogecoin, etc.) cannot deploy Solidity smart contracts.
+
+For these chains, the platform uses a transparent escrow-backed bridge.
+
+---
+
+## Bridge Creation
+
+The blockchain project submits:
+
+* Blockchain name
+* RPC information
+* Network information
+* Native token information
+
+The project then funds a bridge-controlled escrow wallet on the native chain.
+
+Example:
+
+1,000,000 PEPE
+
+is transferred into the escrow wallet.
+
+The escrow wallet balance becomes the reserve backing the wrapped asset.
+
+---
+
+## Wrapped Asset
+
+After the reserve is verified, the platform creates an ERC-20 token on Base.
+
+Example:
+
+Native reserve:
+
+1,000,000 PEPE
+
+↓
+
+Mint:
+
+1,000,000 wPEPE
+
+The wrapped supply must never exceed the escrow reserves.
+
+---
+
+## Native → Base
+
+A user wants to move coins onto Base.
+
+Process:
+
+1. User deposits native coins into the escrow wallet.
+2. The bridge backend detects the deposit.
+3. The backend verifies confirmations.
+4. Equivalent wrapped tokens are minted on Base.
+5. The user receives wrapped tokens.
+
+Example:
+
+500 PEPE deposited
+
+↓
+
+500 wPEPE minted.
+
+---
+
+## Base → Native
+
+A user wants to withdraw.
+
+Process:
+
+1. User sends wrapped tokens to the bridge contract.
+2. Wrapped tokens are burned.
+3. Backend detects the burn.
+4. Backend sends native coins from escrow to the user's native address.
+
+Example:
+
+500 wPEPE burned
+
+↓
+
+500 PEPE released from escrow.
+
+---
+
+# Escrow Security
+
+Initially, escrow wallets may be controlled by the bridge operator/server.
+
+Eventually this should evolve into:
+
+* Multisig custody
+* Multiple bridge operators
+* Decentralized validators
+* Public proof-of-reserves
+
+Every wrapped token should have a publicly viewable reserve wallet so anyone can verify:
+
+Escrow balance ≥ Wrapped token supply
+
+at all times.
+
+---
+
+# Exchange
+
+The exchange is separate from the bridge.
+
+It should function similarly to EtherDelta/SwitchDEX using an on-chain order book.
+
+Users should be able to trade wrapped assets against ETH and other assets without relying solely on AMM pools.
+
+This makes the platform much more suitable for newly launched or low-volume blockchain projects that don't yet have deep liquidity.
+
+---
+
+# Overall Vision
+
+The platform becomes a launchpad and liquidity gateway for independent blockchains.
+
+Projects can:
+
+* Launch a wrapped version of their coin.
+* Instantly gain access to Base.
+* Build liquidity automatically through platform fees.
+* Give their communities access to DeFi.
+* Bridge assets between their native blockchain and EVM ecosystems.
+
+The goal is to become the easiest way for emerging blockchain projects—especially small PoW chains—to connect their ecosystems to the broader crypto economy.

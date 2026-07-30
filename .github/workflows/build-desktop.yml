@@ -1,0 +1,170 @@
+name: Build EmberChain Desktop
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+  workflow_dispatch:
+
+jobs:
+  # ── Build on each platform ────────────────────────────────────────────────
+  build:
+    name: Build — ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+            builder_flag: --win
+          - os: macos-latest
+            label: macOS
+            builder_flag: --mac
+          - os: ubuntu-latest
+            label: Linux
+            builder_flag: --linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      # Workspace install gives bundle-node-engine.mjs access to esbuild
+      - name: Install workspace packages
+        run: pnpm install --frozen-lockfile
+
+      # Electron app has its own node_modules (electron-builder, ethers, etc.)
+      - name: Install Electron app dependencies
+        working-directory: lib/emberchain-wallet-electron
+        run: npm install
+
+      # Download a chain snapshot so the app ships pre-synced.
+      # Only run on Linux (one download is enough — all platforms share the file
+      # via git checkout, but here we bake it fresh per-build so it's current).
+      - name: Download chain snapshot
+        shell: bash
+        continue-on-error: true
+        run: |
+          curl -fsSL --max-time 300 --retry 2 --retry-delay 10 \
+            "https://emberchain.org/api/sync/snapshot" \
+            -o lib/emberchain-wallet-electron/chain-snapshot.json
+          BLOCKS=$(python3 -c "import json,sys; d=json.load(open('lib/emberchain-wallet-electron/chain-snapshot.json')); print(len(d.get('blocks',[])))" 2>/dev/null || echo "unknown")
+          echo "Snapshot downloaded: $BLOCKS blocks"
+
+      # Bundle the embedded chain node into node-engine-bundle.cjs
+      - name: Bundle embedded node engine
+        working-directory: lib/emberchain-wallet-electron
+        run: node scripts/bundle-node-engine.mjs
+
+      # Validate renderer files exist before building
+      - name: Validate renderer files
+        working-directory: lib/emberchain-wallet-electron
+        run: node scripts/build.mjs
+
+      # Build with electron-builder (produces win-unpacked on Windows, dmg on mac, AppImage on linux)
+      - name: Build app
+        working-directory: lib/emberchain-wallet-electron
+        run: npx electron-builder ${{ matrix.builder_flag }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      # Windows: zip win-unpacked folder — users extract and run EmberChain Desktop.exe directly.
+      # No NSIS installer — avoids conflicts with any previously installed versions.
+      - name: Create portable zip (Windows)
+        if: matrix.label == 'Windows'
+        shell: pwsh
+        working-directory: lib/emberchain-wallet-electron/dist
+        run: Compress-Archive -Path win-unpacked\* -DestinationPath EmberChain-Desktop-Windows.zip
+
+      # Upload artifacts for the release job
+      - name: Upload Windows artifact
+        if: matrix.label == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-Windows
+          path: lib/emberchain-wallet-electron/dist/EmberChain-Desktop-Windows.zip
+          if-no-files-found: error
+
+      - name: Upload macOS artifacts
+        if: matrix.label == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-macOS
+          path: lib/emberchain-wallet-electron/dist/*.dmg
+          if-no-files-found: error
+
+      - name: Upload Linux artifact
+        if: matrix.label == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-Linux
+          path: lib/emberchain-wallet-electron/dist/*.AppImage
+          if-no-files-found: error
+
+  # ── Attach all builds to a GitHub Release ────────────────────────────────
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Determine tag name
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=desktop-v1.0.0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: release-files
+          merge-multiple: true
+
+      - name: List release files
+        run: find release-files -type f | sort
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: "EmberChain Desktop ${{ steps.tag.outputs.name }}"
+          draft: false
+          prerelease: false
+          files: |
+            release-files/**/*.zip
+            release-files/**/*.dmg
+            release-files/**/*.AppImage
+          body: |
+            ## EmberChain Desktop ${{ steps.tag.outputs.name }}
+
+            Desktop wallet — connects to emberchain.org by default. No MetaMask, no Node.js, no command line.
+
+            | Platform | Download | How to run |
+            |----------|----------|------------|
+            | 🪟 Windows | `EmberChain-Desktop-Windows.zip` | Extract the zip → run **EmberChain Desktop.exe** |
+            | 🍎 macOS Intel | `*-x64.dmg` | Open DMG → drag to Applications |
+            | 🍎 macOS Apple Silicon | `*-arm64.dmg` | Open DMG → drag to Applications |
+            | 🐧 Linux | `*.AppImage` | `chmod +x *.AppImage` then run |
+
+            ### What's included
+            - **Wallet** — create/import wallets, send & receive EMBR
+            - **Node** — optional embedded node (start it from Settings if you want to run locally)
+            - **Miner** — one-click mining from the app
+            - **Private transactions** — shielded sends via the privacy pool
+
+            > **Android?** Get the [EmberChain Android Wallet](../../releases/tag/android-v1.0.0).
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

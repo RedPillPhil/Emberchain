@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/embermon/"
+title = "Embermon"
+version = "1.0.0"
+id = "artifacts/embermon"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/embermon/" ]
+localPort = 19938
+
+[services.development]
+run = "pnpm --filter @workspace/embermon run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/embermon", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/embermon/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19938"
+BASE_PATH = "/embermon/"
