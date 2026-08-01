@@ -67,7 +67,9 @@ export default function TransactionDetail() {
                   <dt className="text-muted-foreground font-sans font-bold uppercase tracking-widest text-xs md:col-span-1 flex items-center">To</dt>
                   <dd className="md:col-span-3 break-all">
                     {tx.to ? (
-                      <span className="bg-secondary/50 w-fit px-2 py-1 rounded-sm border border-border">{tx.to}</span>
+                      <span className="bg-secondary/50 w-fit px-2 py-1 rounded-sm border border-border">
+                        {tx.to.replace(/^=+/, "")}
+                      </span>
                     ) : (
                       <span className="text-accent italic font-sans font-bold uppercase text-xs tracking-widest">Contract Creation</span>
                     )}

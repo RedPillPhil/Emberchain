@@ -21,6 +21,10 @@ import { useSubmitChainTransaction } from "@/hooks/use-submit-chain-transaction"
 import { useGetWallet } from "@workspace/api-client-react";
 import { resolveApiServer } from "@/lib/api-server";
 import { maxSpendableEmbr, waitForChainTransaction } from "@/lib/chain-node";
+import {
+  EMBER_BRIDGE_ADDRESS,
+  EMBERCHAIN_BRIDGE_ADDRESS,
+} from "@/lib/bridge-contracts";
 import { isBridgeLegComplete, formatBridgeTime } from "@/lib/bridge-read";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -65,18 +69,18 @@ async function baseEthCall(to: string, data: string): Promise<string> {
 
 // ── Contract addresses (override via VITE_ env vars if redeployed) ───────────
 
-const EMBER_BRIDGE_ADDRESS =
-  import.meta.env.VITE_EMBER_BRIDGE_ADDRESS ??
-  "0x9362587019ea0e4ef90fbd981c615d4441d9d2c4"; // Bridge Lock on Emberchain
-const EMBERCHAIN_BRIDGE_ADDRESS =
-  import.meta.env.VITE_EMBERCHAIN_BRIDGE_ADDRESS ??
-  "0x1573EdF8F933601e6f37AC9B104cF62C7f85a0F4"; // EmberchainBridge on Base
-const EMBERSWAP_ADDRESS =
-  import.meta.env.VITE_EMBERSWAP_ADDRESS ??
-  "0x4e8821099cC706d9C4e6E7C05923C2950E361459"; // EmberSwap router on Base
-const WEMBR_ADDRESS =
-  import.meta.env.VITE_WEMBR_ADDRESS ??
-  "0x9362587019Ea0e4ef90fbd981c615d4441D9D2c4"; // wEMBR on Base
+function envAddress(value: string | undefined, fallback: string): string {
+  return (value ?? fallback).trim().replace(/^=+/, "");
+}
+
+const EMBERSWAP_ADDRESS = envAddress(
+  import.meta.env.VITE_EMBERSWAP_ADDRESS,
+  "0x4e8821099cC706d9C4e6E7C05923C2950E361459",
+);
+const WEMBR_ADDRESS = envAddress(
+  import.meta.env.VITE_WEMBR_ADDRESS,
+  "0x9362587019Ea0e4ef90fbd981c615d4441D9D2c4",
+);
 
 const UNISWAP_V2_ROUTER = "0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24";
 const WETH_ADDRESS = "0x4200000000000000000000000000000000000006";
@@ -452,7 +456,10 @@ const BASE_TOKENS: TokenInfo[] = [
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type BridgeStatus = "locked" | "pending" | "relayed" | "confirmed" | "failed";
+type BridgeStatus = "confirming" | "locked" | "pending" | "relayed" | "confirmed" | "failed";
+
+/** Typical time until an EMBR tx is mined (~3 blocks × 8s). */
+const BRIDGE_CONFIRM_ESTIMATE_SEC = 24;
 
 interface BridgeEvent {
   nonce: string;
@@ -897,6 +904,12 @@ function StatusBadge({ status }: { status: BridgeStatus }) {
         <CheckCircle2 className="w-3 h-3" /> Complete
       </Badge>
     );
+  if (status === "confirming")
+    return (
+      <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/40 uppercase text-xs gap-1">
+        <Loader2 className="w-3 h-3 animate-spin" /> Confirming
+      </Badge>
+    );
   if (status === "locked")
     return (
       <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/40 uppercase text-xs gap-1">
@@ -930,6 +943,9 @@ function bridgeStatusMessage(
     return direction === "embr_to_base"
       ? "wEMBR has been minted on Base."
       : "EMBR has been released on Emberchain.";
+  }
+  if (status === "confirming") {
+    return "Waiting for miners to confirm your lock on Emberchain…";
   }
   if (status === "locked") {
     return direction === "embr_to_base"
@@ -1322,7 +1338,25 @@ function BridgeTab() {
     direction: Direction;
   } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmCountdown, setConfirmCountdown] = useState<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopConfirmCountdown = useCallback(() => {
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    setConfirmCountdown(null);
+  }, []);
+
+  const startConfirmCountdown = useCallback(() => {
+    stopConfirmCountdown();
+    setConfirmCountdown(BRIDGE_CONFIRM_ESTIMATE_SEC);
+    countdownRef.current = setInterval(() => {
+      setConfirmCountdown((sec) => (sec !== null && sec > 0 ? sec - 1 : sec));
+    }, 1000);
+  }, [stopConfirmCountdown]);
 
   const tryRegisterBridge = useCallback(
     async (body: { txHash: string; baseRecipient: string; amount: string; nonce: string }) => {
@@ -1394,7 +1428,10 @@ function BridgeTab() {
   }, [activeWallet?.address, direction, embrRecipient]);
 
   // Poll bridge status after submission
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  useEffect(() => () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    stopConfirmCountdown();
+  }, [stopConfirmCountdown]);
 
   // EMBR → Base: create tx on EMBR chain, then register with bridge
   const submitEmbrToBase = async () => {
@@ -1439,9 +1476,18 @@ function BridgeTab() {
           },
           {
             onSuccess: async (tx) => {
+              setIsSubmitting(false);
+              startConfirmCountdown();
+              setBridgeStatus({
+                nonce: nonce.toString(),
+                status: "confirming",
+                txHash: tx.hash,
+                submittedAt: Date.now(),
+                direction: "embr_to_base",
+              });
               try {
                 await waitForChainTransaction(tx.hash);
-                setIsSubmitting(false);
+                stopConfirmCountdown();
                 setBridgeStatus({
                   nonce: nonce.toString(),
                   status: "locked",
@@ -1463,7 +1509,7 @@ function BridgeTab() {
                 });
                 resolve();
               } catch (err) {
-                setIsSubmitting(false);
+                stopConfirmCountdown();
                 setBridgeStatus({
                   nonce: nonce.toString(),
                   status: "failed",
@@ -1480,6 +1526,7 @@ function BridgeTab() {
               }
             },
             onError: (err: unknown) => {
+              stopConfirmCountdown();
               reject(err);
             },
           },
@@ -1805,6 +1852,7 @@ function BridgeTab() {
             className="w-full"
             disabled={
               isSubmitting ||
+              bridgeStatus?.status === "confirming" ||
               !amount ||
               (direction === "embr_to_base" && !activeWallet) ||
               (direction === "base_to_embr" && (!baseWallet.wallet || !baseWallet.isOnBase))
@@ -1813,10 +1861,20 @@ function BridgeTab() {
           >
             {isSubmitting ? (
               <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            ) : bridgeStatus?.status === "confirming" ? (
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
             ) : (
               <Zap className="w-4 h-4 mr-2" />
             )}
-            {isSubmitting ? "Processing…" : direction === "embr_to_base" ? "Bridge to Base" : "Bridge to EMBR"}
+            {isSubmitting
+              ? "Submitting lock…"
+              : bridgeStatus?.status === "confirming"
+              ? confirmCountdown !== null
+                ? `Confirming on-chain… ~${confirmCountdown}s`
+                : "Confirming on-chain…"
+              : direction === "embr_to_base"
+              ? "Bridge to Base"
+              : "Bridge to EMBR"}
           </Button>
         </CardContent>
       </Card>
@@ -1828,6 +1886,8 @@ function BridgeTab() {
             "border rounded-sm p-4 flex items-start justify-between gap-4",
             bridgeStatus.status === "confirmed" || bridgeStatus.status === "locked"
               ? "border-green-500/40 bg-green-500/5"
+              : bridgeStatus.status === "confirming"
+              ? "border-amber-500/40 bg-amber-500/5"
               : bridgeStatus.status === "failed"
               ? "border-red-500/40 bg-red-500/5"
               : "border-primary/30 bg-primary/5",
@@ -1845,6 +1905,11 @@ function BridgeTab() {
             <p className="text-xs text-foreground/80">
               {bridgeStatusMessage(bridgeStatus.status, bridgeStatus.direction)}
             </p>
+            {bridgeStatus.status === "confirming" && confirmCountdown !== null && (
+              <p className="text-xs text-amber-400/90 font-mono">
+                Estimated time remaining: ~{confirmCountdown}s
+              </p>
+            )}
             {bridgeStatus.txHash && (
               <div className="text-xs font-mono text-muted-foreground truncate">
                 {bridgeStatus.txHash}

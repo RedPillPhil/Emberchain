@@ -6,7 +6,7 @@ import type { PrefixedHexString } from "@ethereumjs/util";
 import type { SimpleStateManager } from "@ethereumjs/statemanager";
 import { createEmberchainCommon } from "./common";
 import { createStateManager, dumpState, loadState, getBalance, getNonce, credit, debit, ensureAccount } from "./state";
-import { generateWallet, walletFromPrivateKey, encodeTxPayload, signPayload, hashTransaction } from "./crypto";
+import { generateWallet, walletFromPrivateKey, encodeTxPayload, signPayload, hashTransaction, normalizeHexAddress } from "./crypto";
 import { mine, retargetDifficulty, batchSizeForIntensity, hashHeader, targetForDifficulty, MAX_TARGET, MIN_DIFFICULTY, type MinableHeader } from "./mining";
 import { loadChainFile, saveChainFile, flushChainFile, type PersistedChain } from "./persistence";
 import type {
@@ -620,12 +620,13 @@ export class Blockchain {
     const wallet = walletFromPrivateKey(input.fromPrivateKey);
     this.registerWallet(wallet.address, input.fromPrivateKey);
     const nonce = await getNonce(this.stateManager, wallet.address);
+    const to = normalizeHexAddress(input.to);
     const data = (input.data && input.data !== "" ? input.data : "0x") as PrefixedHexString;
     const gasLimit = input.gasLimit && input.gasLimit !== "" ? input.gasLimit : "3000000";
 
     const payload = encodeTxPayload({
       nonce,
-      to: input.to,
+      to,
       value: input.value,
       data,
       gasLimit,
@@ -649,7 +650,7 @@ export class Blockchain {
     const tx: StoredTransaction = {
       hash,
       from: wallet.address,
-      to: input.to as PrefixedHexString | null,
+      to: to as PrefixedHexString | null,
       value: input.value,
       nonce,
       gasLimit,
@@ -666,7 +667,7 @@ export class Blockchain {
     this.mempool.push({
       hash,
       from: wallet.address,
-      to: input.to as PrefixedHexString | null,
+      to: to as PrefixedHexString | null,
       value: BigInt(input.value),
       data,
       gasLimit: BigInt(gasLimit),

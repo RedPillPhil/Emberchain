@@ -44,6 +44,15 @@ export interface TxSignature {
   v: number;
 }
 
+export function normalizeHexAddress(addr: string | null | undefined): PrefixedHexString | null {
+  if (addr == null || addr === "") return null;
+  const cleaned = addr.trim().replace(/^=+/, "");
+  if (!/^0x[0-9a-fA-F]{40}$/i.test(cleaned)) {
+    throw new Error(`Invalid address: ${addr}`);
+  }
+  return cleaned.toLowerCase() as PrefixedHexString;
+}
+
 /** Deterministic byte encoding of the fields that make up a transaction's signing payload. */
 export function encodeTxPayload(fields: {
   nonce: number;

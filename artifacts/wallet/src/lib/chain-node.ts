@@ -1,7 +1,6 @@
 import type { Transaction, TransactionInput } from "@workspace/api-client-react";
-import { chainNodeApi, CHAIN_NODE_URL } from "@/lib/config";
-
-export { CHAIN_NODE_URL };
+import { chainNodeApi } from "@/lib/config";
+import { normalizeHexAddress } from "@/lib/utils";
 
 /** 1 gwei — matches lib/chain-core GAS_PRICE */
 export const CHAIN_GAS_PRICE = 1_000_000_000n;
@@ -9,10 +8,14 @@ export const CHAIN_GAS_PRICE = 1_000_000_000n;
 export async function submitChainTransaction(
   input: TransactionInput,
 ): Promise<Transaction> {
+  const body: TransactionInput = {
+    ...input,
+    to: input.to ? normalizeHexAddress(input.to) : null,
+  };
   const res = await fetch(chainNodeApi("/api/transactions"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify(body),
   });
   const ct = res.headers.get("content-type") ?? "";
   if (!ct.includes("application/json")) {
@@ -49,7 +52,12 @@ export async function waitForChainTransaction(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const tx = await getChainTransaction(hash);
-    if (tx && tx.status !== "pending") return tx;
+    if (tx && tx.status !== "pending") {
+      if (tx.status === "failed") {
+        throw new Error(tx.error ?? "Transaction failed on-chain");
+      }
+      return tx;
+    }
     await new Promise((r) => setTimeout(r, pollMs));
   }
   throw new Error(`Transaction ${hash} was not confirmed within ${timeoutMs / 1000}s`);
