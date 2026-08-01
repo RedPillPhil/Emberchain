@@ -1420,14 +1420,6 @@ function BridgeTab() {
       toast({ title: "Bridge contract not yet deployed", variant: "destructive" });
       return;
     }
-    if (!API && import.meta.env.PROD) {
-      toast({
-        title: "Bridge API not configured",
-        description: "Set VITE_API_URL to your api-server URL when building for production.",
-        variant: "destructive",
-      });
-      return;
-    }
 
     const nonce = BigInt(Date.now()); // unique bridge nonce
     const calldata = encLockEMBR(baseRecipient, nonce);
