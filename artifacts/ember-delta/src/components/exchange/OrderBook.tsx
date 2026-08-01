@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { formatNumber, cn } from '@/lib/utils';
 import { chainNodeApi } from '@/lib/config';
-import { useWriteContract, useAccount, useSignMessage } from 'wagmi';
-import { formatEther, parseAbi } from 'viem';
+import { useWriteContract, useAccount, useSignMessage, usePublicClient } from 'wagmi';
+import { formatEther } from 'viem';
 import { Loader2, X } from 'lucide-react';
 import {
   EMBER_DELTA_ADDRESS,
@@ -15,6 +15,7 @@ import {
   fetchRawOpenOrders,
   type ParsedOpenOrder,
 } from '@/lib/dex-orders';
+import { explainTradeError, prepareOrderFill, tradeArgs } from '@/lib/dex-trade';
 import type { TradeLogEntry } from '@/pages/Exchange';
 
 interface OrderBookProps {
@@ -45,6 +46,7 @@ export const OrderBook = React.memo(function OrderBook({
   refreshKey = 0,
 }: OrderBookProps) {
   const { address, chainId } = useAccount();
+  const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const { writeContractAsync } = useWriteContract();
   const { signMessageAsync } = useSignMessage();
 
@@ -80,13 +82,17 @@ export const OrderBook = React.memo(function OrderBook({
   const fetchOrders = useCallback(async () => {
     try {
       const raw = await fetchRawOpenOrders(tokenAddress);
-      setOpenOrders(parseOpenOrders(raw, tokenAddress, currentBlock));
+      let block = currentBlock;
+      if (block === 0n && publicClient) {
+        block = await publicClient.getBlockNumber();
+      }
+      setOpenOrders(parseOpenOrders(raw, tokenAddress, block));
     } catch (e) {
       console.error('OrderBook fetch error', e);
     } finally {
       setLoading(false);
     }
-  }, [tokenAddress, currentBlock]);
+  }, [tokenAddress, currentBlock, publicClient]);
 
   useEffect(() => {
     setLoading(true);
@@ -122,30 +128,25 @@ export const OrderBook = React.memo(function OrderBook({
   const fillOrder = async (order: ParsedOpenOrder) => {
     if (!address) { showFillToast('Connect wallet to fill orders', true); return; }
     if (chainId !== BASE_CHAIN_ID) { showFillToast('Switch to Base to fill orders', true); return; }
+    if (!publicClient) { showFillToast('RPC not ready — try again', true); return; }
 
     setFillingHash(order.hash);
-    showFillToast('Check MetaMask — confirm the fill transaction…');
+    showFillToast('Checking order…');
 
     try {
-      const amount = BigInt(order.amount_get);
+      const { amount, summary } = await prepareOrderFill(
+        publicClient,
+        order,
+        address as `0x${string}`,
+      );
+
+      showFillToast(`${summary} — confirm in MetaMask…`);
 
       const txHash = await writeContractAsync({
         address: EMBER_DELTA_ADDRESS,
         abi: EMBER_DELTA_ABI,
         functionName: 'trade',
-        args: [
-          order.token_get as `0x${string}`,
-          BigInt(order.amount_get),
-          order.token_give as `0x${string}`,
-          BigInt(order.amount_give),
-          BigInt(order.expires),
-          BigInt(order.nonce),
-          order.maker as `0x${string}`,
-          order.v,
-          order.r as `0x${string}`,
-          order.s as `0x${string}`,
-          amount,
-        ],
+        args: tradeArgs(order, amount),
       });
 
       await fetch(chainNodeApi(`/api/dex/orders/${order.hash}/fill`), {
@@ -155,14 +156,13 @@ export const OrderBook = React.memo(function OrderBook({
       }).catch(() => {});
 
       showFillToast(`Order filled — tx: ${txHash.slice(0, 10)}…`);
-      setOpenOrders(prev => prev.filter(o => o.hash !== order.hash));
-    } catch (e: unknown) {
-      const err = e as { message?: string; shortMessage?: string; code?: number };
-      if (err?.message?.includes('rejected') || err?.message?.includes('denied') || err?.code === 4001) {
-        showFillToast('Rejected', true);
+      if (amount >= BigInt(order.amount_get)) {
+        setOpenOrders(prev => prev.filter(o => o.hash !== order.hash));
       } else {
-        showFillToast(`Fill failed: ${err?.shortMessage ?? err?.message ?? 'unknown error'}`, true);
+        void fetchOrders();
       }
+    } catch (e: unknown) {
+      showFillToast(explainTradeError(e), true);
     } finally {
       setFillingHash(null);
     }
@@ -226,7 +226,7 @@ export const OrderBook = React.memo(function OrderBook({
           isMine ? "opacity-80 cursor-default" : "cursor-pointer",
           (filling || cancelling) && "animate-pulse",
         )}
-        title={isMine ? "Your order — click × to cancel" : `Click to fill this ${isAsk ? 'sell' : 'buy'} order`}
+        title={isMine ? "Your order — click × to cancel" : `Click to fill this ${isAsk ? 'sell' : 'buy'} order (requires ${isAsk ? 'ETH' : symbol} deposited in DEX)`}
       >
         <div
           className={cn(
