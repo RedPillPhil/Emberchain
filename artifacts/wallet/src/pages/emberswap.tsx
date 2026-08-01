@@ -17,7 +17,11 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { useActiveWallet } from "@/hooks/use-active-wallet";
 import { useBaseWallet } from "@/hooks/use-base-wallet";
-import { useCreateTransaction } from "@workspace/api-client-react";
+import { useSubmitChainTransaction } from "@/hooks/use-submit-chain-transaction";
+import { useGetWallet } from "@workspace/api-client-react";
+import { resolveApiServer } from "@/lib/api-server";
+import { maxSpendableEmbr, waitForChainTransaction } from "@/lib/chain-node";
+import { isBridgeLegComplete, formatBridgeTime } from "@/lib/bridge-read";
 import { useToast } from "@/hooks/use-toast";
 import {
   Zap,
@@ -59,14 +63,20 @@ async function baseEthCall(to: string, data: string): Promise<string> {
   return d.result as string;
 }
 
-// ── Contract addresses (set via VITE_ env vars after deployment) ─────────────
+// ── Contract addresses (override via VITE_ env vars if redeployed) ───────────
 
-const EMBER_BRIDGE_ADDRESS = import.meta.env.VITE_EMBER_BRIDGE_ADDRESS ?? ""; // on EMBR chain
-const EMBERCHAIN_BRIDGE_ADDRESS = import.meta.env.VITE_EMBERCHAIN_BRIDGE_ADDRESS ?? ""; // on Base
-const EMBERSWAP_ADDRESS = import.meta.env.VITE_EMBERSWAP_ADDRESS ?? ""; // on Base
+const EMBER_BRIDGE_ADDRESS =
+  import.meta.env.VITE_EMBER_BRIDGE_ADDRESS ??
+  "0x9362587019ea0e4ef90fbd981c615d4441d9d2c4"; // Bridge Lock on Emberchain
+const EMBERCHAIN_BRIDGE_ADDRESS =
+  import.meta.env.VITE_EMBERCHAIN_BRIDGE_ADDRESS ??
+  "0x1573EdF8F933601e6f37AC9B104cF62C7f85a0F4"; // EmberchainBridge on Base
+const EMBERSWAP_ADDRESS =
+  import.meta.env.VITE_EMBERSWAP_ADDRESS ??
+  "0x4e8821099cC706d9C4e6E7C05923C2950E361459"; // EmberSwap router on Base
 const WEMBR_ADDRESS =
   import.meta.env.VITE_WEMBR_ADDRESS ??
-  "0x9362587019Ea0e4ef90fbd981c615d4441D9D2c4"; // on Base
+  "0x9362587019Ea0e4ef90fbd981c615d4441D9D2c4"; // wEMBR on Base
 
 const UNISWAP_V2_ROUTER = "0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24";
 const WETH_ADDRESS = "0x4200000000000000000000000000000000000006";
@@ -442,7 +452,7 @@ const BASE_TOKENS: TokenInfo[] = [
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type BridgeStatus = "pending" | "relayed" | "confirmed" | "failed";
+type BridgeStatus = "locked" | "pending" | "relayed" | "confirmed" | "failed";
 
 interface BridgeEvent {
   nonce: string;
@@ -644,9 +654,8 @@ async function findBestRoute(
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-// Bridge/swap routes live on the api-server; using an absolute URL ensures
-// they work when the wallet is served from emberchain.org or any other host.
-const API = import.meta.env.DEV ? "" : "https://po-w-chain.replit.app";
+// Bridge/swap routes live on the api-server (always-on host, not Vercel).
+const API = resolveApiServer();
 
 async function apiFetch(path: string, opts?: RequestInit) {
   const r = await fetch(API + path, opts);
@@ -885,7 +894,13 @@ function StatusBadge({ status }: { status: BridgeStatus }) {
   if (status === "confirmed")
     return (
       <Badge className="bg-green-500/20 text-green-400 border-green-500/40 uppercase text-xs gap-1">
-        <CheckCircle2 className="w-3 h-3" /> Confirmed
+        <CheckCircle2 className="w-3 h-3" /> Complete
+      </Badge>
+    );
+  if (status === "locked")
+    return (
+      <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/40 uppercase text-xs gap-1">
+        <CheckCircle2 className="w-3 h-3" /> Locked on-chain
       </Badge>
     );
   if (status === "relayed")
@@ -902,9 +917,30 @@ function StatusBadge({ status }: { status: BridgeStatus }) {
     );
   return (
     <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/40 uppercase text-xs gap-1">
-      <Clock className="w-3 h-3" /> Pending
+      <Clock className="w-3 h-3" /> Awaiting relayer
     </Badge>
   );
+}
+
+function bridgeStatusMessage(
+  status: BridgeStatus,
+  direction: "embr_to_base" | "base_to_embr",
+): string {
+  if (status === "confirmed") {
+    return direction === "embr_to_base"
+      ? "wEMBR has been minted on Base."
+      : "EMBR has been released on Emberchain.";
+  }
+  if (status === "locked") {
+    return direction === "embr_to_base"
+      ? "Your EMBR lock is confirmed on Emberchain. wEMBR will arrive on Base once the relayer completes the bridge."
+      : "wEMBR was burned on Base. EMBR will arrive on Emberchain once the relayer releases it.";
+  }
+  if (status === "relayed") {
+    return "Relayer submitted the destination-chain transaction.";
+  }
+  if (status === "failed") return "This bridge request failed.";
+  return "Waiting for relayer to complete the bridge.";
 }
 
 // ── Not-deployed notice ───────────────────────────────────────────────────────
@@ -1250,8 +1286,15 @@ function BridgeTokenPicker({
 function BridgeTab() {
   const { activeWallet } = useActiveWallet();
   const baseWallet = useBaseWallet();
-  const createTx = useCreateTransaction();
+  const createTx = useSubmitChainTransaction();
+  const { data: walletData } = useGetWallet(activeWallet?.address ?? "", {
+    query: { enabled: !!activeWallet?.address },
+  });
   const { toast } = useToast();
+
+  const embrBalanceWei = walletData?.balance ? BigInt(walletData.balance) : 0n;
+  const bridgeGasLimit = 300000n;
+  const maxBridgeWei = maxSpendableEmbr(embrBalanceWei, bridgeGasLimit);
 
   // Token selection
   const [bridgeToken, setBridgeToken] = useState<"EMBR" | BridgeListing>("EMBR");
@@ -1275,9 +1318,66 @@ function BridgeTab() {
     nonce: string;
     status: BridgeStatus;
     txHash?: string;
+    submittedAt?: number;
+    direction: Direction;
   } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const tryRegisterBridge = useCallback(
+    async (body: { txHash: string; baseRecipient: string; amount: string; nonce: string }) => {
+      if (!API) return;
+      const deadline = Date.now() + 90_000;
+      while (Date.now() < deadline) {
+        const r = await fetch(API + "/api/bridge/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (r.status === 201 || r.status === 200) return;
+        if (r.status !== 202 && r.status !== 404) return;
+        await new Promise((w) => setTimeout(w, 3000));
+      }
+    },
+    [API],
+  );
+
+  // Poll on-chain completion (works without api-server) + optional API status
+  const startBridgePoll = useCallback(
+    (nonce: string, dir: Direction) => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(async () => {
+        try {
+          const complete = await isBridgeLegComplete(dir, nonce);
+          if (complete) {
+            setBridgeStatus((prev) => (prev ? { ...prev, status: "confirmed" } : null));
+            clearInterval(pollRef.current!);
+            toast({
+              title: "Bridge complete",
+              description:
+                dir === "embr_to_base" ? "wEMBR is now on Base." : "EMBR has been released on Emberchain.",
+            });
+            return;
+          }
+          if (API) {
+            try {
+              const data = await apiFetch(`/api/bridge/status/${nonce}`);
+              const status = data.status as BridgeStatus;
+              if (status === "relayed" || status === "confirmed") {
+                setBridgeStatus((prev) => (prev ? { ...prev, status } : null));
+                if (status === "confirmed") clearInterval(pollRef.current!);
+              }
+            } catch {
+              /* api-server optional */
+            }
+          }
+        } catch {
+          /* ignore transient RPC errors */
+        }
+      }, 4000);
+    },
+    [API, toast],
+  );
 
   // Auto-fill MetaMask address as baseRecipient
   useEffect(() => {
@@ -1294,22 +1394,6 @@ function BridgeTab() {
   }, [activeWallet?.address, direction, embrRecipient]);
 
   // Poll bridge status after submission
-  const pollStatus = useCallback((nonce: string) => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
-      try {
-        const data = await apiFetch(`/api/bridge/status/${nonce}`);
-        const status = data.status as BridgeStatus;
-        setBridgeStatus((prev) => prev ? { ...prev, status } : null);
-        if (status === "confirmed" || status === "failed") {
-          clearInterval(pollRef.current!);
-        }
-      } catch {
-        // ignore transient errors
-      }
-    }, 5000);
-  }, []);
-
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   // EMBR → Base: create tx on EMBR chain, then register with bridge
@@ -1320,12 +1404,28 @@ function BridgeTab() {
       toast({ title: "Enter a valid amount", variant: "destructive" });
       return;
     }
+    if (amountWei > maxBridgeWei) {
+      toast({
+        title: "Insufficient EMBR",
+        description: `Available: ${formatWei(maxBridgeWei.toString())} EMBR (gas reserve included).`,
+        variant: "destructive",
+      });
+      return;
+    }
     if (!/^0x[0-9a-fA-F]{40}$/.test(baseRecipient)) {
       toast({ title: "Enter a valid Base recipient address", variant: "destructive" });
       return;
     }
     if (!EMBER_BRIDGE_ADDRESS) {
       toast({ title: "Bridge contract not yet deployed", variant: "destructive" });
+      return;
+    }
+    if (!API && import.meta.env.PROD) {
+      toast({
+        title: "Bridge API not configured",
+        description: "Set VITE_API_URL to your api-server URL when building for production.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -1348,48 +1448,39 @@ function BridgeTab() {
           {
             onSuccess: async (tx) => {
               try {
-                // Retry registration until the tx is confirmed on-chain (server returns
-                // 202 while tx is still pending) or we give up after 30 s.
-                const body = JSON.stringify({
+                await waitForChainTransaction(tx.hash);
+                setIsSubmitting(false);
+                setBridgeStatus({
+                  nonce: nonce.toString(),
+                  status: "locked",
+                  txHash: tx.hash,
+                  submittedAt: Date.now(),
+                  direction: "embr_to_base",
+                });
+                startBridgePoll(nonce.toString(), "embr_to_base");
+                setAmount("");
+                toast({
+                  title: "EMBR locked on-chain",
+                  description: "Your lock is confirmed. wEMBR will arrive on Base once the relayer completes the bridge.",
+                });
+                void tryRegisterBridge({
                   txHash: tx.hash,
                   baseRecipient,
                   amount: amountWei.toString(),
                   nonce: nonce.toString(),
                 });
-                let registered = false;
-                const deadline = Date.now() + 30_000;
-                while (!registered && Date.now() < deadline) {
-                  const r = await fetch(API + "/api/bridge/register", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body,
-                  });
-                  if (r.status === 202) {
-                    // tx still pending on-chain — wait 3 s then retry
-                    await new Promise((w) => setTimeout(w, 3000));
-                    continue;
-                  }
-                  if (r.status === 201 || r.status === 200) {
-                    registered = true;
-                    break;
-                  }
-                  // Any other non-2xx status is a hard error
-                  const json = await r.json().catch(() => ({}));
-                  throw new Error((json as { error?: string }).error ?? `HTTP ${r.status}`);
-                }
-                if (!registered) {
-                  throw new Error("Timed out waiting for EMBR chain confirmation — registration will retry automatically.");
-                }
-                setBridgeStatus({ nonce: nonce.toString(), status: "pending", txHash: tx.hash });
-                pollStatus(nonce.toString());
-                setAmount("");
-                toast({ title: "Bridge request submitted", description: "wEMBR will arrive on Base in ~2 min" });
                 resolve();
               } catch (err) {
-                // Tx sent but registration failed — surface the error clearly
-                setBridgeStatus({ nonce: nonce.toString(), status: "pending", txHash: tx.hash });
+                setIsSubmitting(false);
+                setBridgeStatus({
+                  nonce: nonce.toString(),
+                  status: "failed",
+                  txHash: tx.hash,
+                  submittedAt: Date.now(),
+                  direction: "embr_to_base",
+                });
                 toast({
-                  title: "Registration failed",
+                  title: "Bridge failed",
                   description: (err as Error).message,
                   variant: "destructive",
                 });
@@ -1480,11 +1571,18 @@ function BridgeTab() {
         data,
       });
 
-      setBridgeStatus({ nonce: nonce.toString(), status: "pending", txHash });
+      setBridgeStatus({
+        nonce: nonce.toString(),
+        status: "locked",
+        txHash,
+        submittedAt: Date.now(),
+        direction: "base_to_embr",
+      });
+      startBridgePoll(nonce.toString(), "base_to_embr");
       setAmount("");
       toast({
-        title: "Bridge submitted",
-        description: "EMBR will be released on-chain in ~2 min",
+        title: "wEMBR burned on Base",
+        description: "Transaction confirmed. EMBR will be released on Emberchain once the relayer completes the bridge.",
       });
     } catch (err) {
       toast({
@@ -1620,15 +1718,35 @@ function BridgeTab() {
       <Card className="border-border bg-card/80 rounded-sm">
         <CardContent className="p-6 space-y-4">
           <div className="space-y-2">
-            <Label className="uppercase text-xs font-bold tracking-widest text-muted-foreground">
-              Amount (EMBR)
-            </Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="uppercase text-xs font-bold tracking-widest text-muted-foreground">
+                Amount (EMBR)
+              </Label>
+              {direction === "embr_to_base" && activeWallet && (
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline font-bold uppercase tracking-widest"
+                  onClick={() => setAmount(formatWei(maxBridgeWei.toString(), 6))}
+                  disabled={maxBridgeWei === 0n}
+                >
+                  Max ({formatWei(maxBridgeWei.toString())})
+                </button>
+              )}
+            </div>
             <Input
               placeholder="0.00"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className="font-mono text-lg bg-secondary/50 border-border"
             />
+            {direction === "embr_to_base" && activeWallet && (
+              <p className="text-xs text-muted-foreground">
+                Balance: {formatWei(embrBalanceWei.toString())} EMBR
+                {maxBridgeWei < embrBalanceWei && (
+                  <> · ~0.0003 EMBR reserved for gas</>
+                )}
+              </p>
+            )}
           </div>
 
           {direction === "embr_to_base" ? (
@@ -1715,21 +1833,29 @@ function BridgeTab() {
       {bridgeStatus && (
         <div
           className={cn(
-            "border rounded-sm p-4 flex items-center justify-between gap-4",
-            bridgeStatus.status === "confirmed"
+            "border rounded-sm p-4 flex items-start justify-between gap-4",
+            bridgeStatus.status === "confirmed" || bridgeStatus.status === "locked"
               ? "border-green-500/40 bg-green-500/5"
               : bridgeStatus.status === "failed"
               ? "border-red-500/40 bg-red-500/5"
               : "border-primary/30 bg-primary/5",
           )}
         >
-          <div className="min-w-0">
-            <div className="text-xs text-muted-foreground uppercase font-bold tracking-widest mb-1">
+          <div className="min-w-0 space-y-1">
+            <div className="text-xs text-muted-foreground uppercase font-bold tracking-widest">
               Bridge Request #{bridgeStatus.nonce}
             </div>
+            {bridgeStatus.submittedAt && (
+              <div className="text-xs text-muted-foreground">
+                Submitted {formatBridgeTime(bridgeStatus.submittedAt)}
+              </div>
+            )}
+            <p className="text-xs text-foreground/80">
+              {bridgeStatusMessage(bridgeStatus.status, bridgeStatus.direction)}
+            </p>
             {bridgeStatus.txHash && (
               <div className="text-xs font-mono text-muted-foreground truncate">
-                {bridgeStatus.txHash.slice(0, 20)}…
+                {bridgeStatus.txHash}
               </div>
             )}
           </div>

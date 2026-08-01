@@ -241,6 +241,11 @@ let _handle: RelayerHandle | null = null;
 export function startBridgeRelayer(): RelayerHandle {
   if (_handle) return _handle;
 
+  if (process.env["BRIDGE_RELAYER_ENABLED"] === "false") {
+    logger.warn("[relayer] Bridge relayer disabled (BRIDGE_RELAYER_ENABLED=false)");
+    return { stop() {} };
+  }
+
   const cfg = getConfig();
   const stopSignal = { stopped: false };
   const loops: Promise<void>[] = [];

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Shell } from "@/components/layout/shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,17 +9,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { useActiveWallet } from "@/hooks/use-active-wallet";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
 import {
-  useListExchangeListings,
-  useCreateListing,
-  useCancelListing,
-  useBuyListing,
-  useReserveListing,
-  useGetChainStatus,
-  getListExchangeListingsQueryKey,
-} from "@workspace/api-client-react";
-import type { ExchangeListing, ExchangeCurrency } from "@workspace/api-client-react";
+  useExchangeListings,
+  useExchangeCreate,
+  useExchangeCancel,
+  useExchangeBuy,
+  useExchangeReserve,
+  type ExchangeListing,
+} from "@/hooks/use-exchange-listings";
+import type { ExchangeCurrency } from "@workspace/api-client-react";
+import { useGetChainStatus } from "@workspace/api-client-react";
 import {
   Store,
   Plus,
@@ -37,7 +36,9 @@ import {
   Lock,
   ShieldCheck,
   CreditCard,
+  ArrowLeftRight,
 } from "lucide-react";
+import { Link } from "wouter";
 import {
   LineChart,
   Line,
@@ -186,7 +187,7 @@ function useCountdown(until: number | null): number {
 // ── trade history ─────────────────────────────────────────────────────────────
 
 function TradeHistoryTab() {
-  const { data: fulfilled = [], isLoading, isError } = useListExchangeListings({ status: "fulfilled" });
+  const { data: fulfilled = [], isLoading, isError } = useExchangeListings("fulfilled");
 
   const avgPrices = React.useMemo(() => {
     const byCurrency: Record<string, { totalPrice: number; totalEmbr: number; count: number }> = {};
@@ -219,7 +220,7 @@ function TradeHistoryTab() {
       <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
         <AlertTriangle className="w-12 h-12 text-destructive/40" />
         <p className="text-muted-foreground font-bold uppercase">Could not load trade history</p>
-        <p className="text-sm text-muted-foreground">The exchange API is only available at <span className="text-foreground font-mono">po-w-chain.replit.app</span>. Reload the page to retry.</p>
+        <p className="text-sm text-muted-foreground">Could not reach the exchange API. Showing cached listings from the bundled snapshot when available.</p>
       </div>
     );
   }
@@ -320,7 +321,6 @@ function BuyPanel({
   onClose: () => void;
 }) {
   const { toast } = useToast();
-  const qc = useQueryClient();
 
   // If I already hold an active reservation from a previous visit, start in "reserved"
   const alreadyReserved =
@@ -365,61 +365,64 @@ function BuyPanel({
     : EXPLORER_LINKS[listing.currency];
 
   // Reserve mutation
-  const reserve = useReserveListing({
-    mutation: {
-      onSuccess: (data) => {
-        setReservedUntil(data.reservedUntil);
-        setPhase("reserved");
-        qc.invalidateQueries({ queryKey: getListExchangeListingsQueryKey() });
-      },
-      onError: (err: unknown) => {
-        const msg = (err as { message?: string })?.message ?? "Could not reserve listing";
-        toast({ variant: "destructive", title: "Reservation failed", description: msg });
-      },
-    },
-  });
+  const reserve = useExchangeReserve();
 
   // Buy mutation
-  const buy = useBuyListing({
-    mutation: {
-      onSuccess: () => {
-        toast({ title: "Payment verified!", description: "EMBR has been credited to your wallet." });
-        qc.invalidateQueries({ queryKey: getListExchangeListingsQueryKey() });
-        onClose();
-      },
-      onError: (err: unknown) => {
-        const data = (err as { data?: { code?: string; originalListingId?: string; currency?: string; error?: string } })?.data;
-
-        if (data?.code === "DUPLICATE_PROOF") {
-          const detail = data.originalListingId
-            ? `This transaction was already used to fulfill listing ${data.originalListingId}.`
-            : "This transaction was already used to fulfill a different listing.";
-          toast({ variant: "destructive", title: "Transaction already used", description: detail });
-        } else if (data?.code === "LISTING_RESERVED") {
-          toast({ variant: "destructive", title: "Listing reserved", description: data.error ?? "Another buyer holds the reservation." });
-        } else {
-          const msg = (err as { message?: string })?.message ?? "Verification failed";
-          toast({ variant: "destructive", title: "Verification failed", description: msg });
-        }
-      },
-    },
-  });
+  const buy = useExchangeBuy();
 
   const handleReserve = () => {
-    reserve.mutate({ id: listing.id, data: { buyerAddress: myAddress } });
+    reserve.mutate(
+      { id: listing.id, buyerAddress: myAddress },
+      {
+        onSuccess: (data) => {
+          setReservedUntil(data.reservedUntil);
+          setPhase("reserved");
+        },
+        onError: (err: unknown) => {
+          const msg = err instanceof Error ? err.message : "Could not reserve listing";
+          toast({ variant: "destructive", title: "Reservation failed", description: msg });
+        },
+      },
+    );
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!buyerAddress.trim() || !paymentTxHash.trim()) return;
-    buy.mutate({
-      id: listing.id,
-      data: {
-        buyerAddress: buyerAddress.trim(),
-        paymentTxHash: paymentTxHash.trim(),
-        selectedNetwork: listing.currency === "USDT" ? selectedNetwork : undefined,
+    buy.mutate(
+      {
+        id: listing.id,
+        data: {
+          buyerAddress: buyerAddress.trim(),
+          paymentTxHash: paymentTxHash.trim(),
+          selectedNetwork: listing.currency === "USDT" ? selectedNetwork : undefined,
+        },
       },
-    });
+      {
+        onSuccess: () => {
+          toast({ title: "Payment verified!", description: "EMBR has been credited to your wallet." });
+          onClose();
+        },
+        onError: (err: unknown) => {
+          const data = (err as { data?: { code?: string; originalListingId?: string; error?: string } })?.data;
+          if (data?.code === "DUPLICATE_PROOF") {
+            const detail = data.originalListingId
+              ? `This transaction was already used to fulfill listing ${data.originalListingId}.`
+              : "This transaction was already used to fulfill a different listing.";
+            toast({ variant: "destructive", title: "Transaction already used", description: detail });
+          } else if (data?.code === "LISTING_RESERVED") {
+            toast({
+              variant: "destructive",
+              title: "Listing reserved",
+              description: data.error ?? "Another buyer holds the reservation.",
+            });
+          } else {
+            const msg = err instanceof Error ? err.message : "Verification failed";
+            toast({ variant: "destructive", title: "Verification failed", description: msg });
+          }
+        },
+      },
+    );
   };
 
   // ── Idle phase: reserve prompt ────────────────────────────────────────────
@@ -638,10 +641,7 @@ function fmtDate(iso: string | undefined | null): string {
 
 function MarketplaceTab() {
   const { activeWallet } = useActiveWallet();
-  const { data: listings = [], isLoading, isError } = useListExchangeListings(
-    { status: "open" },
-    { query: { refetchInterval: false } },
-  );
+  const { data: listings = [], isLoading, isError } = useExchangeListings("open", { refetchInterval: false });
   const [sortBy, setSortBy] = useState<MarketSort>("newest");
   const [spots, setSpots] = useState<Partial<Record<ExchangeCurrency, number>>>({});
 
@@ -681,7 +681,7 @@ function MarketplaceTab() {
       <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
         <AlertTriangle className="w-12 h-12 text-destructive/40" />
         <p className="text-muted-foreground font-bold uppercase">Could not load marketplace</p>
-        <p className="text-sm text-muted-foreground">The exchange API is only available at <span className="text-foreground font-mono">po-w-chain.replit.app</span>. Reload the page to retry.</p>
+        <p className="text-sm text-muted-foreground">Could not reach the exchange API. Showing cached listings from the bundled snapshot when available.</p>
       </div>
     );
   }
@@ -841,7 +841,6 @@ const CURRENCIES: ExchangeCurrency[] = ["ETH", "USDT", "BTC", "SOL"];
 function CreateListingTab() {
   const { activeWallet } = useActiveWallet();
   const { toast } = useToast();
-  const qc = useQueryClient();
 
   const [amountEmbr, setAmountEmbr] = useState("");
   const [currency, setCurrency] = useState<ExchangeCurrency>("ETH");
@@ -865,19 +864,7 @@ function CreateListingTab() {
     });
   };
 
-  const create = useCreateListing({
-    mutation: {
-      onSuccess: () => {
-        toast({ title: "Listing created!", description: "Your EMBR is now locked in escrow and visible in the marketplace." });
-        qc.invalidateQueries({ queryKey: getListExchangeListingsQueryKey() });
-        setAmountEmbr(""); setPriceAmount(""); setReceiveAddress(""); setEvmAddress(""); setTronAddress(""); setAcceptedNets(["ERC-20"]);
-      },
-      onError: (err: unknown) => {
-        const msg = (err as { message?: string })?.message ?? "Failed to create listing";
-        toast({ variant: "destructive", title: "Error", description: msg });
-      },
-    },
-  });
+  const create = useExchangeCreate();
 
   if (!activeWallet) {
     return (
@@ -888,6 +875,21 @@ function CreateListingTab() {
       </div>
     );
   }
+
+  const createSuccess = () => {
+    toast({ title: "Listing created!", description: "Your EMBR is now locked in escrow and visible in the marketplace." });
+    setAmountEmbr("");
+    setPriceAmount("");
+    setReceiveAddress("");
+    setEvmAddress("");
+    setTronAddress("");
+    setAcceptedNets(["ERC-20"]);
+  };
+
+  const createError = (err: unknown) => {
+    const msg = err instanceof Error ? err.message : "Failed to create listing";
+    toast({ variant: "destructive", title: "Error", description: msg });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -919,27 +921,33 @@ function CreateListingTab() {
       }
       // Primary receiveAddress = EVM address if any, otherwise Tron
       const primaryAddress = hasEvmNets ? evmAddress.trim() : tronAddress.trim();
-      create.mutate({
-        data: {
-          sellerPrivateKey: activeWallet.privateKey,
-          amountEmbr: amountWei,
-          currency,
-          priceAmount: priceAmount.trim(),
-          receiveAddress: primaryAddress,
-          acceptedNetworks: acceptedNets,
-          networkAddresses,
+      create.mutate(
+        {
+          data: {
+            sellerPrivateKey: activeWallet.privateKey,
+            amountEmbr: amountWei,
+            currency,
+            priceAmount: priceAmount.trim(),
+            receiveAddress: primaryAddress,
+            acceptedNetworks: acceptedNets,
+            networkAddresses,
+          },
         },
-      });
+        { onSuccess: createSuccess, onError: createError },
+      );
     } else {
-      create.mutate({
-        data: {
-          sellerPrivateKey: activeWallet.privateKey,
-          amountEmbr: amountWei,
-          currency,
-          priceAmount: priceAmount.trim(),
-          receiveAddress: receiveAddress.trim(),
+      create.mutate(
+        {
+          data: {
+            sellerPrivateKey: activeWallet.privateKey,
+            amountEmbr: amountWei,
+            currency,
+            priceAmount: priceAmount.trim(),
+            receiveAddress: receiveAddress.trim(),
+          },
         },
-      });
+        { onSuccess: createSuccess, onError: createError },
+      );
     }
   };
 
@@ -1101,28 +1109,19 @@ function CreateListingTab() {
 function MyListingsTab() {
   const { activeWallet } = useActiveWallet();
   const { toast } = useToast();
-  const qc = useQueryClient();
 
-  const { data: allListings = [], isLoading } = useListExchangeListings(
-    activeWallet ? { seller: activeWallet.address } : undefined,
-    { query: { enabled: !!activeWallet } }
-  );
-
-  // Ensure allListings is an array
-  const allListingsArray = Array.isArray(allListings) ? allListings : [];
-
-  const cancel = useCancelListing({
-    mutation: {
-      onSuccess: () => {
-        toast({ title: "Listing cancelled", description: "EMBR has been returned to your balance." });
-        qc.invalidateQueries({ queryKey: getListExchangeListingsQueryKey() });
-      },
-      onError: (err: unknown) => {
-        const msg = (err as { message?: string })?.message ?? "Cancellation failed";
-        toast({ variant: "destructive", title: "Error", description: msg });
-      },
-    },
+  const { data: allListings = [], isLoading } = useExchangeListings(undefined, {
+    refetchInterval: false,
   });
+
+  const allListingsArray = useMemo(() => {
+    const rows = Array.isArray(allListings) ? allListings : [];
+    if (!activeWallet) return [];
+    const seller = activeWallet.address.toLowerCase();
+    return rows.filter((l) => l.sellerAddress.toLowerCase() === seller);
+  }, [allListings, activeWallet]);
+
+  const cancel = useExchangeCancel();
 
   if (!activeWallet) {
     return (
@@ -1195,7 +1194,18 @@ function MyListingsTab() {
               size="sm"
               variant="outline"
               onClick={() =>
-                cancel.mutate({ id: listing.id, data: { sellerPrivateKey: activeWallet!.privateKey } })
+                cancel.mutate(
+                  { id: listing.id, sellerPrivateKey: activeWallet!.privateKey },
+                  {
+                    onSuccess: () => {
+                      toast({ title: "Listing cancelled", description: "EMBR has been returned to your balance." });
+                    },
+                    onError: (err: unknown) => {
+                      const msg = err instanceof Error ? err.message : "Cancellation failed";
+                      toast({ variant: "destructive", title: "Error", description: msg });
+                    },
+                  },
+                )
               }
               disabled={cancel.isPending}
               className="shrink-0 border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
@@ -1249,7 +1259,7 @@ async function fetchUsdPrice(currency: ExchangeCurrency, isoDate: string): Promi
 interface PricePoint { date: string; price: number; currency: string }
 
 function PriceHistoryTab() {
-  const { data: listings = [] } = useListExchangeListings({ status: "fulfilled" });
+  const { data: listings = [] } = useExchangeListings("fulfilled", { refetchInterval: false });
   const { data: chainStatus } = useGetChainStatus({ query: { refetchInterval: false } });
   const [points, setPoints] = useState<PricePoint[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1405,12 +1415,78 @@ function PriceHistoryTab() {
 
 // ── page ──────────────────────────────────────────────────────────────────────
 
+/** Set false when escrow is migrated off Replit and exchange is live again. */
+const EXCHANGE_ESCROW_DOWN = import.meta.env.VITE_EXCHANGE_ESCROW_DOWN !== "false";
+
 type Tab = "marketplace" | "create" | "mine" | "history" | "price";
 
-export default function Exchange() {
+function ExchangeEscrowDown() {
+  return (
+    <Shell requireWallet={false}>
+      <div className="relative min-h-[60vh] flex flex-col">
+        <div className="space-y-6 opacity-40 pointer-events-none select-none blur-[1px]" aria-hidden>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-sm bg-primary/10 border border-primary/30 flex items-center justify-center">
+              <Store className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h1 className="font-display font-bold text-xl tracking-tight text-foreground uppercase">
+                Exchange
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Peer-to-peer marketplace — swap EMBR for ETH, USDT, BTC, or SOL
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {[1, 2, 3].map((n) => (
+              <div key={n} className="border border-border rounded-sm p-3 bg-secondary/20 h-20" />
+            ))}
+          </div>
+          <div className="border border-border rounded-sm bg-card h-64" />
+        </div>
+
+        <div className="absolute inset-0 flex items-center justify-center p-6">
+          <Card className="max-w-md w-full border-border/80 bg-background/95 shadow-xl backdrop-blur-sm">
+            <CardContent className="pt-8 pb-8 px-6 text-center space-y-5">
+              <div className="mx-auto w-14 h-14 rounded-sm bg-muted border border-border flex items-center justify-center">
+                <AlertTriangle className="w-7 h-7 text-muted-foreground" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="font-display font-bold text-lg uppercase tracking-tight text-foreground">
+                  Escrow is down for now
+                </h2>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  The peer-to-peer marketplace escrow is temporarily unavailable. Please use the bridge and
+                  Ember Delta to move and trade EMBR in the meantime.
+                </p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2 justify-center pt-1">
+                <Link href="/emberswap">
+                  <Button className="w-full sm:w-auto gap-2">
+                    <ArrowLeftRight className="w-4 h-4" />
+                    Bridge
+                  </Button>
+                </Link>
+                <a href="/ember-delta/">
+                  <Button variant="outline" className="w-full sm:w-auto gap-2">
+                    <ArrowLeftRight className="w-4 h-4" />
+                    Ember Delta
+                  </Button>
+                </a>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
+function ExchangeContent() {
   const [tab, setTab] = useState<Tab>("marketplace");
-  const { data: openListings } = useListExchangeListings({ status: "open" });
-  const { data: fulfilledListings } = useListExchangeListings({ status: "fulfilled" });
+  const { data: openListings } = useExchangeListings("open", { refetchInterval: false });
+  const { data: fulfilledListings } = useExchangeListings("fulfilled", { refetchInterval: false });
 
   const openListingsArray = Array.isArray(openListings) ? openListings : [];
   const fulfilledListingsArray = Array.isArray(fulfilledListings) ? fulfilledListings : [];
@@ -1504,4 +1580,9 @@ export default function Exchange() {
       </div>
     </Shell>
   );
+}
+
+export default function Exchange() {
+  if (EXCHANGE_ESCROW_DOWN) return <ExchangeEscrowDown />;
+  return <ExchangeContent />;
 }

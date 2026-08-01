@@ -1,0 +1,133 @@
+/**
+ * DEX orderbook REST — file-backed on chain-node (same API as api-server).
+ */
+
+import { Router, type IRouter, type Request, type Response } from "express";
+import { ethers } from "ethers";
+import {
+  getOrder,
+  getOrdersETag,
+  insertOrder,
+  listOrders,
+  updateOrderStatus,
+  verifyTradeOnChain,
+  type DexOrder,
+} from "../lib/dex-orders-store";
+
+const router: IRouter = Router();
+
+router.get("/dex/orders", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const token = typeof req.query.token === "string" ? req.query.token : undefined;
+    const status = typeof req.query.status === "string" ? req.query.status : "open";
+
+    const etag = await getOrdersETag(token, status);
+    res.setHeader("ETag", etag);
+    res.setHeader("Cache-Control", "no-cache");
+
+    if (req.headers["if-none-match"] === etag) {
+      res.status(304).end();
+      return;
+    }
+
+    res.json(await listOrders(token, status));
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+router.post("/dex/orders", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const body = req.body as Partial<Omit<DexOrder, "status" | "created_at">>;
+    const required = [
+      "hash", "token_get", "amount_get", "token_give", "amount_give",
+      "expires", "nonce", "maker", "v", "r", "s",
+    ];
+    for (const field of required) {
+      if (body[field as keyof typeof body] === undefined || body[field as keyof typeof body] === null) {
+        res.status(400).json({ error: `Missing field: ${field}` });
+        return;
+      }
+    }
+    await insertOrder(body as Omit<DexOrder, "status" | "created_at">);
+    res.status(201).json({ ok: true, hash: body.hash });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+const TX_HASH_RE = /^0x[0-9a-fA-F]{64}$/;
+
+router.post("/dex/orders/:hash/fill", async (req: Request<{ hash: string }>, res: Response): Promise<void> => {
+  try {
+    const { txHash } = req.body as { txHash?: string };
+    if (!txHash || !TX_HASH_RE.test(txHash)) {
+      res.status(400).json({ error: "txHash (32-byte hex string) is required to prove on-chain settlement" });
+      return;
+    }
+
+    const proofErr = await verifyTradeOnChain(txHash, req.params.hash);
+    if (proofErr !== null) {
+      res.status(422).json({ error: `On-chain verification failed: ${proofErr}` });
+      return;
+    }
+
+    const result = await updateOrderStatus(req.params.hash, "filled");
+    if (result === "not_found") {
+      res.status(404).json({ error: "Order not found" });
+      return;
+    }
+    if (result === "conflict") {
+      res.status(409).json({ error: "Order is not open — already filled or cancelled" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+router.post("/dex/orders/:hash/cancel", async (req: Request<{ hash: string }>, res: Response): Promise<void> => {
+  try {
+    const { signature } = req.body as { signature?: string };
+    if (!signature) {
+      res.status(400).json({ error: "signature is required — sign the cancel message with the maker wallet" });
+      return;
+    }
+
+    const order = await getOrder(req.params.hash);
+    if (!order) {
+      res.status(404).json({ error: "Order not found" });
+      return;
+    }
+
+    const cancelMessage = `EmberDelta cancel order: ${req.params.hash}`;
+    let recovered: string;
+    try {
+      recovered = ethers.verifyMessage(cancelMessage, signature).toLowerCase();
+    } catch {
+      res.status(400).json({ error: "Invalid signature" });
+      return;
+    }
+
+    if (recovered !== order.maker.toLowerCase()) {
+      res.status(403).json({ error: "Signature does not match the order maker" });
+      return;
+    }
+
+    const result = await updateOrderStatus(req.params.hash, "cancelled");
+    if (result === "not_found") {
+      res.status(404).json({ error: "Order not found" });
+      return;
+    }
+    if (result === "conflict") {
+      res.status(409).json({ error: "Order is not open — already filled or cancelled" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+export default router;

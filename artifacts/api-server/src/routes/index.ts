@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { proxyToNode, proxyReadToNode, proxyToLocalMining, proxyToLocalMiningRead } from "../lib/chain-proxy";
+import { proxyToNode, proxyReadToNode, proxyWriteToNode, proxyToLocalMining, proxyToLocalMiningRead } from "../lib/chain-proxy";
 import { getMiningStatusCached } from "../lib/mining-status-cache";
 import healthRouter from "./health";
 import contractsRouter from "./contracts";  // registers /wallets/:address/tokens FIRST
@@ -90,12 +90,12 @@ router.post("/mining/submit",                 proxyToLocalMining);
 router.post("/mining/share",                  proxyToLocalMining);
 // wallet routes (excluding /wallets/:address/tokens handled by contractsRouter above)
 // POST stays on main node (create/register wallet); GETs go to read replica
-router.post("/wallets",                       proxyToNode);
+router.post("/wallets",                       proxyWriteToNode);
 router.get("/wallets",                        proxyReadToNode);
 router.get("/wallets/:address",               proxyReadToNode);
 // transaction routes
-// POST stays on main node (submit tx); GETs go to read replica
-router.post("/transactions",                  proxyToNode);
+// POST goes to the canonical write node; GETs go to read replica
+router.post("/transactions",                  proxyWriteToNode);
 router.get("/transactions",                   proxyReadToNode);
 router.get("/transactions/:hash",             proxyReadToNode);
 

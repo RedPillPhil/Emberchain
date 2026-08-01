@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { API_SERVER } from "@/lib/api-server";
+import { resolveApiServer } from "@/lib/api-server";
 import { Shell } from "@/components/layout/shell";
 import {
   useGetWallet,
@@ -173,7 +173,7 @@ function ReadFunctionRow({ address, fn }: { address: string; fn: Record<string, 
     setResult(null);
     setError(null);
     try {
-      const res = await fetch(`${API_SERVER}/api/contracts/${address}/read`, {
+      const res = await fetch(`${resolveApiServer()}/api/contracts/${address}/read`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -275,7 +275,7 @@ function WriteFunctionRow({
         fromPrivateKey: activeWallet.privateKey,
       };
       if (isPayable && value) body.value = value;
-      const res = await fetch(`${API_SERVER}/api/contracts/${address}/write`, {
+      const res = await fetch(`${resolveApiServer()}/api/contracts/${address}/write`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -534,13 +534,13 @@ function AddressResult({ address, onAddressClick }: { address: string; onAddress
     setHoldingsLoading(true);
 
     Promise.all([
-      fetch(`${API_SERVER}/api/contracts/${address}`)
+      fetch(`${resolveApiServer()}/api/contracts/${address}`)
         .then((r) => r.json())
         .then((data) => setContractInfo(data))
         .catch(() => {})
         .finally(() => setContractLoading(false)),
 
-      fetch(`${API_SERVER}/api/wallets/${address}/tokens`)
+      fetch(`${resolveApiServer()}/api/wallets/${address}/tokens`)
         .then((r) => r.json())
         .then((data) => setTokenHoldings(Array.isArray(data) ? data : []))
         .catch(() => {})
@@ -554,7 +554,7 @@ function AddressResult({ address, onAddressClick }: { address: string; onAddress
     setAbiRegisterSuccess(false);
     try {
       const parsed = JSON.parse(abiInput);
-      const res = await fetch(`${API_SERVER}/api/contracts/${address}/register`, {
+      const res = await fetch(`${resolveApiServer()}/api/contracts/${address}/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ abi: parsed }),
@@ -563,7 +563,7 @@ function AddressResult({ address, onAddressClick }: { address: string; onAddress
       if (data.success) {
         setAbiRegisterSuccess(true);
         // Refresh contract info
-        const updated = await fetch(`${API_SERVER}/api/contracts/${address}`).then((r) => r.json());
+        const updated = await fetch(`${resolveApiServer()}/api/contracts/${address}`).then((r) => r.json());
         setContractInfo(updated);
       } else {
         setAbiRegisterError(data.error || "Failed to register ABI");

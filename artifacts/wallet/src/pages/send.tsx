@@ -3,7 +3,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Shell } from "@/components/layout/shell";
 import { useActiveWallet } from "@/hooks/use-active-wallet";
-import { useCreateTransaction, useGetWallet } from "@workspace/api-client-react";
+import { useGetWallet } from "@workspace/api-client-react";
+import { useSubmitChainTransaction } from "@/hooks/use-submit-chain-transaction";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -29,7 +30,7 @@ type TxMode = "public" | "private";
 
 export default function Transfer() {
   const { activeWallet } = useActiveWallet();
-  const createTx = useCreateTransaction();
+  const createTx = useSubmitChainTransaction();
   const [successTxHash, setSuccessTxHash] = useState<string | null>(null);
   const [mode, setMode] = useState<TxMode>("public");
   const [showContacts, setShowContacts] = useState(false);

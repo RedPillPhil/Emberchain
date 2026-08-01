@@ -11,6 +11,7 @@ import Exchange from '@/pages/Exchange';
 import Tokens from '@/pages/Tokens';
 import Launch from '@/pages/Launch';
 import Bridge from '@/pages/Bridge';
+import Community from '@/pages/Community';
 
 const queryClient = new QueryClient();
 
@@ -21,6 +22,7 @@ function Router() {
       <Route path="/tokens" component={Tokens} />
       <Route path="/launch" component={Launch} />
       <Route path="/bridge" component={Bridge} />
+      <Route path="/community" component={Community} />
       <Route component={NotFound} />
     </Switch>
   );

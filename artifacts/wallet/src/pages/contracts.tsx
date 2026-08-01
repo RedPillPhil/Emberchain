@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { Shell } from "@/components/layout/shell";
 import { useActiveWallet } from "@/hooks/use-active-wallet";
-import { useCreateTransaction, useCallContract } from "@workspace/api-client-react";
+import { useCallContract } from "@workspace/api-client-react";
+import { useSubmitChainTransaction } from "@/hooks/use-submit-chain-transaction";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
@@ -12,7 +13,7 @@ import { Link } from "wouter";
 
 export default function Contracts() {
   const { activeWallet } = useActiveWallet();
-  const createTx = useCreateTransaction();
+  const createTx = useSubmitChainTransaction();
   const callContract = useCallContract();
   
   // Deploy State

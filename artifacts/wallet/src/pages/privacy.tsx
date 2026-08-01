@@ -11,13 +11,9 @@ import {
 } from "lucide-react";
 import { formatEmbr } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { resolveApiServer } from "@/lib/config";
 
-// The privacy/exchange API only runs on the primary api-server (po-w-chain.replit.app).
-// When the wallet is served from a different origin (e.g. emberchain.org, which only
-// runs chain-node and serves the static wallet but has no api-server), we must target
-// the api-server explicitly. CORS is wide-open on the api-server so this works cross-origin.
-// In dev mode we use a relative URL so the local api-server is hit instead.
-const API_SERVER = import.meta.env.DEV ? "" : "https://po-w-chain.replit.app";
+const API_SERVER = resolveApiServer();
 
 async function apiPost(path: string, body: object): Promise<unknown> {
   const res = await fetch(`${API_SERVER}/api${path}`, {
@@ -35,7 +31,7 @@ async function apiPost(path: string, body: object): Promise<unknown> {
   }
   const ct = res.headers.get("content-type") ?? "";
   if (!ct.includes("application/json")) {
-    throw new Error("Privacy API unavailable at this node — please try po-w-chain.replit.app");
+    throw new Error("Privacy API unavailable — set VITE_API_URL to your api-server");
   }
   return res.json();
 }
@@ -126,7 +122,7 @@ export default function PrivacyPage() {
       }
       const ct = res.headers.get("content-type") ?? "";
       if (!ct.includes("application/json")) {
-        throw new Error("Privacy API unavailable at this node — please try po-w-chain.replit.app");
+        throw new Error("Privacy API unavailable — set VITE_API_URL to your api-server");
       }
       const json = await res.json();
       setLedger(json as ShieldedTxRecord[]);

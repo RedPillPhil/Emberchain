@@ -7,6 +7,8 @@ import walletsRouter from "./wallets";
 import transactionsRouter from "./transactions";
 import miningRouter from "./mining";
 import internalRouter from "./internal";
+import communityRouter from "./community";
+import dexOrdersRouter from "./dex-orders";
 import { requireInternalAuth } from "../lib/internal-auth";
 
 const router = Router();
@@ -18,6 +20,8 @@ router.use(chainRouter);
 router.use(walletsRouter);
 router.use(transactionsRouter);
 router.use(miningRouter);
+router.use(communityRouter);
+router.use(dexOrdersRouter);
 // All /api/internal/* routes require service-to-service auth (shared bearer secret).
 router.use("/internal", requireInternalAuth, internalRouter);
 

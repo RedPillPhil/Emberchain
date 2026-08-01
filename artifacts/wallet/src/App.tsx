@@ -5,14 +5,9 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Route, Switch, Router as WouterRouter } from 'wouter';
 import { Loader2 } from 'lucide-react';
 import { setBaseUrl } from '@workspace/api-client-react';
+import { resolveApiServer } from '@/lib/config';
 
-// Core chain reads (wallet balances, chain status, blocks, transactions, top
-// holders, mining status, etc.) should always target the dedicated production
-// node. In development we keep relative URLs so the local Vite proxy still
-// works.
-if (!import.meta.env.DEV) {
-  setBaseUrl('https://emberchain.duckdns.org');
-}
+setBaseUrl(resolveApiServer());
 
 // ── Lazy-load every page so only the current route's code is fetched ──────────
 // This prevents all 500KB+ of page source (emberswap, exchange, ledger, etc.)
@@ -36,6 +31,7 @@ const EmberSwap         = React.lazy(() => import('@/pages/emberswap'));
 const Tokens            = React.lazy(() => import('@/pages/tokens'));
 const TokenDetail       = React.lazy(() => import('@/pages/token-detail'));
 const Downloads         = React.lazy(() => import('@/pages/downloads'));
+const Admin             = React.lazy(() => import('@/pages/admin'));
 const NotFound          = React.lazy(() => import('@/pages/not-found'));
 
 const queryClient = new QueryClient();
@@ -71,6 +67,7 @@ function Router() {
         <Route path="/tokens" component={Tokens} />
         <Route path="/tokens/:address" component={TokenDetail} />
         <Route path="/downloads" component={Downloads} />
+        <Route path="/admin" component={Admin} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>

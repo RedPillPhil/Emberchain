@@ -5,6 +5,9 @@ import { ensureProofsTable, clearChainStateFromDB } from "./lib/db";
 import { chain } from "./lib/chain";
 import { startSyncLoop, stopSyncLoop } from "./lib/sync-loop";
 import { startChainScanner, stopChainScanner } from "./lib/chain-scanner";
+import { WebSocketServer } from "ws";
+import { setupCommunityWS } from "./routes/community";
+import { startBridgeAlertLoop } from "./lib/bridge-alert-loop";
 import type { PersistedChain } from "@workspace/chain-core";
 
 export interface ServerHandle {
@@ -41,6 +44,9 @@ async function maybeForceResync(): Promise<void> {
 export async function startServer(port: number): Promise<ServerHandle> {
   const server = http.createServer(app);
 
+  const wss = new WebSocketServer({ server, path: "/api/community/ws" });
+  setupCommunityWS(wss);
+
   // Listen immediately so health checks pass on startup.
   await new Promise<void>((resolve, reject) => {
     server.listen(port, "0.0.0.0", (err?: Error) => {
@@ -57,6 +63,7 @@ export async function startServer(port: number): Promise<ServerHandle> {
     .then(() => {
       startSyncLoop();
       startChainScanner();
+      startBridgeAlertLoop();
     });
 
   const stop = (): Promise<void> => {

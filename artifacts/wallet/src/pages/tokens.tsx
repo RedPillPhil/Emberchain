@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Coins, Code2, Loader2, ExternalLink, CheckCircle2, RefreshCw } from "lucide-react";
 import { cn, formatHash } from "@/lib/utils";
-import { API_SERVER } from "@/lib/api-server";
+import { resolveApiServer } from "@/lib/api-server";
 
 function formatTokenAmount(raw: string, decimals: number): string {
   if (!raw || raw === "0") return "0";
@@ -47,13 +47,13 @@ export default function Tokens() {
   const [loadingContracts, setLoadingContracts] = useState(true);
 
   const fetchAll = () => {
-    fetch(`${API_SERVER}/api/tokens`)
+    fetch(`${resolveApiServer()}/api/tokens`)
       .then((r) => r.json())
       .then((d) => setTokens(Array.isArray(d) ? d : []))
       .catch(() => {})
       .finally(() => setLoadingTokens(false));
 
-    fetch(`${API_SERVER}/api/contracts/list`)
+    fetch(`${resolveApiServer()}/api/contracts/list`)
       .then((r) => r.json())
       .then((d) => setContracts(Array.isArray(d) ? d : []))
       .catch(() => {})

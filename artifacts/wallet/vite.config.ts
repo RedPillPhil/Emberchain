@@ -12,6 +12,11 @@ const port = rawPort ? Number(rawPort) : 3000;
 
 const basePath = process.env.BASE_PATH ?? '/';
 
+const apiProxyTarget =
+  process.env.VITE_API_PROXY_TARGET ??
+  process.env.VITE_CHAIN_NODE_URL ??
+  'https://emberchain.duckdns.org';
+
 export default defineConfig({
   base: basePath,
   plugins: [
@@ -56,6 +61,18 @@ export default defineConfig({
     allowedHosts: true,
     fs: {
       strict: true,
+    },
+    proxy: {
+      '/api': {
+        target: apiProxyTarget,
+        changeOrigin: true,
+        ws: true,
+      },
+      '/ember-delta': {
+        target: 'http://localhost:18912',
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
   preview: {

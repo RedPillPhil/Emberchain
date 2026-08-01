@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { API_SERVER } from "@/lib/api-server";
+import { resolveApiServer } from "@/lib/api-server";
 import { Shell } from "@/components/layout/shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useActiveWallet } from "@/hooks/use-active-wallet";
 import { useToast } from "@/hooks/use-toast";
-import { useListExchangeListings } from "@workspace/api-client-react";
+import { useExchangeListings } from "@/hooks/use-exchange-listings";
 import { useLocation } from "wouter";
 import {
   CreditCard,
@@ -292,11 +292,11 @@ export default function OnRamp() {
   const [purchaseDone, setPurchaseDone] = useState(false);
 
   // All open listings, filtered to the selected currency
-  const { data: listings = [] } = useListExchangeListings({ status: "open" });
+  const { data: listings = [] } = useExchangeListings("open", { refetchInterval: false });
   const matchingListings = listings.filter((l) => l.currency === selectedCurrency.id);
 
   useEffect(() => {
-    fetch(`${API_SERVER}/api/onramp/config`)
+    fetch(`${resolveApiServer()}/api/onramp/config`)
       .then((r) => r.json())
       .then((d) => { setConfig(d as OnrampConfig); setConfigLoading(false); })
       .catch(() => setConfigLoading(false));

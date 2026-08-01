@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { TokenIcon } from '@/components/TokenIcon';
 import { useWeb3 } from '@/lib/use-web3';
 import { getAllPairs, addCustomPair, removeCustomPair, BUILT_IN_PAIRS, type TradingPair } from '@/lib/custom-pairs';
+import { resolveApiServer } from '@/lib/config';
 import { usePublicClient } from 'wagmi';
 import { ERC20_ABI } from '@/lib/contracts';
 
@@ -31,8 +32,9 @@ export function Shell({ children, selectedPair, onPairChange }: ShellProps) {
 
   // Auto-fetch launched tokens from the API and add them to the pairs list
   useEffect(() => {
-    const API = import.meta.env.PROD ? 'https://emberchain.org' : (import.meta.env.VITE_API_URL || 'http://localhost:4000');
-    fetch(`${API}/api/token-launch/listings`)
+    const api = resolveApiServer();
+    if (!api) return;
+    fetch(`${api}/api/token-launch/listings`)
       .then(r => r.json())
       .then((listings: Array<{ wrapped_token_address?: string; wrapped_symbol?: string; token_name?: string; status?: string }>) => {
         let changed = false;
@@ -119,6 +121,7 @@ export function Shell({ children, selectedPair, onPairChange }: ShellProps) {
     { href: '/tokens', label: 'Tokens', icon: Menu },
     { href: '/bridge', label: 'Bridge', icon: ArrowRightLeft },
     { href: '/launch', label: 'Launch', icon: Rocket },
+    { href: '/community', label: 'Community', icon: MessageCircleMore },
   ];
 
   return (

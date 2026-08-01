@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { resolveApiServer, getCommunityWsUrl } from "@/lib/config";
 import {
   MessageSquare,
   FileText,
@@ -22,7 +23,13 @@ import {
   Eye,
   EyeOff,
   Check,
+  ExternalLink,
 } from "lucide-react";
+
+const SOCIAL_LINKS = [
+  { label: "Telegram", href: "https://t.me/emberchain.org" },
+  { label: "X", href: "https://x.com/emberchainorg" },
+] as const;
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -84,19 +91,11 @@ function timeAgo(iso: string): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-// Community, exchange, bridge and privacy routes only exist on the api-server
-// (po-w-chain.replit.app).  When the wallet is served from emberchain.org or
-// any other host, relative /api/* calls return an HTML 404 page.  Point all
-// community API calls at the canonical api-server explicitly.
-const API_SERVER = import.meta.env.DEV ? "" : "https://po-w-chain.replit.app";
-
 function getWsUrl(): string {
-  const host = import.meta.env.DEV ? location.host : "po-w-chain.replit.app";
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${host}/api/community/ws`;
+  return getCommunityWsUrl();
 }
 
-const BASE = `${API_SERVER}/api/community`;
+const BASE = `${resolveApiServer()}/api/community`;
 
 // ── Author chip with hover tooltip ───────────────────────────────────────────
 
@@ -289,29 +288,141 @@ function useWs(onEvent: (e: WsEvent) => void) {
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
   const [online, setOnline] = useState(false);
+  const [mode, setMode] = useState<"ws" | "poll" | "offline">("ws");
+  const lastIdRef = useRef(0);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback(() => {
+    stopPolling();
+    setMode("poll");
+    const poll = async () => {
+      try {
+        const since = lastIdRef.current;
+        const url = since > 0 ? `${BASE}/messages?since=${since}` : `${BASE}/messages`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const messages = (await res.json()) as ChatMessage[];
+        if (messages.length === 0) {
+          setOnline(true);
+          return;
+        }
+        if (since === 0) {
+          onEventRef.current({ type: "history", messages });
+        } else {
+          for (const m of messages) {
+            onEventRef.current({ type: "chat_message", message: m });
+          }
+        }
+        lastIdRef.current = Math.max(lastIdRef.current, ...messages.map((m) => m.id));
+        setOnline(true);
+      } catch {
+        setOnline(false);
+        setMode("offline");
+      }
+    };
+    void poll();
+    pollTimerRef.current = setInterval(() => void poll(), 4000);
+  }, [stopPolling]);
 
   useEffect(() => {
     let ws: WebSocket;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let wsFailed = false;
+
     function connect() {
-      ws = new WebSocket(getWsUrl());
+      if (wsFailed) {
+        startPolling();
+        return;
+      }
+      try {
+        ws = new WebSocket(getWsUrl());
+      } catch {
+        wsFailed = true;
+        startPolling();
+        return;
+      }
       wsRef.current = ws;
-      ws.onopen = () => setOnline(true);
-      ws.onclose = () => { setOnline(false); retryTimer = setTimeout(connect, 3000); };
-      ws.onerror = () => ws.close();
+      const connectTimeout = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          wsFailed = true;
+          ws.close();
+          startPolling();
+        }
+      }, 8000);
+
+      ws.onopen = () => {
+        clearTimeout(connectTimeout);
+        stopPolling();
+        setMode("ws");
+        setOnline(true);
+      };
+      ws.onclose = () => {
+        clearTimeout(connectTimeout);
+        setOnline(false);
+        if (!wsFailed) {
+          retryTimer = setTimeout(connect, 3000);
+        } else {
+          startPolling();
+        }
+      };
+      ws.onerror = () => {
+        wsFailed = true;
+        ws.close();
+      };
       ws.onmessage = (e) => {
-        try { onEventRef.current(JSON.parse(e.data as string) as WsEvent); } catch { /* ignore */ }
+        try {
+          const event = JSON.parse(e.data as string) as WsEvent;
+          if (event.type === "history") {
+            lastIdRef.current = event.messages.reduce((max, m) => Math.max(max, m.id), 0);
+          }
+          if (event.type === "chat_message") {
+            lastIdRef.current = Math.max(lastIdRef.current, event.message.id);
+          }
+          onEventRef.current(event);
+        } catch { /* ignore */ }
       };
     }
     connect();
-    return () => { retryTimer && clearTimeout(retryTimer); ws.onclose = null; ws.close(); };
+    return () => {
+      retryTimer && clearTimeout(retryTimer);
+      stopPolling();
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+      }
+    };
+  }, [startPolling, stopPolling]);
+
+  const send = useCallback(async (payload: unknown) => {
+    const data = payload as { type: string; author?: string; content?: string };
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(payload));
+      return;
+    }
+    if (data.type === "chat" && data.author && data.content) {
+      try {
+        const res = await fetch(`${BASE}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ author: data.author, content: data.content }),
+        });
+        if (res.ok) {
+          const message = (await res.json()) as ChatMessage;
+          onEventRef.current({ type: "chat_message", message });
+          lastIdRef.current = Math.max(lastIdRef.current, message.id);
+        }
+      } catch { /* ignore */ }
+    }
   }, []);
 
-  const send = useCallback((payload: unknown) => {
-    if (wsRef.current?.readyState === 1) wsRef.current.send(JSON.stringify(payload));
-  }, []);
-
-  return { send, online };
+  return { send, online, mode };
 }
 
 // ── Live Chat ─────────────────────────────────────────────────────────────────
@@ -620,7 +731,7 @@ export default function Community() {
       .catch(() => {});
   }, [address]);
 
-  const { send, online } = useWs((event) => {
+  const { send, online, mode } = useWs((event) => {
     if (event.type === "history") setChatMessages(event.messages);
     if (event.type === "chat_message") setChatMessages((p) => [...p, event.message].slice(-200));
     if (event.type === "new_comment") setLiveComments((p) => [...p, event.comment].slice(-200));
@@ -716,24 +827,36 @@ export default function Community() {
       {showNewPost && <NewPostForm onSubmit={handleNewPost} onClose={() => setShowNewPost(false)} />}
 
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border pb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-sm bg-primary/10 border border-primary/30 flex items-center justify-center">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border pb-4 md:pb-6">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 shrink-0 rounded-sm bg-primary/10 border border-primary/30 flex items-center justify-center">
             <MessageSquare className="w-5 h-5 text-primary" />
           </div>
-          <div>
-            <h1 className="font-display font-bold text-xl tracking-tight text-foreground uppercase">Forge Community</h1>
-            <p className="text-sm text-muted-foreground">Live chat · discussion · mining talk · sign in with your EMBR wallet</p>
+          <div className="min-w-0">
+            <h1 className="font-display font-bold text-lg sm:text-xl tracking-tight text-foreground uppercase">Forge Community</h1>
+            <p className="text-xs sm:text-sm text-muted-foreground">Live chat · forum · mining talk</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {SOCIAL_LINKS.map((link) => (
+            <a
+              key={link.label}
+              href={link.href}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide px-2.5 py-1.5 rounded-sm border border-border bg-secondary/30 hover:border-primary/40 hover:text-primary transition-colors"
+            >
+              {link.label}
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          ))}
           <div className={cn(
             "flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest px-2 py-1 rounded-sm border",
             online ? "text-green-400 border-green-500/30 bg-green-500/10" : "text-muted-foreground border-border bg-secondary/30",
           )}>
             <div className={cn("w-1.5 h-1.5 rounded-full", online ? "bg-green-400 animate-pulse" : "bg-muted-foreground")} />
-            {online ? "Live" : "Connecting…"}
+            {online ? (mode === "poll" ? "Live (sync)" : "Live") : "Connecting…"}
           </div>
 
           {address && (
@@ -760,13 +883,13 @@ export default function Community() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-border">
+      <div className="flex gap-1 border-b border-border overflow-x-auto">
         {([["chat", "Live Chat", Hash], ["forum", "Forum", FileText]] as const).map(([id, label, Icon]) => (
           <button
             key={id}
             onClick={() => setTab(id)}
             className={cn(
-              "flex items-center gap-2 px-4 py-2.5 text-sm font-bold uppercase tracking-wide border-b-2 transition-all",
+              "flex items-center gap-2 px-3 sm:px-4 py-2.5 text-sm font-bold uppercase tracking-wide border-b-2 transition-all whitespace-nowrap shrink-0",
               tab === id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground",
             )}
           >
@@ -777,9 +900,9 @@ export default function Community() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 flex flex-col">
         {tab === "chat" && (
-          <Card className="border-border bg-card overflow-hidden flex flex-col" style={{ height: "62vh" }}>
+          <Card className="border-border bg-card overflow-hidden flex flex-col flex-1 min-h-[min(62vh,520px)] md:min-h-[62vh]">
             <div className="bg-secondary/40 border-b border-border px-4 py-2 flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-widest">
               <Hash className="w-3.5 h-3.5 text-primary" /> general
               <span className="ml-auto flex items-center gap-1">

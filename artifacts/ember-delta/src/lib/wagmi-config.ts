@@ -2,17 +2,16 @@ import { createConfig, http } from 'wagmi';
 import { base } from 'wagmi/chains';
 import { injected } from 'wagmi/connectors';
 import type { Chain } from 'viem';
+import { CHAIN_NODE_URL } from '@/lib/config';
 
 // Emberchain is EVM-compatible (chain ID 7773).
 //
-// IMPORTANT: MetaMask is a browser extension — it makes its own HTTP requests
-// from its own origin, not from the page. A relative URL like /api-server/api/rpc
-// is meaningless to MetaMask. We must pass an absolute URL so wallet_addEthereumChain
-// works correctly and MetaMask can actually reach the Emberchain RPC.
+// MetaMask makes HTTP requests from its own origin — use an absolute RPC URL in prod,
+// and same-origin /api/rpc in dev (Vite proxy → chain node).
 const EMBR_RPC =
   import.meta.env.PROD
-    ? 'https://emberchain.org/api/rpc'
-    : `${typeof window !== 'undefined' ? window.location.origin : 'http://localhost'}/api/rpc`;
+    ? `${CHAIN_NODE_URL}/api/rpc`
+    : `${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:18912'}/api/rpc`;
 
 export const emberchain: Chain = {
   id: 7773,
@@ -22,14 +21,14 @@ export const emberchain: Chain = {
     default: { http: [EMBR_RPC] },
   },
   blockExplorers: {
-    default: { name: 'Ember Explorer', url: 'https://emberchain.org' },
+    default: { name: 'Ember Explorer', url: CHAIN_NODE_URL },
   },
 };
 
 export const wagmiConfig = createConfig({
   chains: [base, emberchain],
   connectors: [
-    injected(), // MetaMask, Coinbase Wallet, Brave, etc.
+    injected(),
   ],
   transports: {
     [base.id]: http(),

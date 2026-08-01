@@ -12,18 +12,32 @@
 import { createHmac } from "node:crypto";
 import { Pool } from "undici";
 
-const BASE_URL = (process.env["CHAIN_NODE_URL"] ?? "http://localhost:8082").replace(/\/$/, "");
+const CHAIN_NODE_URL = (process.env["CHAIN_NODE_URL"] ?? "http://localhost:8082").replace(/\/$/, "");
+const READ_NODE_URL = (process.env["READ_NODE_URL"] ?? CHAIN_NODE_URL).replace(/\/$/, "");
+/** When reads and writes are split across nodes, follow the canonical read node for writes too. */
+const WRITE_NODE_URL =
+  process.env["READ_NODE_URL"] && process.env["READ_NODE_URL"] !== process.env["CHAIN_NODE_URL"]
+    ? READ_NODE_URL
+    : CHAIN_NODE_URL;
 
 /**
  * Persistent connection pool to chain-node.
  * Reusing connections eliminates per-request TCP handshakes and prevents
  * file-descriptor exhaustion under high mining-share load.
  */
-const pool = new Pool(BASE_URL, {
+const readPool = new Pool(READ_NODE_URL, {
   connections: 20,
   keepAliveTimeout: 30_000,
   keepAliveMaxTimeout: 60_000,
 });
+
+const writePool = READ_NODE_URL === WRITE_NODE_URL
+  ? readPool
+  : new Pool(WRITE_NODE_URL, {
+      connections: 20,
+      keepAliveTimeout: 30_000,
+      keepAliveMaxTimeout: 60_000,
+    });
 
 /** Resolve the internal bearer secret that chain-node expects.
  *  Prefers CHAIN_NODE_INTERNAL_SECRET; falls back to HMAC derivation from SESSION_SECRET. */
@@ -88,13 +102,13 @@ function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Pr
 async function get<T>(path: string): Promise<T> {
   const isInternal = path.includes("/internal/");
   const headers = isInternal ? internalHeaders() : baseHeaders();
-  const url = `${BASE_URL}${path}`;
+  const url = `${READ_NODE_URL}${path}`;
   const res = isInternal
     ? await fetchWithTimeout(url, { headers }, INTERNAL_TIMEOUT_MS)
     : await fetch(url, {
         headers,
         // @ts-expect-error — undici dispatcher is not in standard RequestInit types
-        dispatcher: pool,
+        dispatcher: readPool,
       });
   // Check res.ok BEFORE res.json() — if chain-node returns an HTML startup page or
   // any non-JSON body (e.g. during a Replit container restart), calling res.json()
@@ -107,7 +121,7 @@ async function get<T>(path: string): Promise<T> {
 async function post<T>(path: string, data?: unknown): Promise<T> {
   const isInternal = path.includes("/internal/");
   const headers = isInternal ? internalHeaders() : baseHeaders();
-  const url = `${BASE_URL}${path}`;
+  const url = `${WRITE_NODE_URL}${path}`;
   const init: RequestInit = {
     method: "POST",
     headers,
@@ -118,7 +132,7 @@ async function post<T>(path: string, data?: unknown): Promise<T> {
     : await fetch(url, {
         ...init,
         // @ts-expect-error — undici dispatcher is not in standard RequestInit types
-        dispatcher: pool,
+        dispatcher: writePool,
       });
   if (!res.ok) throw new ChainClientError(res.status, await readBody(res), path);
   return res.json() as Promise<T>;

@@ -6,8 +6,9 @@ export const EMBERCHAIN_CHAIN_ID = 7773;
 // Bridge contract on Emberchain (for EMBR → wEMBR direction)
 // Deployed alongside the relayer — set VITE_EMBER_BRIDGE_ADDRESS to activate.
 export const EMBER_BRIDGE_ADDRESS = (
-  import.meta.env.VITE_EMBER_BRIDGE_ADDRESS ?? ''
-) as `0x${string}` | '';
+  import.meta.env.VITE_EMBER_BRIDGE_ADDRESS ??
+  '0x9362587019ea0e4ef90fbd981c615d4441d9d2c4'
+) as `0x${string}`;
 
 export const WEMBR_ADDRESS = '0x9362587019Ea0e4ef90fbd981c615d4441D9D2c4' as const;
 export const BRIDGE_ADDRESS = '0x1573EdF8F933601e6f37AC9B104cF62C7f85a0F4' as const;

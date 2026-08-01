@@ -8,8 +8,10 @@ import {
 } from 'lucide-react';
 import { useAccount, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther } from 'viem';
+import { API, apiFetch } from '@/lib/api';
 
-const API = import.meta.env.PROD ? 'https://emberchain.org' : (import.meta.env.VITE_API_URL || 'http://localhost:4000');
+/** Set VITE_TOKEN_LAUNCH_DOWN=false when api-server + Postgres are running again. */
+const TOKEN_LAUNCH_DOWN = import.meta.env.VITE_TOKEN_LAUNCH_DOWN !== 'false';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -584,7 +586,55 @@ function Step4({ launchId, chainType }: { launchId: string; chainType: ChainType
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function Launch() {
+function LaunchDown() {
+  return (
+    <Shell>
+      <div className="relative min-h-[60vh] flex flex-col">
+        <div className="space-y-6 opacity-40 pointer-events-none select-none blur-[1px]" aria-hidden>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-primary/20 border border-primary/30" />
+            <div>
+              <h1 className="text-2xl font-bold text-white">Launch a Token</h1>
+              <p className="text-muted-foreground text-sm">Wrapped token, bridge, and DEX listing</p>
+            </div>
+          </div>
+          <div className="bg-card border border-border/40 rounded-lg h-64" />
+        </div>
+        <div className="absolute inset-0 flex items-center justify-center p-6">
+          <div className="max-w-md w-full bg-card border border-border rounded-xl shadow-xl p-8 text-center space-y-5">
+            <AlertCircle className="w-10 h-10 text-muted-foreground mx-auto" />
+            <div className="space-y-2">
+              <h2 className="text-lg font-bold text-white">Token launch is paused</h2>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Auto-launch needs an always-on api-server (Postgres + contract deployment). Payment can be
+                verified on Base without a server, but listing a token on the DEX still requires backend
+                processing. Use the bridge in the meantime.
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2 justify-center">
+              <Link href="/bridge">
+                <button type="button" className="w-full sm:w-auto px-5 py-2.5 bg-primary text-white font-bold rounded text-sm">
+                  Go to Bridge
+                </button>
+              </Link>
+              <a href="/emberswap">
+                <button type="button" className="w-full sm:w-auto px-5 py-2.5 border border-border text-white rounded text-sm">
+                  EmberSwap Bridge
+                </button>
+              </a>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Operators: deposit keys and launch records are in the wallet app at{' '}
+              <code className="text-primary">/admin</code> → Token launches.
+            </p>
+          </div>
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
+function LaunchContent() {
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -777,4 +827,9 @@ export default function Launch() {
       </div>
     </Shell>
   );
+}
+
+export default function Launch() {
+  if (TOKEN_LAUNCH_DOWN) return <LaunchDown />;
+  return <LaunchContent />;
 }

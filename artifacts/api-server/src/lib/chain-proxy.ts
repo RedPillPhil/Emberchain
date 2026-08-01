@@ -120,6 +120,22 @@ export function proxyToNode(req: Request, res: Response, next: NextFunction): Pr
 }
 
 /**
+ * Proxy state-changing chain requests to the canonical node.
+ *
+ * When READ_NODE_URL is configured separately from CHAIN_NODE_URL, wallet
+ * balance reads come from the read replica (e.g. emberchain.duckdns.org) while
+ * CHAIN_NODE_URL may still point at a local/stale write node with empty state.
+ * Routing tx/wallet writes through READ_NODE_URL keeps reads and writes aligned.
+ */
+export function proxyWriteToNode(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const writeUrl =
+    process.env.READ_NODE_URL && process.env.READ_NODE_URL !== CHAIN_NODE_URL
+      ? READ_NODE_URL
+      : CHAIN_NODE_URL;
+  return proxy(writeUrl, req, res, next);
+}
+
+/**
  * Proxy read-only GET requests to the read replica (READ_NODE_URL).
  *
  * Used for: chain status, block explorer, wallet balance, transaction history.

@@ -30,7 +30,7 @@ const LOCK_EMBR_IFACE = new ethers.Interface([
 async function waitForTxConfirmed(hash: string, timeoutMs = 90_000, pollMs = 2_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const tx = await chainClient.getTransaction(hash) as { status: string; error?: string } | null;
+    const tx = await loadBridgeTransaction(hash);
     if (tx && tx.status !== "pending") return tx;
     await new Promise<void>((r) => setTimeout(r, pollMs));
   }
@@ -38,6 +38,45 @@ async function waitForTxConfirmed(hash: string, timeoutMs = 90_000, pollMs = 2_0
 }
 
 const router = Router();
+
+async function loadBridgeTransaction(hash: string): Promise<{
+  hash: string;
+  from: string;
+  to: string | null;
+  value: string;
+  data: string;
+  blockNumber: number | null;
+  status: "pending" | "confirmed" | "failed";
+  error?: string | null;
+} | undefined> {
+  const fromClient = await chainClient.getTransaction(hash);
+  if (fromClient) return fromClient;
+
+  const readUrl = (process.env["READ_NODE_URL"] ?? process.env["CHAIN_NODE_URL"] ?? "").replace(/\/$/, "");
+  if (!readUrl) return undefined;
+
+  try {
+    const res = await fetch(`${readUrl}/api/transactions/${encodeURIComponent(hash)}`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.status === 404) return undefined;
+    if (!res.ok) return undefined;
+    return await res.json() as {
+      hash: string;
+      from: string;
+      to: string | null;
+      value: string;
+      data: string;
+      blockNumber: number | null;
+      status: "pending" | "confirmed" | "failed";
+      error?: string | null;
+    };
+  } catch (err) {
+    logger.warn({ hash, err: (err as Error).message }, "[bridge] read-node tx lookup failed");
+    return undefined;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // POST /bridge/lock — initiate EMBR → Base
@@ -230,7 +269,7 @@ router.post("/bridge/register", async (req: Request, res: Response): Promise<voi
 
   const nonceStr = String(nonce);
 
-  const tx = await chainClient.getTransaction(txHash);
+  const tx = await loadBridgeTransaction(txHash);
   if (!tx) { res.status(404).json({ error: "Transaction not found on EMBR chain" }); return; }
 
   if (tx.status === "pending") {
