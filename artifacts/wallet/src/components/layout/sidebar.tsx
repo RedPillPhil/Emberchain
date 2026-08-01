@@ -28,7 +28,7 @@ const navItems: Array<{ href: string; label: string; icon: React.ComponentType<{
   { href: "/onramp", label: "BUY EMBR", icon: CreditCard, highlight: true },
   { href: "/exchange", label: "EXCHANGE", icon: Store },
   { href: "/emberswap", label: "EMBERSWAP", icon: Zap, highlight: true },
-  { href: "/ember-delta/", label: "EMBER DELTA", icon: ArrowLeftRight, external: true, highlight: true },
+  { href: "http://localhost:3000/", label: "EMBER DELTA", icon: ArrowLeftRight, highlight: true, external: true },
   { href: "/community", label: "COMMUNITY", icon: MessageSquare },
   { href: "/contacts", label: "ADDRESS BOOK", icon: BookUser },
   { href: "/privacy", label: "PRIVACY", icon: Shield },

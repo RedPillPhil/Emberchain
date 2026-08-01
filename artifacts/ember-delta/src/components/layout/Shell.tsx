@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
-import { ChevronDown, Wallet, Activity, ArrowRightLeft, Rocket, Menu, LogOut, Copy, ExternalLink, AlertCircle, Plus, X } from 'lucide-react';
+import { ChevronDown, Wallet, Activity, ArrowRightLeft, Rocket, Menu, LogOut, Copy, ExternalLink, AlertCircle, Plus, X, MessageCircleMore } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TokenIcon } from '@/components/TokenIcon';
 import { useWeb3 } from '@/lib/use-web3';
@@ -31,7 +31,7 @@ export function Shell({ children, selectedPair, onPairChange }: ShellProps) {
 
   // Auto-fetch launched tokens from the API and add them to the pairs list
   useEffect(() => {
-    const API = import.meta.env.PROD ? 'https://emberchain.org' : '';
+    const API = import.meta.env.PROD ? 'https://emberchain.org' : (import.meta.env.VITE_API_URL || 'http://localhost:4000');
     fetch(`${API}/api/token-launch/listings`)
       .then(r => r.json())
       .then((listings: Array<{ wrapped_token_address?: string; wrapped_symbol?: string; token_name?: string; status?: string }>) => {

@@ -9,7 +9,7 @@ import {
 import { useAccount, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther } from 'viem';
 
-const API = import.meta.env.PROD ? 'https://emberchain.org' : '';
+const API = import.meta.env.PROD ? 'https://emberchain.org' : (import.meta.env.VITE_API_URL || 'http://localhost:4000');
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

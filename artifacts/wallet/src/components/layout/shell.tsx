@@ -21,6 +21,10 @@ export function Shell({ children, requireWallet = true }: { children: React.Reac
     return <Redirect to="/setup" />;
   }
 
+  if (location.pathname === '/setup' && activeWallet) {
+    return <Redirect to="/" />;
+  }
+
   return (
     <div className="flex min-h-screen bg-background text-foreground scanline">
       {activeWallet && <Sidebar />}

@@ -280,12 +280,12 @@ export default function Dashboard() {
         <StatBlock
           icon={<Blocks className="w-4 h-4" />}
           label="Block Height"
-          value={chainStatus?.height.toLocaleString() || "..."}
+          value={chainStatus?.height?.toLocaleString() || "..."}
         />
         <StatBlock
           icon={<Zap className="w-4 h-4 text-accent" />}
           label="Difficulty"
-          value={chainStatus ? abbreviateNumber(BigInt(chainStatus.difficulty)) : "..."}
+          value={chainStatus?.difficulty != null ? abbreviateNumber(BigInt(chainStatus.difficulty)) : "..."}
         />
         <StatBlock
           icon={<Clock className="w-4 h-4" />}
@@ -295,7 +295,7 @@ export default function Dashboard() {
         <StatBlock
           icon={<Activity className="w-4 h-4" />}
           label="Pending TXs"
-          value={chainStatus?.pendingTransactionCount.toString() || "0"}
+          value={chainStatus?.pendingTransactionCount?.toString() || "0"}
         />
         <StatBlock
           icon={<Users className="w-4 h-4 text-primary" />}

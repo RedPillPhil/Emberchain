@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useCreateWallet } from "@workspace/api-client-react";
 import { useActiveWallet } from "@/hooks/use-active-wallet";
 import { Redirect } from "wouter";
 import { KeyRound, Flame, ShieldAlert, AlertTriangle, ArrowRight, Upload, Eye, EyeOff, Loader2 } from "lucide-react";
@@ -16,12 +15,12 @@ type Mode = "choice" | "create" | "import" | "keystore";
 
 export default function Setup() {
   const { activeWallet, setActiveWallet, isLoaded } = useActiveWallet();
-  const createWallet = useCreateWallet();
 
   const [mode, setMode]           = useState<Mode>("choice");
   const [importKey, setImportKey] = useState("");
   const [error, setError]         = useState("");
   const [generatedKey, setGeneratedKey] = useState<{ address: string; privateKey: string } | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   // Keystore import state
   const [ksFile, setKsFile]         = useState<File | null>(null);
@@ -34,18 +33,25 @@ export default function Setup() {
     return <Redirect to="/" />;
   }
 
-  // ── Create wallet ───────────────────────────────────────────────────────────
+  // ── Create wallet (pure client-side cryptography) ──────────────────────────
 
   const handleCreate = () => {
     setError("");
-    createWallet.mutate({ data: {} }, {
-      onSuccess: (data) => {
-        setGeneratedKey({ address: data.address, privateKey: data.privateKey });
-      },
-      onError: (err: any) => {
-        setError(err.message || "Failed to generate wallet");
-      }
-    });
+    setIsGenerating(true);
+    try {
+      // Generate a random 32-byte (256-bit) private key for secp256k1
+      const randomBytes = new Uint8Array(32);
+      crypto.getRandomValues(randomBytes);
+      const privateKeyHex = "0x" + Array.from(randomBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+      
+      // Derive the address from the private key (pure secp256k1 + keccak256)
+      const wallet = walletFromPrivateKey(privateKeyHex);
+      setGeneratedKey({ address: wallet.address, privateKey: wallet.privateKey });
+    } catch (err: any) {
+      setError(err.message || "Failed to generate wallet");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   // ── Import via raw private key ──────────────────────────────────────────────
@@ -160,10 +166,10 @@ export default function Setup() {
               <Button
                 onClick={handleCreate}
                 className="w-full font-bold uppercase tracking-wider h-12 rounded-sm bg-primary text-primary-foreground hover:bg-primary/90"
-                disabled={createWallet.isPending}
+                disabled={isGenerating}
               >
-                {createWallet.isPending ? "Forging..." : "Generate Keys"}
-                {!createWallet.isPending && <ArrowRight className="ml-2 w-4 h-4" />}
+                {isGenerating ? "Forging..." : "Generate Keys"}
+                {!isGenerating && <ArrowRight className="ml-2 w-4 h-4" />}
               </Button>
             </CardContent>
             <CardFooter>
@@ -244,9 +250,9 @@ export default function Setup() {
                 <Button
                   type="submit"
                   className="w-full font-bold uppercase tracking-wider h-12 rounded-sm"
-                  disabled={createWallet.isPending || !importKey}
+                  disabled={isGenerating || !importKey}
                 >
-                  {createWallet.isPending ? "Mounting..." : "Mount Identity"}
+                  {isGenerating ? "Mounting..." : "Mount Identity"}
                 </Button>
               </form>
             </CardContent>

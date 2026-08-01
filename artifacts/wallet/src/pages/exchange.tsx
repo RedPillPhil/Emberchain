@@ -652,12 +652,15 @@ function MarketplaceTab() {
   const now = Date.now();
   const myAddress = activeWallet?.address?.toLowerCase() ?? "";
 
-  const myReservedListing = listings.find(
+  // Ensure listings is an array
+  const listingsArray = Array.isArray(listings) ? listings : [];
+
+  const myReservedListing = listingsArray.find(
     (l) => l.reservedBy?.toLowerCase() === myAddress && l.reservedUntil && l.reservedUntil > now
   );
   const [expandedId, setExpandedId] = useState<string | null>(myReservedListing?.id ?? null);
 
-  const sorted = [...listings].sort((a, b) => {
+  const sorted = [...listingsArray].sort((a, b) => {
     if (sortBy === "newest") return new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime();
     if (sortBy === "oldest") return new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime();
     if (sortBy === "highest") return listingUsdValue(b, spots) - listingUsdValue(a, spots);
@@ -683,7 +686,7 @@ function MarketplaceTab() {
     );
   }
 
-  if (!listings.length) {
+  if (!listingsArray.length) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
         <Store className="w-12 h-12 text-muted-foreground/40" />
@@ -719,7 +722,7 @@ function MarketplaceTab() {
             {opt.label}
           </button>
         ))}
-        <span className="ml-auto text-[10px] text-muted-foreground">{listings.length} listing{listings.length !== 1 ? "s" : ""}</span>
+        <span className="ml-auto text-[10px] text-muted-foreground">{listingsArray.length} listing{listingsArray.length !== 1 ? "s" : ""}</span>
       </div>
 
       <div className="space-y-2">
@@ -1105,6 +1108,9 @@ function MyListingsTab() {
     { query: { enabled: !!activeWallet } }
   );
 
+  // Ensure allListings is an array
+  const allListingsArray = Array.isArray(allListings) ? allListings : [];
+
   const cancel = useCancelListing({
     mutation: {
       onSuccess: () => {
@@ -1136,7 +1142,7 @@ function MyListingsTab() {
     );
   }
 
-  if (!allListings.length) {
+  if (!allListingsArray.length) {
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
         <List className="w-12 h-12 text-muted-foreground/40" />
@@ -1150,7 +1156,7 @@ function MyListingsTab() {
 
   return (
     <div className="space-y-2">
-      {allListings.map((listing) => (
+      {allListingsArray.map((listing) => (
         <div key={listing.id} className="border border-border rounded-sm bg-secondary/30 px-4 py-3 flex items-center gap-3">
           <Badge className={`text-xs uppercase border ${CURRENCY_COLORS[listing.currency]} font-bold w-14 justify-center`}>
             {listing.currency}
@@ -1250,15 +1256,18 @@ function PriceHistoryTab() {
   const [error, setError] = useState<string | null>(null);
   const prevListingCount = useRef(-1);
 
+  // Ensure listings is an array
+  const listingsArray = Array.isArray(listings) ? listings : [];
+
   useEffect(() => {
-    if (listings.length === 0 || listings.length === prevListingCount.current) return;
-    prevListingCount.current = listings.length;
+    if (listingsArray.length === 0 || listingsArray.length === prevListingCount.current) return;
+    prevListingCount.current = listingsArray.length;
     setLoading(true);
     setError(null);
     void (async () => {
       try {
         const results: PricePoint[] = [];
-        for (const l of listings) {
+        for (const l of listingsArray) {
           const date = l.updatedAt ?? l.createdAt ?? "";
           const coinUsd = await fetchUsdPrice(l.currency, date);
           if (coinUsd === 0 && l.currency !== "USDT") continue;
@@ -1403,11 +1412,14 @@ export default function Exchange() {
   const { data: openListings } = useListExchangeListings({ status: "open" });
   const { data: fulfilledListings } = useListExchangeListings({ status: "fulfilled" });
 
+  const openListingsArray = Array.isArray(openListings) ? openListings : [];
+  const fulfilledListingsArray = Array.isArray(fulfilledListings) ? fulfilledListings : [];
+
   const tabs: { id: Tab; label: string; badge?: number }[] = [
-    { id: "marketplace", label: "Marketplace", badge: openListings?.length },
+    { id: "marketplace", label: "Marketplace", badge: openListingsArray.length },
     { id: "create",      label: "List EMBR" },
     { id: "mine",        label: "My Listings" },
-    { id: "history",     label: "Trade History", badge: fulfilledListings?.length },
+    { id: "history",     label: "Trade History", badge: fulfilledListingsArray.length },
     { id: "price",       label: "Price Chart" },
   ];
 
