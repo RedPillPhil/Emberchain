@@ -3,7 +3,8 @@ import { useAccount, useBalance, useReadContract, useChainId, useSwitchChain, us
 import { injected } from 'wagmi/connectors';
 import { formatEther } from 'viem';
 import { chainNodeApi } from './config';
-import { WEMBR_ADDRESS, ERC20_ABI, EMBER_DELTA_ADDRESS, EMBER_DELTA_ABI, BASE_CHAIN_ID } from './contracts';
+import { WEMBR_ADDRESS, ERC20_ABI, BASE_CHAIN_ID, EMBER_DELTA_ADDRESS } from './contracts';
+import { DEX_TOKENS_ABI, ETH_ADDR } from './dex-balances';
 
 export function useWeb3() {
   const { address, isConnected } = useAccount();
@@ -14,10 +15,12 @@ export function useWeb3() {
   const [embrBalance, setEmbrBalance] = useState<number | null>(null);
 
   const isWrongNetwork = isConnected && chainId !== BASE_CHAIN_ID;
+  const onBase = isConnected && chainId === BASE_CHAIN_ID;
 
   const { data: ethBalanceData, refetch: refetchEthBalance } = useBalance({
     address,
-    query: { enabled: !!address },
+    chainId: BASE_CHAIN_ID,
+    query: { enabled: !!address && onBase },
   });
 
   const { data: wembrWalletRaw, refetch: refetchWembrWallet } = useReadContract({
@@ -25,23 +28,26 @@ export function useWeb3() {
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 15000 },
+    chainId: BASE_CHAIN_ID,
+    query: { enabled: !!address && onBase, refetchInterval: 15000 },
   });
 
   const { data: ethDepositedRaw, refetch: refetchEthDeposited } = useReadContract({
     address: EMBER_DELTA_ADDRESS,
-    abi: EMBER_DELTA_ABI,
-    functionName: 'balanceOf',
-    args: address ? ['0x0000000000000000000000000000000000000000' as `0x${string}`, address] : undefined,
-    query: { enabled: !!address, refetchInterval: 10000 },
+    abi: DEX_TOKENS_ABI,
+    functionName: 'tokens',
+    args: address && onBase ? [ETH_ADDR, address] : undefined,
+    chainId: BASE_CHAIN_ID,
+    query: { enabled: !!address && onBase, refetchInterval: 10000 },
   });
 
   const { data: wembrDepositedRaw, refetch: refetchWembrDeposited } = useReadContract({
     address: EMBER_DELTA_ADDRESS,
-    abi: EMBER_DELTA_ABI,
-    functionName: 'balanceOf',
-    args: address ? [WEMBR_ADDRESS, address] : undefined,
-    query: { enabled: !!address, refetchInterval: 10000 },
+    abi: DEX_TOKENS_ABI,
+    functionName: 'tokens',
+    args: address && onBase ? [WEMBR_ADDRESS, address] : undefined,
+    chainId: BASE_CHAIN_ID,
+    query: { enabled: !!address && onBase, refetchInterval: 10000 },
   });
 
   const ethBalance = ethBalanceData ? parseFloat(formatEther(ethBalanceData.value)) : null;

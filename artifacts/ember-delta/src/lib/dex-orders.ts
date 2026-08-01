@@ -77,7 +77,9 @@ export function parseOpenOrders(
 }
 
 export async function fetchRawOpenOrders(tokenAddress: string): Promise<Record<string, unknown>[]> {
-  const res = await fetch(chainNodeApi(`/api/dex/orders?token=${tokenAddress}`));
+  const res = await fetch(
+    chainNodeApi(`/api/dex/orders?token=${tokenAddress}&status=open`),
+  );
   if (!res.ok) throw new Error("Failed to fetch orders");
   return res.json();
 }

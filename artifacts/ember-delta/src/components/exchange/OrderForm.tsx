@@ -8,7 +8,6 @@ import {
   EMBER_DELTA_ABI,
   EMBER_DELTA_DOMAIN,
   ORDER_TYPES,
-  ETH_ADDR,
   ERC20_ABI,
   BASE_CHAIN_ID,
 } from '@/lib/contracts';
@@ -20,6 +19,7 @@ import {
   fetchRawOpenOrders,
   parseOpenOrders,
 } from '@/lib/dex-orders';
+import { useDexDeposited, useDexDepositEvents, ETH_ADDR } from '@/lib/dex-balances';
 
 interface OrderFormProps {
   pair: TradingPair;
@@ -34,7 +34,6 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
     isConnected,
     isWrongNetwork,
     ethBalance,
-    ethDeposited,
     connectWallet,
     switchToBase,
     refetchBalances,
@@ -42,6 +41,15 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
 
   const { address } = useAccount();
   const publicClient = usePublicClient();
+
+  const {
+    deposited: dexEthTotal,
+    refetchDeposited: refetchEthDeposited,
+  } = useDexDeposited(ETH_ADDR);
+  const {
+    deposited: dexTokenTotal,
+    refetchDeposited: refetchTokenDeposited,
+  } = useDexDeposited(pair.tokenAddress as `0x${string}`);
 
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [price, setPrice] = useState('');
@@ -64,29 +72,25 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
     chainId: BASE_CHAIN_ID,
-    query: { enabled: !!address },
-  });
-  const { data: pairDepositedRaw, refetch: refetchPairDeposited } = useReadContract({
-    address: EMBER_DELTA_ADDRESS,
-    abi: EMBER_DELTA_ABI,
-    functionName: 'balanceOf',
-    args: address ? [pair.tokenAddress as `0x${string}`, address] : undefined,
-    chainId: BASE_CHAIN_ID,
-    query: { enabled: !!address },
+    query: { enabled: !!address && !isWrongNetwork },
   });
   const { refetch: refetchEthWallet } = useBalance({
     address,
-    query: { enabled: !!address },
+    chainId: BASE_CHAIN_ID,
+    query: { enabled: !!address && !isWrongNetwork },
   });
 
   const refreshAllBalances = useCallback(async () => {
     await Promise.all([
       refetchBalances(),
+      refetchEthDeposited(),
+      refetchTokenDeposited(),
       refetchPairWallet(),
-      refetchPairDeposited(),
       refetchEthWallet(),
     ]);
-  }, [refetchBalances, refetchPairWallet, refetchPairDeposited, refetchEthWallet]);
+  }, [refetchBalances, refetchEthDeposited, refetchTokenDeposited, refetchPairWallet, refetchEthWallet]);
+
+  useDexDepositEvents(refreshAllBalances);
 
   const loadReserved = useCallback(async () => {
     if (!address) {
@@ -116,19 +120,17 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
   const amountNum = parseFloat(amount) || 0;
   const total = priceNum * amountNum;
 
-  const dexEthTotal = ethDeposited ?? 0;
-  const dexTokenTotal = pairDepositedRaw != null ? parseFloat(formatEther(pairDepositedRaw as bigint)) : 0;
-  const dexEth = Math.max(0, dexEthTotal - reservedEth);
-  const dexToken = Math.max(0, dexTokenTotal - reservedToken);
+  const dexEthAvailable = Math.max(0, dexEthTotal - reservedEth);
+  const dexTokenAvailable = Math.max(0, dexTokenTotal - reservedToken);
   const walletEth = ethBalance ?? 0;
   const walletToken = pairWalletRaw != null ? parseFloat(formatEther(pairWalletRaw as bigint)) : 0;
 
   const handlePercClick = (perc: number) => {
     if (side === 'buy') {
-      const ethToSpend = dexEth * perc;
+      const ethToSpend = dexEthAvailable * perc;
       if (priceNum > 0) setAmount((ethToSpend / priceNum).toFixed(4));
     } else {
-      setAmount((dexToken * perc).toFixed(4));
+      setAmount((dexTokenAvailable * perc).toFixed(4));
     }
   };
 
@@ -153,12 +155,12 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
     if (priceNum <= 0) { toast('Enter a price', true); return; }
     if (amountNum <= 0) { toast('Enter an amount', true); return; }
 
-    if (side === 'sell' && amountNum > dexToken + 1e-9) {
-      toast(`You only have ${dexToken.toFixed(4)} ${pair.symbol} available in the DEX (${reservedToken.toFixed(4)} reserved in open orders).`, true);
+    if (side === 'sell' && amountNum > dexTokenAvailable + 1e-9) {
+      toast(`You only have ${dexTokenAvailable.toFixed(4)} ${pair.symbol} available in the DEX (${reservedToken.toFixed(4)} in open orders).`, true);
       return;
     }
-    if (side === 'buy' && total > dexEth + 1e-9) {
-      toast(`You only have ${dexEth.toFixed(4)} ETH available in the DEX (${reservedEth.toFixed(4)} reserved in open orders).`, true);
+    if (side === 'buy' && total > dexEthAvailable + 1e-9) {
+      toast(`You only have ${dexEthAvailable.toFixed(4)} ETH available in the DEX (${reservedEth.toFixed(4)} in open orders).`, true);
       return;
     }
 
@@ -340,13 +342,13 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
         </div>
 
         <div className="space-y-1 font-mono text-sm mb-2">
-          <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">In DEX (available to trade)</div>
+          <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">In DEX (on-chain deposit)</div>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-white/80">
               <TokenIcon symbol="ETH" size={14} /> ETH
             </div>
             <div className={cn("font-bold", isConnected ? "text-white" : "text-muted-foreground")}>
-              {isConnected ? dexEth.toFixed(4) : '—'}
+              {isConnected ? dexEthTotal.toFixed(4) : '—'}
             </div>
           </div>
           <div className="flex items-center justify-between">
@@ -354,14 +356,22 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
               <TokenIcon symbol={pair.symbol} size={14} /> {pair.symbol}
             </div>
             <div className={cn("font-bold", isConnected ? "text-white" : "text-muted-foreground")}>
-              {isConnected ? dexToken.toFixed(4) : '—'}
+              {isConnected ? dexTokenTotal.toFixed(4) : '—'}
             </div>
           </div>
           {isConnected && (reservedEth > 0 || reservedToken > 0) && (
-            <div className="text-[9px] text-muted-foreground pt-1">
-              {reservedEth > 0 && `${reservedEth.toFixed(4)} ETH in open orders`}
-              {reservedEth > 0 && reservedToken > 0 && ' · '}
-              {reservedToken > 0 && `${reservedToken.toFixed(4)} ${pair.symbol} in open orders`}
+            <div className="text-[9px] text-muted-foreground pt-1 space-y-0.5">
+              <div className="uppercase tracking-wider">Available to trade</div>
+              <div>
+                {dexEthAvailable.toFixed(4)} ETH
+                {' · '}
+                {dexTokenAvailable.toFixed(4)} {pair.symbol}
+              </div>
+              <div>
+                {reservedEth > 0 && `${reservedEth.toFixed(4)} ETH in open orders`}
+                {reservedEth > 0 && reservedToken > 0 && ' · '}
+                {reservedToken > 0 && `${reservedToken.toFixed(4)} ${pair.symbol} in open orders`}
+              </div>
             </div>
           )}
         </div>
@@ -496,7 +506,7 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
               <div className="bg-secondary/50 rounded p-2">
                 <div className="text-muted-foreground mb-0.5">In DEX</div>
                 <div className="font-mono font-bold text-white">
-                  {depositToken === 'ETH' ? dexEth.toFixed(4) : dexToken.toFixed(4)}
+                  {depositToken === 'ETH' ? dexEthTotal.toFixed(4) : dexTokenTotal.toFixed(4)}
                   {' '}{depositToken === 'ETH' ? 'ETH' : pair.symbol}
                 </div>
               </div>
