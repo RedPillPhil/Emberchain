@@ -15,7 +15,7 @@ import {
   fetchRawOpenOrders,
   type ParsedOpenOrder,
 } from '@/lib/dex-orders';
-import { explainTradeError, prepareOrderFill, tradeArgs } from '@/lib/dex-trade';
+import { explainTradeError, isInsufficientDexDeposit, prepareOrderFill, tradeArgs, type InsufficientDexDepositError } from '@/lib/dex-trade';
 import type { TradeLogEntry } from '@/pages/Exchange';
 
 interface OrderBookProps {
@@ -24,8 +24,80 @@ interface OrderBookProps {
   className?: string;
   tradeLogs: TradeLogEntry[];
   currentBlock: bigint;
-  /** Bump to trigger an immediate orderbook refresh. */
   refreshKey?: number;
+  /** Parent opens the deposit modal when taker lacks DEX balance. */
+  onDepositRequired?: (token: 'ETH' | 'TOKEN') => void;
+}
+
+function DepositRequiredDialog({
+  error,
+  symbol,
+  onClose,
+  onDeposit,
+}: {
+  error: InsufficientDexDepositError;
+  symbol: string;
+  onClose: () => void;
+  onDeposit: () => void;
+}) {
+  const assetDisplay = error.asset === 'ETH' ? 'ETH' : symbol;
+  const dep = parseFloat(error.deposited);
+  const req = parseFloat(error.required);
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="bg-card border border-destructive/40 rounded-xl shadow-2xl max-w-md w-full p-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-full bg-destructive/15 flex items-center justify-center shrink-0 text-destructive text-lg">
+            !
+          </div>
+          <div>
+            <h3 className="font-bold text-white text-sm uppercase tracking-wide">
+              Deposit required
+            </h3>
+            <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+              {error.action === 'buy'
+                ? `To buy from this sell order, you need ${assetDisplay} deposited in the DEX contract. Wallet balance cannot be used directly.`
+                : `To sell into this buy order, you need ${assetDisplay} deposited in the DEX contract. Wallet balance cannot be used directly.`}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-sm font-mono">
+          <div className="bg-secondary/50 rounded-lg p-3 border border-border">
+            <div className="text-[10px] text-muted-foreground uppercase mb-1">In DEX now</div>
+            <div className="text-white font-bold">{dep.toFixed(4)} {assetDisplay}</div>
+          </div>
+          <div className="bg-destructive/10 rounded-lg p-3 border border-destructive/30">
+            <div className="text-[10px] text-muted-foreground uppercase mb-1">Need (incl. fee)</div>
+            <div className="text-destructive font-bold">~{req.toFixed(4)} {assetDisplay}</div>
+          </div>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Deposit at least {(req - dep).toFixed(4)} more {assetDisplay} via{' '}
+          <strong className="text-white">Deposit / Withdraw</strong> in the order panel, then try again.
+        </p>
+
+        <div className="flex gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onDeposit}
+            className="flex-1 py-2.5 bg-primary text-primary-foreground font-bold uppercase text-xs rounded hover:bg-primary/90"
+          >
+            Open deposit
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-2.5 border border-border text-white font-bold uppercase text-xs rounded hover:bg-white/5"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function LoadingOrdersPanel() {
@@ -44,6 +116,7 @@ export const OrderBook = React.memo(function OrderBook({
   tradeLogs,
   currentBlock,
   refreshKey = 0,
+  onDepositRequired,
 }: OrderBookProps) {
   const { address, chainId } = useAccount();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
@@ -55,10 +128,11 @@ export const OrderBook = React.memo(function OrderBook({
   const [fillingHash, setFillingHash] = useState<string | null>(null);
   const [cancellingHash, setCancellingHash] = useState<string | null>(null);
   const [fillToast, setFillToast] = useState<{ msg: string; err: boolean } | null>(null);
+  const [depositError, setDepositError] = useState<InsufficientDexDepositError | null>(null);
 
   const showFillToast = (msg: string, err = false) => {
     setFillToast({ msg, err });
-    setTimeout(() => setFillToast(null), err ? 8000 : 5000);
+    setTimeout(() => setFillToast(null), err ? 10000 : 5000);
   };
 
   const lastPrice = useMemo<number | null>(() => {
@@ -138,6 +212,7 @@ export const OrderBook = React.memo(function OrderBook({
         publicClient,
         order,
         address as `0x${string}`,
+        symbol,
       );
 
       showFillToast(`${summary} — confirm in MetaMask…`);
@@ -162,7 +237,11 @@ export const OrderBook = React.memo(function OrderBook({
         void fetchOrders();
       }
     } catch (e: unknown) {
-      showFillToast(explainTradeError(e), true);
+      if (isInsufficientDexDeposit(e)) {
+        setDepositError(e);
+      } else {
+        showFillToast(explainTradeError(e), true);
+      }
     } finally {
       setFillingHash(null);
     }
@@ -323,6 +402,19 @@ export const OrderBook = React.memo(function OrderBook({
           </>
         )}
       </div>
+
+      {depositError && (
+        <DepositRequiredDialog
+          error={depositError}
+          symbol={symbol}
+          onClose={() => setDepositError(null)}
+          onDeposit={() => {
+            const token = depositError.asset === 'ETH' ? 'ETH' : 'TOKEN';
+            setDepositError(null);
+            onDepositRequired?.(token);
+          }}
+        />
+      )}
 
       {fillToast && (
         <div className={cn(

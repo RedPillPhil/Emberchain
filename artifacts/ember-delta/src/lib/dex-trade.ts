@@ -31,20 +31,51 @@ export function tradeArgs(order: ParsedOpenOrder, amount: bigint) {
   ] as const;
 }
 
+/** Thrown when the taker has insufficient DEX deposit to fill an order. */
+export class InsufficientDexDepositError extends Error {
+  readonly asset: string;
+  readonly deposited: string;
+  readonly required: string;
+  readonly action: "buy" | "sell";
+
+  constructor(opts: {
+    asset: string;
+    deposited: string;
+    required: string;
+    action: "buy" | "sell";
+  }) {
+    super(
+      `Deposit more ${opts.asset} to ${opts.action === "buy" ? "buy" : "sell"}. ` +
+        `You have ${opts.deposited} ${opts.asset} in the DEX but need ~${opts.required} ${opts.asset} (incl. fee).`,
+    );
+    this.name = "InsufficientDexDepositError";
+    this.asset = opts.asset;
+    this.deposited = opts.deposited;
+    this.required = opts.required;
+    this.action = opts.action;
+  }
+}
+
 export interface PreparedFill {
   amount: bigint;
-  /** Human-readable summary for UI */
   summary: string;
+}
+
+function assetLabel(order: ParsedOpenOrder, pairSymbol: string): string {
+  return order.token_get.toLowerCase() === ETH_ADDR.toLowerCase() ? "ETH" : pairSymbol;
 }
 
 export async function prepareOrderFill(
   client: PublicClient,
   order: ParsedOpenOrder,
   taker: `0x${string}`,
+  pairSymbol: string,
 ): Promise<PreparedFill> {
   const v = normalizeSignatureV(order.v);
   const r = asBytes32(order.r);
   const s = asBytes32(order.s);
+  const action: "buy" | "sell" = order.side === "sell" ? "buy" : "sell";
+  const asset = assetLabel(order, pairSymbol);
 
   const [available, feeBps, takerBalance] = await Promise.all([
     client.readContract({
@@ -83,31 +114,24 @@ export async function prepareOrderFill(
     );
   }
 
-  // Taker pays `amount + fee` in tokenGet; fee = amount * feeBps / 10_000
-  const maxByBalance =
-    takerBalance * 10000n / (10000n + feeBps);
-
+  const requiredWithFee = available + (available * feeBps) / 10000n;
+  const maxByBalance = takerBalance * 10000n / (10000n + feeBps);
   const amount = available < maxByBalance ? available : maxByBalance;
 
   if (amount === 0n) {
-    const tokenLabel =
-      order.token_get.toLowerCase() === ETH_ADDR.toLowerCase() ? "ETH" : "tokens";
-    const need = formatEther(
-      available + (available * feeBps) / 10000n,
-    );
-    throw new Error(
-      `Insufficient ${tokenLabel} deposited in the DEX. You need ~${need} ${tokenLabel} deposited (includes ${Number(feeBps) / 100}% fee). Use Deposit / Withdraw in the order panel first — wallet balance cannot be used directly.`,
-    );
+    throw new InsufficientDexDepositError({
+      asset,
+      deposited: formatEther(takerBalance),
+      required: formatEther(requiredWithFee),
+      action,
+    });
   }
 
   const isPartial = amount < available;
-  const tokenGetLabel =
-    order.token_get.toLowerCase() === ETH_ADDR.toLowerCase() ? "ETH" : "token";
   const summary = isPartial
-    ? `Partial fill: ${formatEther(amount)} ${tokenGetLabel} (+ fee)`
-    : `Full fill: ${formatEther(amount)} ${tokenGetLabel} (+ fee)`;
+    ? `Partial fill: ${formatEther(amount)} ${asset} (+ fee)`
+    : `Full fill: ${formatEther(amount)} ${asset} (+ fee)`;
 
-  // Dry-run so MetaMask never opens on a reverting tx
   await client.simulateContract({
     address: EMBER_DELTA_ADDRESS,
     abi: EMBER_DELTA_ABI,
@@ -119,7 +143,13 @@ export async function prepareOrderFill(
   return { amount, summary };
 }
 
+export function isInsufficientDexDeposit(err: unknown): err is InsufficientDexDepositError {
+  return err instanceof InsufficientDexDepositError;
+}
+
 export function explainTradeError(err: unknown): string {
+  if (isInsufficientDexDeposit(err)) return err.message;
+
   const msg =
     err instanceof Error
       ? err.message
@@ -130,7 +160,7 @@ export function explainTradeError(err: unknown): string {
   if (/user rejected|denied|4001/i.test(msg)) return "Transaction rejected";
 
   if (/insufficient tokenget/i.test(msg)) {
-    return "Insufficient funds deposited in the DEX (includes protocol fee). Deposit first via the order panel.";
+    return "Not enough deposited in the DEX (includes protocol fee). Use Deposit / Withdraw in the order panel first.";
   }
   if (/insufficient tokengive/i.test(msg)) {
     return "Maker no longer has enough deposited to fill this order.";
@@ -139,7 +169,7 @@ export function explainTradeError(err: unknown): string {
   if (/order expired/i.test(msg)) return "This order has expired.";
   if (/order cancelled/i.test(msg)) return "This order was cancelled.";
   if (/overfill/i.test(msg)) return "Order was already partially or fully filled on-chain.";
-  if (/deposit first/i.test(msg) || /no longer be filled/i.test(msg)) return msg;
+  if (/no longer be filled/i.test(msg)) return msg;
 
   return msg.length > 120 ? `${msg.slice(0, 120)}…` : msg;
 }

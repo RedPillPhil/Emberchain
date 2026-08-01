@@ -165,6 +165,11 @@ export default function Exchange() {
   const [ordersRefreshKey, setOrdersRefreshKey] = useState(0);
   const bumpOrders = useCallback(() => setOrdersRefreshKey((k) => k + 1), []);
 
+  const [depositRequest, setDepositRequest] = useState<{ token: 'ETH' | 'TOKEN'; key: number } | null>(null);
+  const handleDepositRequired = useCallback((token: 'ETH' | 'TOKEN') => {
+    setDepositRequest({ token, key: Date.now() });
+  }, []);
+
   // Stable callback so OrderForm/TradeHistory don't re-render when price updates
   const handleLastPrice = useCallback((p: number) => setLastPrice(p), []);
 
@@ -181,6 +186,7 @@ export default function Exchange() {
             tradeLogs={tradeLogs}
             currentBlock={currentBlock}
             refreshKey={ordersRefreshKey}
+            onDepositRequired={handleDepositRequired}
           />
         </div>
 
@@ -201,7 +207,11 @@ export default function Exchange() {
 
         {/* Right: Order Form */}
         <div className="w-[320px] shrink-0 h-full overflow-y-auto">
-          <OrderForm pair={selectedPair} onOrdersChanged={bumpOrders} />
+          <OrderForm
+            pair={selectedPair}
+            onOrdersChanged={bumpOrders}
+            depositRequest={depositRequest}
+          />
         </div>
       </div>
 
@@ -219,6 +229,7 @@ export default function Exchange() {
             pair={selectedPair}
             className="h-auto border-l-0"
             onOrdersChanged={bumpOrders}
+            depositRequest={depositRequest}
           />
         </div>
 
@@ -235,6 +246,7 @@ export default function Exchange() {
             tradeLogs={tradeLogs}
             currentBlock={currentBlock}
             refreshKey={ordersRefreshKey}
+            onDepositRequired={handleDepositRequired}
           />
         </CollapsibleSection>
 

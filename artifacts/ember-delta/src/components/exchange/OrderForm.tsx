@@ -25,11 +25,13 @@ interface OrderFormProps {
   pair: TradingPair;
   className?: string;
   onOrdersChanged?: () => void;
+  /** Set from parent to open the deposit modal for a specific asset. */
+  depositRequest?: { token: 'ETH' | 'TOKEN'; key: number } | null;
 }
 
 const EXPIRES_BLOCKS = 43_200n;
 
-export const OrderForm = React.memo(function OrderForm({ pair, className, onOrdersChanged }: OrderFormProps) {
+export const OrderForm = React.memo(function OrderForm({ pair, className, onOrdersChanged, depositRequest }: OrderFormProps) {
   const {
     isConnected,
     isWrongNetwork,
@@ -91,6 +93,12 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
   }, [refetchBalances, refetchEthDeposited, refetchTokenDeposited, refetchPairWallet, refetchEthWallet]);
 
   useDexDepositEvents(refreshAllBalances);
+
+  useEffect(() => {
+    if (!depositRequest) return;
+    setDepositToken(depositRequest.token);
+    setIsDepositModalOpen(true);
+  }, [depositRequest?.key, depositRequest?.token, depositRequest]);
 
   const loadReserved = useCallback(async () => {
     if (!address) {
