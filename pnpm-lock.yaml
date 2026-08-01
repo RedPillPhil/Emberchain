@@ -303,6 +303,9 @@ importers:
       pino-http:
         specifier: ^10.5.0
         version: 10.5.0
+      ws:
+        specifier: ^8.18.3
+        version: 8.21.1
     devDependencies:
       '@types/cors':
         specifier: ^2.8.19
@@ -316,6 +319,9 @@ importers:
       '@types/pg':
         specifier: ^8.20.0
         version: 8.20.0
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       esbuild:
         specifier: 0.27.3
         version: 0.27.3
@@ -428,15 +434,6 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.0
         version: 1.2.12(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
-      '@replit/vite-plugin-cartographer':
-        specifier: 'catalog:'
-        version: 0.5.21
-      '@replit/vite-plugin-dev-banner':
-        specifier: 'catalog:'
-        version: 0.1.2
-      '@replit/vite-plugin-runtime-error-modal':
-        specifier: 'catalog:'
-        version: 0.0.6
       '@tailwindcss/typography':
         specifier: ^0.5.15
         version: 0.5.20(tailwindcss@4.3.2)
@@ -1059,6 +1056,9 @@ importers:
       ethereum-cryptography:
         specifier: ^3.2.0
         version: 3.2.0
+      ethers:
+        specifier: ^6.17.0
+        version: 6.17.0
       react-qr-code:
         specifier: ^2.2.0
         version: 2.2.0(react@19.1.0)
