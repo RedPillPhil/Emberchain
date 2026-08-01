@@ -193,7 +193,12 @@ export default function Exchange() {
         {/* Center: Chart + Trade History */}
         <div className="flex-1 flex flex-col h-full min-w-0">
           <div className="h-[60%] shrink-0">
-            <PriceChart symbol={selectedPair.symbol} currentPrice={lastPrice} />
+            <PriceChart
+              symbol={selectedPair.symbol}
+              tokenAddress={selectedPair.tokenAddress}
+              tradeLogs={tradeLogs}
+              currentPrice={lastPrice}
+            />
           </div>
           <div className="flex-1 min-h-0">
             <TradeHistory
@@ -220,7 +225,12 @@ export default function Exchange() {
 
         {/* 1. Compact price chart */}
         <div className="h-[220px] shrink-0 border-b border-border">
-          <PriceChart symbol={selectedPair.symbol} currentPrice={lastPrice} />
+          <PriceChart
+            symbol={selectedPair.symbol}
+            tokenAddress={selectedPair.tokenAddress}
+            tradeLogs={tradeLogs}
+            currentPrice={lastPrice}
+          />
         </div>
 
         {/* 2. Order form — flows to natural height */}

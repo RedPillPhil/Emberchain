@@ -1,9 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { formatNumber } from '@/lib/utils';
-import { formatEther } from 'viem';
+import { parseTradeLogs } from '@/lib/parse-trades';
 import type { TradeLogEntry } from '@/pages/Exchange';
-
-const ETH_ADDR = '0x0000000000000000000000000000000000000000';
 
 interface TradeRow {
   id: string;
@@ -18,7 +16,6 @@ interface TradeHistoryProps {
   tokenAddress: `0x${string}`;
   symbol: string;
   onLastPrice?: (price: number) => void;
-  /** Pre-fetched Trade event logs from the parent Exchange (shared, no duplicate RPC). */
   tradeLogs: TradeLogEntry[];
 }
 
@@ -29,63 +26,30 @@ export const TradeHistory = React.memo(function TradeHistory({
   tradeLogs,
 }: TradeHistoryProps) {
   const trades = useMemo<TradeRow[]>(() => {
-    const rows: TradeRow[] = [];
-    for (const log of tradeLogs) {
-      const { tokenGet, amountGet, tokenGive, amountGive } = log.args;
-      if (!tokenGet || !amountGet || !tokenGive || !amountGive) continue;
+    const parsed = parseTradeLogs(tradeLogs, tokenAddress);
+    return parsed
+      .sort((a, b) => {
+        const blockCmp = a.blockNumber > b.blockNumber ? -1 : a.blockNumber < b.blockNumber ? 1 : 0;
+        if (blockCmp !== 0) return blockCmp;
+        return b.logIndex - a.logIndex;
+      })
+      .map((t) => ({
+        id: t.id,
+        time: `#${t.blockNumber.toString()}`,
+        side: t.side,
+        price: t.price,
+        amount: t.amount,
+        total: t.total,
+      }));
+  }, [tradeLogs, tokenAddress]);
 
-      const isRelevant =
-        tokenGet.toLowerCase() === tokenAddress.toLowerCase() ||
-        tokenGive.toLowerCase() === tokenAddress.toLowerCase();
-      if (!isRelevant) continue;
-
-      let side: 'buy' | 'sell';
-      let ethAmt: bigint;
-      let tokenAmt: bigint;
-
-      if (
-        tokenGet.toLowerCase() === ETH_ADDR &&
-        tokenGive.toLowerCase() === tokenAddress.toLowerCase()
-      ) {
-        side = 'sell';
-        ethAmt = amountGet;
-        tokenAmt = amountGive;
-      } else if (
-        tokenGet.toLowerCase() === tokenAddress.toLowerCase() &&
-        tokenGive.toLowerCase() === ETH_ADDR
-      ) {
-        side = 'buy';
-        tokenAmt = amountGet;
-        ethAmt = amountGive;
-      } else {
-        continue;
-      }
-
-      const tokenFloat = parseFloat(formatEther(tokenAmt));
-      const ethFloat = parseFloat(formatEther(ethAmt));
-      const price = tokenFloat > 0 ? ethFloat / tokenFloat : 0;
-      const blockNum = log.blockNumber ?? 0n;
-
-      rows.push({
-        id: `${log.transactionHash}-${log.logIndex}`,
-        time: `#${blockNum.toString()}`,
-        side,
-        price,
-        amount: tokenFloat,
-        total: ethFloat,
-      });
+  useEffect(() => {
+    if (trades.length > 0 && onLastPrice) {
+      onLastPrice(trades[0].price);
     }
+  }, [trades, onLastPrice]);
 
-    // Sort newest first
-    rows.sort((a, b) => b.id.localeCompare(a.id));
-
-    // Report last price to parent (PriceChart) when the list changes
-    if (rows.length > 0 && onLastPrice) onLastPrice(rows[0].price);
-
-    return rows;
-  }, [tradeLogs, tokenAddress, onLastPrice]);
-
-  const loading = tradeLogs.length === 0;
+  const loading = tradeLogs.length === 0 && trades.length === 0;
 
   return (
     <div className="flex flex-col h-full bg-card font-mono text-xs overflow-hidden">

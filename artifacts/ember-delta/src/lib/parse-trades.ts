@@ -1,0 +1,94 @@
+import { formatEther } from "viem";
+import { ETH_ADDR } from "@/lib/contracts";
+import type { TradeLogEntry } from "@/pages/Exchange";
+
+export interface ParsedTrade {
+  id: string;
+  blockNumber: bigint;
+  logIndex: number;
+  side: "buy" | "sell";
+  price: number;
+  amount: number;
+  total: number;
+}
+
+/** Parse EmberDelta Trade logs into wTOKEN/ETH prices. */
+export function parseTradeLogs(
+  tradeLogs: TradeLogEntry[],
+  tokenAddress: string,
+): ParsedTrade[] {
+  const rows: ParsedTrade[] = [];
+  const token = tokenAddress.toLowerCase();
+  const eth = ETH_ADDR.toLowerCase();
+
+  for (const log of tradeLogs) {
+    const { tokenGet, amountGet, tokenGive, amountGive } = log.args;
+    if (!tokenGet || !amountGet || !tokenGive || !amountGive) continue;
+
+    const tg = tokenGet.toLowerCase();
+    const tv = tokenGive.toLowerCase();
+    if (tg !== token && tv !== token) continue;
+
+    let side: "buy" | "sell";
+    let ethAmt: bigint;
+    let tokenAmt: bigint;
+
+    if (tg === eth && tv === token) {
+      side = "sell";
+      ethAmt = amountGet;
+      tokenAmt = amountGive;
+    } else if (tg === token && tv === eth) {
+      side = "buy";
+      tokenAmt = amountGet;
+      ethAmt = amountGive;
+    } else {
+      continue;
+    }
+
+    const tokenFloat = parseFloat(formatEther(tokenAmt));
+    const ethFloat = parseFloat(formatEther(ethAmt));
+    if (tokenFloat <= 0 || ethFloat <= 0) continue;
+
+    const price = ethFloat / tokenFloat;
+
+    rows.push({
+      id: `${log.transactionHash ?? "0x"}-${log.logIndex ?? 0}`,
+      blockNumber: log.blockNumber ?? 0n,
+      logIndex: log.logIndex ?? 0,
+      side,
+      price,
+      amount: tokenFloat,
+      total: ethFloat,
+    });
+  }
+
+  return rows;
+}
+
+/** Chronological chart points from parsed trades (oldest → newest). */
+export function tradesToChartPoints(trades: ParsedTrade[]) {
+  const sorted = [...trades].sort((a, b) => {
+    const blockCmp = a.blockNumber > b.blockNumber ? 1 : a.blockNumber < b.blockNumber ? -1 : 0;
+    if (blockCmp !== 0) return blockCmp;
+    return a.logIndex - b.logIndex;
+  });
+
+  return sorted.map((t, i) => ({
+    time: sorted.length <= 5 ? `#${t.blockNumber}` : `${i + 1}`,
+    close: t.price,
+    volume: t.amount,
+    block: t.blockNumber.toString(),
+  }));
+}
+
+export function chartPriceDomain(prices: number[]): [number, number] {
+  if (prices.length === 0) return [0, 1];
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  if (min === max) {
+    const pad = min > 0 ? min * 0.02 : 0.000001;
+    return [Math.max(0, min - pad), max + pad];
+  }
+  const pad = (max - min) * 0.08;
+  return [Math.max(0, min - pad), max + pad];
+}
