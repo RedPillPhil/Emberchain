@@ -45,7 +45,7 @@ function loadData(): DexOrdersData {
   if (cache) return cache;
   try {
     const raw = readFileSync(DATA_FILE, "utf-8");
-    cache = { orders: {}, ...(JSON.parse(raw) as DexOrdersData) };
+    cache = { ...defaultData(), ...(JSON.parse(raw) as DexOrdersData) };
   } catch {
     cache = { orders: {} };
   }
