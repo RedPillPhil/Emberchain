@@ -1,5 +1,5 @@
 import type { Transaction, TransactionInput } from "@workspace/api-client-react";
-import { CHAIN_NODE_URL } from "@/lib/config";
+import { chainNodeApi, CHAIN_NODE_URL } from "@/lib/config";
 
 export { CHAIN_NODE_URL };
 
@@ -9,7 +9,7 @@ export const CHAIN_GAS_PRICE = 1_000_000_000n;
 export async function submitChainTransaction(
   input: TransactionInput,
 ): Promise<Transaction> {
-  const res = await fetch(`${CHAIN_NODE_URL}/api/transactions`, {
+  const res = await fetch(chainNodeApi("/api/transactions"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
@@ -26,7 +26,7 @@ export async function submitChainTransaction(
 }
 
 export async function getChainTransaction(hash: string): Promise<Transaction | undefined> {
-  const res = await fetch(`${CHAIN_NODE_URL}/api/transactions/${encodeURIComponent(hash)}`, {
+  const res = await fetch(chainNodeApi(`/api/transactions/${encodeURIComponent(hash)}`), {
     headers: { Accept: "application/json" },
   });
   if (res.status === 404) return undefined;

@@ -1,5 +1,5 @@
 import { Contract, Interface, JsonRpcProvider, Wallet } from "ethers";
-import { CHAIN_NODE_URL } from "@/lib/config";
+import { chainNodeApi, chainNodeRpcUrl } from "@/lib/config";
 import { submitChainTransaction } from "@/lib/chain-node";
 import {
   BASE_BRIDGE_ABI,
@@ -54,7 +54,7 @@ interface ChainTxFull extends ChainTxSummary {
 }
 
 async function embrProvider(): Promise<JsonRpcProvider> {
-  return new JsonRpcProvider(`${CHAIN_NODE_URL}/api/rpc`);
+  return new JsonRpcProvider(chainNodeRpcUrl());
 }
 
 async function baseProvider(): Promise<JsonRpcProvider> {
@@ -70,10 +70,13 @@ function normalizeAddress(addr: string | null | undefined): string | null {
 /** Emberchain JSON-RPC stubs eth_getLogs → always []. Scan via REST instead. */
 async function fetchEmbrToBaseLocks(limit = 500): Promise<EmbrToBasePending[]> {
   const res = await fetch(
-    `${CHAIN_NODE_URL}/api/transactions?address=${EMBER_BRIDGE_ADDRESS}&limit=${limit}`,
+    `${chainNodeApi("/api/transactions")}?address=${EMBER_BRIDGE_ADDRESS}&limit=${limit}`,
     { headers: { Accept: "application/json" } },
   );
-  if (!res.ok) throw new Error(`Failed to list EMBR transactions (HTTP ${res.status})`);
+  const ct = res.headers.get("content-type") ?? "";
+  if (!res.ok || !ct.includes("application/json")) {
+    throw new Error(`Failed to list EMBR transactions (HTTP ${res.status})`);
+  }
   const summaries = (await res.json()) as ChainTxSummary[];
 
   const locks: EmbrToBasePending[] = [];
@@ -84,7 +87,7 @@ async function fetchEmbrToBaseLocks(limit = 500): Promise<EmbrToBasePending[]> {
     if (to !== EMBER_BRIDGE_ADDRESS.toLowerCase()) continue;
     if (BigInt(summary.value) <= 0n) continue;
 
-    const detailRes = await fetch(`${CHAIN_NODE_URL}/api/transactions/${encodeURIComponent(summary.hash)}`, {
+    const detailRes = await fetch(chainNodeApi(`/api/transactions/${encodeURIComponent(summary.hash)}`), {
       headers: { Accept: "application/json" },
     });
     if (!detailRes.ok) continue;
@@ -124,7 +127,7 @@ function parseLockEmbrTx(tx: ChainTxFull): { baseRecipient: string; nonce: strin
 
 /** Look up a single EMBR lock tx by hash (for manual admin completion). */
 export async function fetchEmbrLockByTxHash(txHash: string): Promise<EmbrToBasePending | null> {
-  const res = await fetch(`${CHAIN_NODE_URL}/api/transactions/${encodeURIComponent(txHash)}`, {
+  const res = await fetch(chainNodeApi(`/api/transactions/${encodeURIComponent(txHash)}`), {
     headers: { Accept: "application/json" },
   });
   if (!res.ok) return null;

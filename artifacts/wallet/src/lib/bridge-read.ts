@@ -1,5 +1,5 @@
 import { Interface } from "ethers";
-import { CHAIN_NODE_URL } from "@/lib/config";
+import { chainNodeRpcUrl } from "@/lib/config";
 import {
   BASE_BRIDGE_ABI,
   BASE_RPC_URL,
@@ -41,7 +41,7 @@ export async function isNonceUsedOnBase(nonce: string): Promise<boolean> {
 export async function isNonceUsedOnEmbr(nonce: string): Promise<boolean> {
   try {
     const data = embrBridgeIface.encodeFunctionData("usedNonces", [BigInt(nonce)]);
-    const result = await rpcEthCall(`${CHAIN_NODE_URL}/api/rpc`, EMBER_BRIDGE_ADDRESS, data);
+    const result = await rpcEthCall(chainNodeRpcUrl(), EMBER_BRIDGE_ADDRESS, data);
     return BigInt(result) !== 0n;
   } catch {
     return false;

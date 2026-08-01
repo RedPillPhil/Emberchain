@@ -5,6 +5,7 @@
   "outputDirectory": "artifacts/wallet/dist/public",
   "framework": "vite",
   "rewrites": [
+    { "source": "/api/:path*", "destination": "https://emberchain.duckdns.org/api/:path*" },
     { "source": "/ember-delta", "destination": "/ember-delta/index.html" },
     { "source": "/ember-delta/:path*", "destination": "/ember-delta/index.html" },
     { "source": "/(.*)", "destination": "/index.html" }

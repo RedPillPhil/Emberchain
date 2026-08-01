@@ -623,10 +623,6 @@ function LaunchDown() {
                 </button>
               </a>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Operators: deposit keys and launch records are in the wallet app at{' '}
-              <code className="text-primary">/admin</code> → Token launches.
-            </p>
           </div>
         </div>
       </div>
