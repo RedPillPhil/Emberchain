@@ -1,10 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "pnpm install",
-  "buildCommand": "pnpm --filter @workspace/wallet run build",
+  "buildCommand": "pnpm --filter @workspace/wallet run build && BASE_PATH=/ember-delta/ pnpm --filter @workspace/ember-delta run build && node scripts/stage-ember-delta.mjs",
   "outputDirectory": "artifacts/wallet/dist/public",
   "framework": "vite",
   "rewrites": [
+    { "source": "/ember-delta", "destination": "/ember-delta/index.html" },
+    { "source": "/ember-delta/:path*", "destination": "/ember-delta/index.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
