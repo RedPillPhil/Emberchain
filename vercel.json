@@ -1,8 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "cd ../.. && pnpm install",
-  "buildCommand": "cd ../.. && pnpm --filter @workspace/wallet run build",
-  "outputDirectory": "dist/public",
+  "installCommand": "pnpm install",
+  "buildCommand": "pnpm --filter @workspace/wallet run build",
+  "outputDirectory": "artifacts/wallet/dist/public",
   "framework": "vite",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
