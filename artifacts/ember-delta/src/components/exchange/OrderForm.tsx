@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { formatNumber, cn } from '@/lib/utils';
-import { API } from '@/lib/api';
+import { chainNodeApi } from '@/lib/config';
 import { TokenIcon } from '@/components/TokenIcon';
 import { useWeb3 } from '@/lib/use-web3';
 import {
@@ -10,22 +10,26 @@ import {
   ORDER_TYPES,
   ETH_ADDR,
   ERC20_ABI,
-  WEMBR_ADDRESS,
   BASE_CHAIN_ID,
 } from '@/lib/contracts';
-import { useWriteContract, useSignTypedData, usePublicClient, useAccount, useReadContract } from 'wagmi';
+import { useWriteContract, useSignTypedData, usePublicClient, useAccount, useReadContract, useBalance } from 'wagmi';
 import { parseEther, formatEther, hashTypedData } from 'viem';
 import type { TradingPair } from '@/lib/custom-pairs';
+import {
+  computeReservedBalances,
+  fetchRawOpenOrders,
+  parseOpenOrders,
+} from '@/lib/dex-orders';
 
 interface OrderFormProps {
   pair: TradingPair;
   className?: string;
+  onOrdersChanged?: () => void;
 }
 
-// Blocks ≈ 2 s on Base → 43 200 blocks ≈ 24 hours
 const EXPIRES_BLOCKS = 43_200n;
 
-export const OrderForm = React.memo(function OrderForm({ pair, className }: OrderFormProps) {
+export const OrderForm = React.memo(function OrderForm({ pair, className, onOrdersChanged }: OrderFormProps) {
   const {
     isConnected,
     isWrongNetwork,
@@ -33,6 +37,7 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
     ethDeposited,
     connectWallet,
     switchToBase,
+    refetchBalances,
   } = useWeb3();
 
   const { address } = useAccount();
@@ -47,12 +52,13 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [txStatus, setTxStatus] = useState<string | null>(null);
   const [txError, setTxError] = useState(false);
+  const [reservedEth, setReservedEth] = useState(0);
+  const [reservedToken, setReservedToken] = useState(0);
 
   const { writeContractAsync } = useWriteContract();
   const { signTypedDataAsync } = useSignTypedData();
 
-  // Fetch the *selected pair's token* balances dynamically so any pair shows correct numbers.
-  const { data: pairWalletRaw } = useReadContract({
+  const { data: pairWalletRaw, refetch: refetchPairWallet } = useReadContract({
     address: pair.tokenAddress as `0x${string}`,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
@@ -60,7 +66,7 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
     chainId: BASE_CHAIN_ID,
     query: { enabled: !!address },
   });
-  const { data: pairDepositedRaw } = useReadContract({
+  const { data: pairDepositedRaw, refetch: refetchPairDeposited } = useReadContract({
     address: EMBER_DELTA_ADDRESS,
     abi: EMBER_DELTA_ABI,
     functionName: 'balanceOf',
@@ -68,13 +74,52 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
     chainId: BASE_CHAIN_ID,
     query: { enabled: !!address },
   });
+  const { refetch: refetchEthWallet } = useBalance({
+    address,
+    query: { enabled: !!address },
+  });
+
+  const refreshAllBalances = useCallback(async () => {
+    await Promise.all([
+      refetchBalances(),
+      refetchPairWallet(),
+      refetchPairDeposited(),
+      refetchEthWallet(),
+    ]);
+  }, [refetchBalances, refetchPairWallet, refetchPairDeposited, refetchEthWallet]);
+
+  const loadReserved = useCallback(async () => {
+    if (!address) {
+      setReservedEth(0);
+      setReservedToken(0);
+      return;
+    }
+    try {
+      const currentBlock = publicClient ? await publicClient.getBlockNumber() : 0n;
+      const raw = await fetchRawOpenOrders(pair.tokenAddress);
+      const orders = parseOpenOrders(raw, pair.tokenAddress, currentBlock);
+      const { ethReserved, tokenReserved } = computeReservedBalances(orders, address);
+      setReservedEth(ethReserved);
+      setReservedToken(tokenReserved);
+    } catch {
+      /* keep previous reserved values */
+    }
+  }, [address, pair.tokenAddress, publicClient]);
+
+  useEffect(() => {
+    loadReserved();
+    const id = setInterval(loadReserved, 15_000);
+    return () => clearInterval(id);
+  }, [loadReserved]);
 
   const priceNum = parseFloat(price) || 0;
   const amountNum = parseFloat(amount) || 0;
   const total = priceNum * amountNum;
 
-  const dexEth = ethDeposited ?? 0;
-  const dexToken = pairDepositedRaw != null ? parseFloat(formatEther(pairDepositedRaw as bigint)) : 0;
+  const dexEthTotal = ethDeposited ?? 0;
+  const dexTokenTotal = pairDepositedRaw != null ? parseFloat(formatEther(pairDepositedRaw as bigint)) : 0;
+  const dexEth = Math.max(0, dexEthTotal - reservedEth);
+  const dexToken = Math.max(0, dexTokenTotal - reservedToken);
   const walletEth = ethBalance ?? 0;
   const walletToken = pairWalletRaw != null ? parseFloat(formatEther(pairWalletRaw as bigint)) : 0;
 
@@ -93,7 +138,13 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
     setTimeout(() => { setTxStatus(null); setTxError(false); }, isError ? 8000 : 5000);
   };
 
-  // ── Place order: EIP-712 sign + store in api-server orderbook ──────────────
+  const waitForReceipt = async (hash: `0x${string}`) => {
+    if (!publicClient) return;
+    await publicClient.waitForTransactionReceipt({ hash });
+    await refreshAllBalances();
+    await loadReserved();
+  };
+
   const handleAction = async () => {
     if (!isConnected) { connectWallet(); return; }
     if (isWrongNetwork) { switchToBase(); return; }
@@ -102,13 +153,12 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
     if (priceNum <= 0) { toast('Enter a price', true); return; }
     if (amountNum <= 0) { toast('Enter an amount', true); return; }
 
-    // Balance checks against DEX-deposited balances
     if (side === 'sell' && amountNum > dexToken + 1e-9) {
-      toast(`You only have ${dexToken.toFixed(4)} ${pair.symbol} deposited in the DEX. Deposit more first.`, true);
+      toast(`You only have ${dexToken.toFixed(4)} ${pair.symbol} available in the DEX (${reservedToken.toFixed(4)} reserved in open orders).`, true);
       return;
     }
     if (side === 'buy' && total > dexEth + 1e-9) {
-      toast(`You only have ${dexEth.toFixed(4)} ETH deposited in the DEX. Deposit more first.`, true);
+      toast(`You only have ${dexEth.toFixed(4)} ETH available in the DEX (${reservedEth.toFixed(4)} reserved in open orders).`, true);
       return;
     }
 
@@ -120,11 +170,6 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
       const expires = currentBlock + EXPIRES_BLOCKS;
       const nonce = BigInt(Date.now());
 
-      // Order semantics:
-      //   SELL: maker gives wEMBR, wants ETH
-      //     tokenGet = ETH(0x0), amountGet = ETH wanted, tokenGive = wEMBR, amountGive = wEMBR offered
-      //   BUY:  maker gives ETH, wants wEMBR
-      //     tokenGet = wEMBR,   amountGet = wEMBR wanted, tokenGive = ETH(0x0), amountGive = ETH offered
       const amountGetWei  = side === 'sell' ? parseEther((priceNum * amountNum).toFixed(18)) : parseEther(amountNum.toFixed(18));
       const amountGiveWei = side === 'sell' ? parseEther(amountNum.toFixed(18))              : parseEther((priceNum * amountNum).toFixed(18));
       const tokenGet  = side === 'sell' ? ETH_ADDR        : pair.tokenAddress;
@@ -140,7 +185,6 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
         user: address,
       } as const;
 
-      // Sign via EIP-712
       const sig = await signTypedDataAsync({
         domain: EMBER_DELTA_DOMAIN,
         types: ORDER_TYPES,
@@ -148,7 +192,6 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
         message: orderMessage,
       });
 
-      // Compute the order hash (matches what the contract computes)
       const hash = hashTypedData({
         domain: EMBER_DELTA_DOMAIN,
         types: ORDER_TYPES,
@@ -156,13 +199,11 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
         message: orderMessage,
       });
 
-      // Split sig into v, r, s
       const r = sig.slice(0, 66) as `0x${string}`;
       const s = (`0x` + sig.slice(66, 130)) as `0x${string}`;
       const v = parseInt(sig.slice(130, 132), 16);
 
-      // Store in off-chain orderbook
-      const res = await fetch(`${API}/api/dex/orders`, {
+      const res = await fetch(chainNodeApi('/api/dex/orders'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -187,12 +228,15 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
 
       setPrice('');
       setAmount('');
+      await loadReserved();
+      onOrdersChanged?.();
       toast(`${side === 'sell' ? 'Sell' : 'Buy'} order placed — visible in the order book`);
-    } catch (e: any) {
-      if (e?.code === 4001 || e?.message?.includes('rejected') || e?.message?.includes('denied')) {
+    } catch (e: unknown) {
+      const err = e as { code?: number; message?: string; shortMessage?: string };
+      if (err?.code === 4001 || err?.message?.includes('rejected') || err?.message?.includes('denied')) {
         toast('Signature rejected', true);
       } else {
-        toast(`Failed: ${e?.shortMessage ?? e?.message ?? 'unknown error'}`, true);
+        toast(`Failed: ${err?.shortMessage ?? err?.message ?? 'unknown error'}`, true);
       }
     } finally {
       setIsSubmitting(false);
@@ -211,28 +255,32 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
           functionName: 'deposit',
           value: parseEther(depositAmount),
         });
-        toast(`ETH deposit sent — tx: ${hash.slice(0, 10)}…`);
+        toast('Confirming deposit…');
+        await waitForReceipt(hash);
+        toast(`ETH deposited`);
       } else {
-        const approveHash = await writeContractAsync({
+        await writeContractAsync({
           address: pair.tokenAddress,
           abi: ERC20_ABI,
           functionName: 'approve',
           args: [EMBER_DELTA_ADDRESS, parseEther(depositAmount)],
         });
         toast('Approving… waiting for confirmation');
-        await new Promise(r => setTimeout(r, 3000));
         const hash = await writeContractAsync({
           address: EMBER_DELTA_ADDRESS,
           abi: EMBER_DELTA_ABI,
           functionName: 'depositToken',
           args: [pair.tokenAddress, parseEther(depositAmount)],
         });
-        toast(`${pair.symbol} deposited — tx: ${hash.slice(0, 10)}…`);
+        toast('Confirming deposit…');
+        await waitForReceipt(hash);
+        toast(`${pair.symbol} deposited`);
       }
       setIsDepositModalOpen(false);
       setDepositAmount('');
-    } catch (e: any) {
-      toast(`Error: ${e?.shortMessage ?? e?.message ?? 'Transaction failed'}`, true);
+    } catch (e: unknown) {
+      const err = e as { shortMessage?: string; message?: string };
+      toast(`Error: ${err?.shortMessage ?? err?.message ?? 'Transaction failed'}`, true);
     }
   };
 
@@ -248,7 +296,9 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
           functionName: 'withdraw',
           args: [parseEther(depositAmount)],
         });
-        toast(`ETH withdrawal sent — tx: ${hash.slice(0, 10)}…`);
+        toast('Confirming withdrawal…');
+        await waitForReceipt(hash);
+        toast('ETH withdrawn');
       } else {
         const hash = await writeContractAsync({
           address: EMBER_DELTA_ADDRESS,
@@ -256,12 +306,15 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
           functionName: 'withdrawToken',
           args: [pair.tokenAddress, parseEther(depositAmount)],
         });
-        toast(`${pair.symbol} withdrawal sent — tx: ${hash.slice(0, 10)}…`);
+        toast('Confirming withdrawal…');
+        await waitForReceipt(hash);
+        toast(`${pair.symbol} withdrawn`);
       }
       setIsDepositModalOpen(false);
       setDepositAmount('');
-    } catch (e: any) {
-      toast(`Error: ${e?.shortMessage ?? e?.message ?? 'Transaction failed'}`, true);
+    } catch (e: unknown) {
+      const err = e as { shortMessage?: string; message?: string };
+      toast(`Error: ${err?.shortMessage ?? err?.message ?? 'Transaction failed'}`, true);
     }
   };
 
@@ -275,7 +328,6 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
   return (
     <div className={cn("flex flex-col bg-card h-full border-l border-border relative", className)}>
 
-      {/* Balances Card */}
       <div className="p-3 border-b border-border shrink-0">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-sans font-semibold text-muted-foreground uppercase text-[10px] tracking-wider">Balances</h3>
@@ -305,6 +357,13 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
               {isConnected ? dexToken.toFixed(4) : '—'}
             </div>
           </div>
+          {isConnected && (reservedEth > 0 || reservedToken > 0) && (
+            <div className="text-[9px] text-muted-foreground pt-1">
+              {reservedEth > 0 && `${reservedEth.toFixed(4)} ETH in open orders`}
+              {reservedEth > 0 && reservedToken > 0 && ' · '}
+              {reservedToken > 0 && `${reservedToken.toFixed(4)} ${pair.symbol} in open orders`}
+            </div>
+          )}
         </div>
 
         <div className="space-y-1 font-mono text-xs pt-2 border-t border-border/40">
@@ -320,7 +379,6 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
         </div>
       </div>
 
-      {/* Order Form Tabs */}
       <div className="flex border-b border-border shrink-0">
         <button
           className={cn(
@@ -346,7 +404,6 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
         </button>
       </div>
 
-      {/* Form Area */}
       <div className="p-4 flex flex-col gap-4 flex-1">
         <div className="flex flex-col gap-1.5">
           <label className="text-xs text-muted-foreground">Price (ETH per {pair.symbol})</label>
@@ -410,7 +467,6 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
         </button>
       </div>
 
-      {/* Deposit / Withdraw Modal */}
       {isDepositModalOpen && (
         <div className="absolute inset-0 bg-background/95 backdrop-blur-sm flex flex-col z-40">
           <div className="p-4 border-b border-border flex justify-between items-center bg-card">
@@ -482,7 +538,6 @@ export const OrderForm = React.memo(function OrderForm({ pair, className }: Orde
         </div>
       )}
 
-      {/* Toast */}
       {txStatus && (
         <div className={cn(
           "fixed bottom-4 right-4 border-l-4 p-4 shadow-2xl z-50 text-sm font-medium max-w-xs",

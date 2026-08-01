@@ -162,6 +162,9 @@ export default function Exchange() {
   // and TradeHistory so they don't independently call eth_getLogs every cycle.
   const { currentBlock, tradeLogs } = useSharedTradeData(selectedPair.tokenAddress);
 
+  const [ordersRefreshKey, setOrdersRefreshKey] = useState(0);
+  const bumpOrders = useCallback(() => setOrdersRefreshKey((k) => k + 1), []);
+
   // Stable callback so OrderForm/TradeHistory don't re-render when price updates
   const handleLastPrice = useCallback((p: number) => setLastPrice(p), []);
 
@@ -177,6 +180,7 @@ export default function Exchange() {
             symbol={selectedPair.symbol}
             tradeLogs={tradeLogs}
             currentBlock={currentBlock}
+            refreshKey={ordersRefreshKey}
           />
         </div>
 
@@ -197,7 +201,7 @@ export default function Exchange() {
 
         {/* Right: Order Form */}
         <div className="w-[320px] shrink-0 h-full overflow-y-auto">
-          <OrderForm pair={selectedPair} />
+          <OrderForm pair={selectedPair} onOrdersChanged={bumpOrders} />
         </div>
       </div>
 
@@ -214,6 +218,7 @@ export default function Exchange() {
           <OrderForm
             pair={selectedPair}
             className="h-auto border-l-0"
+            onOrdersChanged={bumpOrders}
           />
         </div>
 
@@ -229,6 +234,7 @@ export default function Exchange() {
             className="border-r-0"
             tradeLogs={tradeLogs}
             currentBlock={currentBlock}
+            refreshKey={ordersRefreshKey}
           />
         </CollapsibleSection>
 

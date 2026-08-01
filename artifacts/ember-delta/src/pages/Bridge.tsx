@@ -8,6 +8,7 @@ import { TokenIcon } from '@/components/TokenIcon';
 import { useWeb3 } from '@/lib/use-web3';
 import { useWriteContract, useReadContract } from 'wagmi';
 import { API, apiFetch } from '@/lib/api';
+import { chainNodeApi } from '@/lib/config';
 import { useEmbrWallet } from '@/lib/embr-wallet';
 import { encLockEMBR } from '@/lib/bridge-encoding';
 import {
@@ -57,7 +58,9 @@ export interface TokenListing {
 type BridgeToken = 'EMBR' | TokenListing;
 type EmbrDirection = 'embr_to_base' | 'base_to_embr';
 type TokenDirection = 'native_to_base' | 'base_to_native';
-type BridgeStatus = 'locked' | 'pending' | 'confirmed' | 'failed' | 'relayed';
+type BridgeStatus = 'confirming' | 'locked' | 'pending' | 'confirmed' | 'failed' | 'relayed';
+
+const BRIDGE_CONFIRM_ESTIMATE_SEC = 24;
 
 interface BridgeInflight {
   nonce: string;
@@ -69,6 +72,9 @@ interface BridgeInflight {
 
 function bridgeStatusMessage(status: BridgeStatus, direction?: EmbrDirection): string {
   const dir = direction ?? 'embr_to_base';
+  if (status === 'confirming') {
+    return 'Waiting for Emberchain block confirmation (~24 s)…';
+  }
   if (status === 'confirmed') {
     return dir === 'embr_to_base'
       ? 'wEMBR has been minted on Base.'
@@ -149,6 +155,11 @@ async function switchToChain(chainId: number, chainName: string, rpcUrl: string,
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: BridgeStatus }) {
+  if (status === 'confirming') return (
+    <span className="flex items-center gap-1 text-yellow-400 text-xs font-bold">
+      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Confirming
+    </span>
+  );
   if (status === 'confirmed') return (
     <span className="flex items-center gap-1 text-green-400 text-xs font-bold">
       <CheckCircle className="w-3.5 h-3.5" /> Complete
@@ -359,7 +370,27 @@ function EmbrBridgeForm({
   const [embrRecipient, setEmbrRecipient] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStep, setSubmitStep] = useState('');
+  const [confirmCountdown, setConfirmCountdown] = useState<number | null>(null);
   const [embrBalanceWei, setEmbrBalanceWei] = useState<bigint>(0n);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopConfirmCountdown = useCallback(() => {
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    setConfirmCountdown(null);
+  }, []);
+
+  const startConfirmCountdown = useCallback(() => {
+    stopConfirmCountdown();
+    setConfirmCountdown(BRIDGE_CONFIRM_ESTIMATE_SEC);
+    countdownRef.current = setInterval(() => {
+      setConfirmCountdown((sec) => (sec !== null && sec > 0 ? sec - 1 : sec));
+    }, 1000);
+  }, [stopConfirmCountdown]);
+
+  useEffect(() => () => stopConfirmCountdown(), [stopConfirmCountdown]);
 
   const bridgeGasLimit = 300000n;
   const maxBridgeWei = maxSpendableEmbr(embrBalanceWei, bridgeGasLimit);
@@ -378,8 +409,7 @@ function EmbrBridgeForm({
     let cancelled = false;
     const fetch_ = async () => {
       try {
-        const rpcBase = API || '';
-        const r = await fetch(`${rpcBase}/api/rpc`, {
+        const r = await fetch(chainNodeApi('/api/rpc'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -417,7 +447,7 @@ function EmbrBridgeForm({
     let cancelled = false;
     const load = async () => {
       try {
-        const r = await fetch(`/api/wallets/${activeWallet.address}`);
+        const r = await fetch(chainNodeApi(`/api/wallets/${activeWallet.address}`));
         if (!r.ok) return;
         const data = await r.json();
         const raw: string = data?.balance ?? '0';
@@ -457,7 +487,7 @@ function EmbrBridgeForm({
 
     const nonce = BigInt(Date.now());
     setIsSubmitting(true);
-    setSubmitStep('Locking EMBR on Emberchain…');
+    setSubmitStep('Submitting lock transaction…');
     try {
       const tx = await submitChainTransaction({
         fromPrivateKey: activeWallet.privateKey,
@@ -466,24 +496,57 @@ function EmbrBridgeForm({
         data: encLockEMBR(baseRecipient, nonce),
         gasLimit: bridgeGasLimit.toString(),
       });
-      await waitForChainTransaction(tx.hash);
-      const inflight: BridgeInflight = {
+      setIsSubmitting(false);
+      startConfirmCountdown();
+      setInflight({
         nonce: nonce.toString(),
-        status: 'locked',
+        status: 'confirming',
         txHash: tx.hash,
         submittedAt: Date.now(),
         direction: 'embr_to_base',
-      };
-      setInflight(inflight);
-      startBridgePoll(nonce.toString(), 'embr_to_base');
-      setAmount('');
-      showToast('EMBR locked on-chain — wEMBR will arrive on Base once the relayer completes the bridge.', 'success');
-      void tryRegisterBridge({
-        txHash: tx.hash,
-        baseRecipient,
-        amount: amountWei.toString(),
-        nonce: nonce.toString(),
       });
+      setSubmitStep('Waiting for Emberchain confirmation…');
+      try {
+        await waitForChainTransaction(tx.hash);
+        stopConfirmCountdown();
+        const inflight: BridgeInflight = {
+          nonce: nonce.toString(),
+          status: 'locked',
+          txHash: tx.hash,
+          submittedAt: Date.now(),
+          direction: 'embr_to_base',
+        };
+        setInflight(inflight);
+        startBridgePoll(nonce.toString(), 'embr_to_base');
+        setAmount('');
+        showToast('EMBR locked on-chain — wEMBR will arrive on Base once the relayer completes the bridge.', 'success');
+        void tryRegisterBridge({
+          txHash: tx.hash,
+          baseRecipient,
+          amount: amountWei.toString(),
+          nonce: nonce.toString(),
+        });
+        // Refresh EMBR balance after lock
+        try {
+          const r = await fetch(chainNodeApi(`/api/wallets/${activeWallet.address}`));
+          if (r.ok) {
+            const data = await r.json();
+            const raw: string = data?.balance ?? '0';
+            const wei = raw.startsWith('0x') ? BigInt(raw) : BigInt(raw || '0');
+            setEmbrBalanceWei(wei);
+          }
+        } catch { /* ignore */ }
+      } catch (confirmErr) {
+        stopConfirmCountdown();
+        setInflight({
+          nonce: nonce.toString(),
+          status: 'failed',
+          txHash: tx.hash,
+          submittedAt: Date.now(),
+          direction: 'embr_to_base',
+        });
+        throw confirmErr;
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'unknown error';
       showToast(`Bridge failed: ${msg}`, 'error');
@@ -555,6 +618,7 @@ function EmbrBridgeForm({
 
   const btnLabel = () => {
     if (isSubmitting) return submitStep || 'Processing…';
+    if (confirmCountdown !== null) return `Confirming on Emberchain… ~${confirmCountdown}s`;
     if (direction === 'embr_to_base') {
       if (!embrWalletLoaded) return 'Loading wallet…';
       if (!activeWallet) return 'Unlock EMBR wallet';
@@ -717,12 +781,17 @@ function EmbrBridgeForm({
           <button
             type="button"
             onClick={() => (direction === 'embr_to_base' ? submitEmbrToBase() : submitBaseToEmbr())}
-            disabled={isSubmitting}
+            disabled={isSubmitting || confirmCountdown !== null}
             className="w-full py-4 bg-primary text-primary-foreground font-bold uppercase tracking-wider rounded text-sm hover:bg-primary/90 transition-all shadow-[0_4px_14px_0_rgba(243,112,33,0.3)] disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+            {isSubmitting || confirmCountdown !== null ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
             {btnLabel()}
           </button>
+          {confirmCountdown !== null && (
+            <p className="text-xs text-center text-muted-foreground">
+              Emberchain blocks confirm in ~{confirmCountdown}s. Do not close this page.
+            </p>
+          )}
         </div>
       </div>
 
@@ -1460,6 +1529,8 @@ export default function Bridge() {
                   ? 'border-green-500/40 bg-green-500/5'
                   : inflight.status === 'failed'
                   ? 'border-red-500/40 bg-red-500/5'
+                  : inflight.status === 'confirming'
+                  ? 'border-yellow-500/40 bg-yellow-500/5'
                   : 'border-primary/30 bg-primary/5',
               )}
             >

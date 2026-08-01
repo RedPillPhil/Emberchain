@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAccount, useBalance, useReadContract, useChainId, useSwitchChain, useConnect, useDisconnect } from 'wagmi';
 import { injected } from 'wagmi/connectors';
-import { formatEther, formatUnits } from 'viem';
+import { formatEther } from 'viem';
+import { chainNodeApi } from './config';
 import { WEMBR_ADDRESS, ERC20_ABI, EMBER_DELTA_ADDRESS, EMBER_DELTA_ABI, BASE_CHAIN_ID } from './contracts';
 
 export function useWeb3() {
@@ -14,14 +15,12 @@ export function useWeb3() {
 
   const isWrongNetwork = isConnected && chainId !== BASE_CHAIN_ID;
 
-  // ETH wallet balance (raw wallet, not contract)
-  const { data: ethBalanceData } = useBalance({
+  const { data: ethBalanceData, refetch: refetchEthBalance } = useBalance({
     address,
     query: { enabled: !!address },
   });
 
-  // wEMBR wallet balance (raw wallet ERC-20)
-  const { data: wembrWalletRaw } = useReadContract({
+  const { data: wembrWalletRaw, refetch: refetchWembrWallet } = useReadContract({
     address: WEMBR_ADDRESS,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
@@ -29,8 +28,7 @@ export function useWeb3() {
     query: { enabled: !!address, refetchInterval: 15000 },
   });
 
-  // ETH deposited in EmberDelta contract
-  const { data: ethDepositedRaw } = useReadContract({
+  const { data: ethDepositedRaw, refetch: refetchEthDeposited } = useReadContract({
     address: EMBER_DELTA_ADDRESS,
     abi: EMBER_DELTA_ABI,
     functionName: 'balanceOf',
@@ -38,8 +36,7 @@ export function useWeb3() {
     query: { enabled: !!address, refetchInterval: 10000 },
   });
 
-  // wEMBR deposited in EmberDelta contract
-  const { data: wembrDepositedRaw } = useReadContract({
+  const { data: wembrDepositedRaw, refetch: refetchWembrDeposited } = useReadContract({
     address: EMBER_DELTA_ADDRESS,
     abi: EMBER_DELTA_ABI,
     functionName: 'balanceOf',
@@ -49,21 +46,18 @@ export function useWeb3() {
 
   const ethBalance = ethBalanceData ? parseFloat(formatEther(ethBalanceData.value)) : null;
   const wembrWalletBalance = wembrWalletRaw != null ? parseFloat(formatEther(wembrWalletRaw as bigint)) : null;
-  // Use explicit null check so 0 deposited shows as 0, not as wallet balance
   const ethDeposited = ethDepositedRaw != null ? parseFloat(formatEther(ethDepositedRaw as bigint)) : null;
   const wembrDeposited = wembrDepositedRaw != null ? parseFloat(formatEther(wembrDepositedRaw as bigint)) : null;
 
-  // EMBR native balance from Emberchain (same address, different chain)
   useEffect(() => {
     if (!address) { setEmbrBalance(null); return; }
     let cancelled = false;
 
     const fetchEmbrBalance = async () => {
       try {
-        const res = await fetch(`/api/wallets/${address}`);
+        const res = await fetch(chainNodeApi(`/api/wallets/${address}`));
         if (!res.ok) { setEmbrBalance(null); return; }
         const data = await res.json();
-        // balance may be hex string or decimal string in wei
         const raw: string = data?.balance ?? data?.data?.balance ?? '0';
         const wei = typeof raw === 'string' && raw.startsWith('0x')
           ? BigInt(raw)
@@ -79,6 +73,15 @@ export function useWeb3() {
     return () => { cancelled = true; clearInterval(interval); };
   }, [address]);
 
+  const refetchBalances = useCallback(async () => {
+    await Promise.all([
+      refetchEthBalance(),
+      refetchWembrWallet(),
+      refetchEthDeposited(),
+      refetchWembrDeposited(),
+    ]);
+  }, [refetchEthBalance, refetchWembrWallet, refetchEthDeposited, refetchWembrDeposited]);
+
   const connectWallet = () => connect({ connector: injected() });
   const disconnectWallet = () => disconnect();
   const switchToBase = () => switchChain({ chainId: BASE_CHAIN_ID });
@@ -87,17 +90,15 @@ export function useWeb3() {
     address,
     isConnected,
     isWrongNetwork,
-    // Wallet (held by user, not in contract)
     ethBalance,
     wembrWalletBalance,
-    // Deposited in EmberDelta contract
     ethDeposited,
     wembrDeposited,
-    // Native EMBR on Emberchain
     embrBalance,
     connectWallet,
     disconnectWallet,
     switchToBase,
     chainId,
+    refetchBalances,
   };
 }

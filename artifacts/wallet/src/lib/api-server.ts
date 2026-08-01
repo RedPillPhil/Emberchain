@@ -1,6 +1,7 @@
-import { resolveApiServer, CHAIN_NODE_URL } from "@/lib/config";
+import { resolveApiServer } from "@/lib/config";
 
-export { resolveApiServer, CHAIN_NODE_URL };
+export { resolveApiServer };
+export { CHAIN_NODE_URL } from "@/lib/config";
 
 export async function apiFetch(path: string, opts?: RequestInit): Promise<any> {
   const url = `${resolveApiServer()}${path}`;
