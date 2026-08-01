@@ -26,9 +26,13 @@ router.post("/transactions", async (req: Request, res: Response): Promise<void> 
 router.get("/transactions", async (req: Request, res: Response): Promise<void> => {
   const query = ListTransactionsQueryParams.parse(req.query);
   const txs = await chain.listTransactions(query.address, query.limit);
-  // Strip the calldata `data` field from list responses — it can be hundreds of
-  // bytes per tx (ABI-encoded) and is not needed for list/history views.
-  // The full tx including data is still available via GET /transactions/:hash.
+  // When filtering by contract address (bridge admin scan), include calldata in one
+  // response so the browser does not N+1 through a CDN proxy for each tx hash.
+  if (query.address) {
+    res.json(txs.map(({ returnData: _r, ...rest }) => rest));
+    return;
+  }
+  // Strip calldata from general list responses — not needed for history views.
   const lean = txs.map(({ data: _d, returnData: _r, ...rest }) => rest);
   res.json(lean);
 });

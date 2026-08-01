@@ -46,6 +46,8 @@ interface ChainTxSummary {
   value: string;
   status: string;
   blockNumber: number;
+  data?: string | null;
+  createdAt?: string;
 }
 
 interface ChainTxFull extends ChainTxSummary {
@@ -87,11 +89,17 @@ async function fetchEmbrToBaseLocks(limit = 500): Promise<EmbrToBasePending[]> {
     if (to !== EMBER_BRIDGE_ADDRESS.toLowerCase()) continue;
     if (BigInt(summary.value) <= 0n) continue;
 
-    const detailRes = await fetch(chainNodeApi(`/api/transactions/${encodeURIComponent(summary.hash)}`), {
-      headers: { Accept: "application/json" },
-    });
-    if (!detailRes.ok) continue;
-    const tx = (await detailRes.json()) as ChainTxFull;
+    let tx: ChainTxFull;
+    if (summary.data) {
+      tx = summary as ChainTxFull;
+    } else {
+      const detailRes = await fetch(chainNodeApi(`/api/transactions/${encodeURIComponent(summary.hash)}`), {
+        headers: { Accept: "application/json" },
+      });
+      if (!detailRes.ok) continue;
+      tx = (await detailRes.json()) as ChainTxFull;
+    }
+
     const parsed = parseLockEmbrTx(tx);
     if (!parsed) continue;
 
@@ -169,6 +177,45 @@ async function queryFilterChunked(
 }
 
 async function fetchBaseToEmbrOuts(lookbackBlocks = 50_000): Promise<BaseToEmbrPending[]> {
+  try {
+    const res = await fetch(
+      `${chainNodeApi("/api/bridge/base-outs")}?lookback=${lookbackBlocks}`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (res.ok) {
+      const ct = res.headers.get("content-type") ?? "";
+      if (ct.includes("application/json")) {
+        const events = (await res.json()) as Array<{
+          nonce: string;
+          sender: string;
+          embrRecipient: string;
+          amount: string;
+          txHash: string;
+          blockNumber: number;
+          submittedAt?: string;
+        }>;
+        const pending: BaseToEmbrPending[] = [];
+        for (const ev of events) {
+          const completed = await isNonceUsedOnEmbr(ev.nonce);
+          pending.push({
+            direction: "base_to_embr",
+            nonce: ev.nonce,
+            sender: ev.sender,
+            embrRecipient: ev.embrRecipient,
+            amount: ev.amount,
+            txHash: ev.txHash,
+            blockNumber: ev.blockNumber,
+            submittedAt: ev.submittedAt,
+            completed,
+          });
+        }
+        return pending;
+      }
+    }
+  } catch {
+    /* fall through to browser RPC */
+  }
+
   const provider = await baseProvider();
   const baseBridge = new Contract(EMBERCHAIN_BRIDGE_ADDRESS, BASE_BRIDGE_ABI, provider);
   const baseHeight = await provider.getBlockNumber();
