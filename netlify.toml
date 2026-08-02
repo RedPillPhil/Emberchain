@@ -1,0 +1,39 @@
+# Emberchain wallet + Ember Delta static deploy (replaces vercel.json)
+# Netlify UI: connect repo, branch `main`, leave build settings empty to use this file.
+
+[build]
+  command = "node scripts/build-vercel.mjs"
+  publish = "artifacts/wallet/dist/public"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Same-origin /api → chain-node on duckdns (exchange, bridge, community, etc.)
+[[redirects]]
+  from = "/api/*"
+  to = "https://emberchain.duckdns.org/api/:splat"
+  status = 200
+  force = true
+
+# Ember Delta sub-app (client-side routes)
+[[redirects]]
+  from = "/ember-delta"
+  to = "/ember-delta/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/ember-delta/*"
+  to = "/ember-delta/index.html"
+  status = 200
+
+# Wallet SPA (must be after /ember-delta rules)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
