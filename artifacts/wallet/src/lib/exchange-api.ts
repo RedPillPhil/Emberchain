@@ -1,8 +1,8 @@
 import type { ExchangeListing } from "@workspace/api-client-react";
-import { resolveApiServer } from "@/lib/config";
+import { resolveApiServer, isSelfHostedSite } from "@/lib/config";
 import seedListings from "@/data/exchange-listings.seed.json";
 
-/** Legacy Replit api-server — still holds exchange escrow state until migrated. */
+/** Legacy Replit api-server — fallback only when self-hosted api-server is unavailable. */
 export const LEGACY_EXCHANGE_API =
   import.meta.env.VITE_EXCHANGE_API_URL?.replace(/\/+$/, "") ||
   "https://po-w-chain.replit.app";
@@ -11,9 +11,9 @@ const CACHE_KEY = "ember_exchange_listings_v1";
 
 export function resolveExchangeApi(): string {
   const primary = resolveApiServer();
-  // duckdns chain-node has no /api/exchange — use legacy when primary lacks exchange
-  if (!primary || primary.includes("duckdns.org")) return LEGACY_EXCHANGE_API;
-  return primary;
+  if (primary) return primary;
+  if (isSelfHostedSite()) return "";
+  return LEGACY_EXCHANGE_API;
 }
 
 function readCache(): ExchangeListing[] {

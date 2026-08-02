@@ -19,7 +19,7 @@ function isEmberchainSite(): boolean {
 }
 
 /** Wallet UI served from our nginx (emberchain.org or duckdns) — use same-origin /api. */
-function isSelfHostedSite(): boolean {
+export function isSelfHostedSite(): boolean {
   if (typeof location === "undefined") return false;
   const h = location.hostname.toLowerCase();
   return isEmberchainSite() || h === "emberchain.duckdns.org";

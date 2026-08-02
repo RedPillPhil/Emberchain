@@ -8,6 +8,7 @@ import { startChainScanner, stopChainScanner } from "./lib/chain-scanner";
 import { WebSocketServer } from "ws";
 import { setupCommunityWS } from "./routes/community";
 import { startBridgeAlertLoop } from "./lib/bridge-alert-loop";
+import { startBridgeRelayer } from "./lib/bridge-relayer";
 import type { PersistedChain } from "@workspace/chain-core";
 
 export interface ServerHandle {
@@ -64,6 +65,7 @@ export async function startServer(port: number): Promise<ServerHandle> {
       startSyncLoop();
       startChainScanner();
       startBridgeAlertLoop();
+      startBridgeRelayer();
     });
 
   const stop = (): Promise<void> => {

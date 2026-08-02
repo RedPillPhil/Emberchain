@@ -24,7 +24,9 @@ const emberDist = path.join(root, 'artifacts/ember-delta/dist');
 const emberOut = path.join(emberDist, 'public');
 const stageDest = path.join(root, 'artifacts/wallet/dist/public/ember-delta');
 
-run('Build wallet', 'pnpm --filter @workspace/wallet run build');
+run('Build wallet', 'pnpm --filter @workspace/wallet run build', {
+  VITE_EXCHANGE_ESCROW_DOWN: 'false',
+});
 
 if (existsSync(emberDist)) {
   rmSync(emberDist, { recursive: true, force: true });

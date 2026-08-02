@@ -1,0 +1,16 @@
+[Unit]
+Description=Emberchain API Server (exchange, token launch, contracts)
+After=network.target emberchain-node.service docker.service
+Wants=emberchain-node.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Emberchain/emberchain/artifacts/api-server
+EnvironmentFile=/etc/emberchain/api-server.env
+ExecStart=/usr/bin/node --enable-source-maps ./dist/index.mjs
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

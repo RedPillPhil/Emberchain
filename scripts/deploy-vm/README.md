@@ -82,6 +82,68 @@ curl -I https://emberchain.org/ember-delta/
 
 Frontend detects self-hosted hosts (`emberchain.org`, `emberchain.duckdns.org`) and uses same-origin `/api` automatically — no env vars needed if you redeploy the latest build.
 
+## Full stack — exchange escrow + token launch + automated bridging
+
+| Service | Port | Provides |
+|---------|------|----------|
+| **chain-node** | 8080 | Blockchain, DEX, community, bridge register, **bridge relayer** |
+| **api-server** | 8081 | Exchange escrow, token launch, contracts registry |
+| **PostgreSQL** | 5432 | api-server DB (exchange proofs, launches) |
+| **nginx** | 443 | Static site + route `/api/*` to the right backend |
+
+### 1. Automated bridging (chain-node — no Postgres)
+
+Add to `/etc/systemd/system/emberchain-node.service`:
+
+```ini
+Environment="BRIDGE_RELAYER_PRIVATE_KEY=0x..."
+Environment="BASE_RPC_URL=https://mainnet.base.org"
+Environment="EMBER_BRIDGE_ADDRESS=0x9362587019ea0e4ef90fbd981c615d4441d9d2c4"
+Environment="EMBERCHAIN_BRIDGE_ADDRESS=0x1573EdF8F933601e6f37AC9B104cF62C7f85a0F4"
+```
+
+Fund the relayer wallet with **Base ETH** for gas. Restart chain-node. Admin portal stays as failsafe.
+
+### 2. Exchange escrow + token launch (api-server + Postgres)
+
+```bash
+cd ~/Emberchain/emberchain
+git pull origin main
+
+# Start Postgres
+docker compose -f scripts/deploy-vm/docker-compose.yml up -d postgres
+
+# Configure secrets
+mkdir -p /etc/emberchain
+cp scripts/deploy-vm/api-server.env.example /etc/emberchain/api-server.env
+nano /etc/emberchain/api-server.env   # DATABASE_URL, relayer key, explorer API keys
+
+bash scripts/deploy-vm/deploy-api-server.sh
+cp scripts/deploy-vm/nginx-emberchain.conf /etc/nginx/sites-enabled/emberchain
+nginx -t && systemctl reload nginx
+bash scripts/deploy-vm/deploy-static-from-git.sh   # re-enables exchange tab
+```
+
+Verify:
+
+```bash
+curl -s http://127.0.0.1:8080/api/healthz
+curl -s http://127.0.0.1:8081/api/healthz
+curl -s https://emberchain.org/api/exchange/listings
+curl -s https://emberchain.org/api/token-launch/fee
+```
+
+### healthz returns empty?
+
+Test locally first:
+
+```bash
+curl -v http://127.0.0.1:8080/api/healthz
+curl -v https://emberchain.org/api/healthz
+```
+
+If localhost works but HTTPS is empty, reload nginx after the port-8080 fix. Rebuild chain-node after `git pull`.
+
 ## What caused Netlify/Vercel limits
 
 1. **Large bundles** — wallet + ember-delta JS is ~1 MB gzipped per load
