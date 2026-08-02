@@ -120,3 +120,34 @@ export function retargetDifficulty(
   const next = (currentDifficulty * BigInt(Math.round(clamped * 1000))) / 1000n;
   return next < MIN_DIFFICULTY ? MIN_DIFFICULTY : next;
 }
+
+/** Blocks may be this many target-times late before difficulty easing starts. */
+export const DIFFICULTY_EASE_GRACE_MULTIPLIER = 4;
+/** Once easing starts, the requirement halves for every extra this-many seconds. */
+export const DIFFICULTY_EASE_HALVING_SECONDS = 30;
+/** Reject headers dated further than this ahead of our clock (anti-easing-forgery). */
+export const MAX_FUTURE_TIMESTAMP_MS = 30_000;
+
+/**
+ * Difficulty actually required for a block arriving `secondsSinceParent` after
+ * its parent.
+ *
+ * retargetDifficulty only runs when a block is *found*, so if the hashrate that
+ * drove difficulty up disappears, the remaining miners can never find the block
+ * that would bring it back down — the chain freezes at a difficulty nobody can
+ * meet.  Decaying the requirement against wall-clock silence guarantees the
+ * chain always recovers on its own, and costs nothing while blocks flow on time.
+ */
+export function easedDifficulty(
+  baseDifficulty: bigint,
+  secondsSinceParent: number,
+  targetBlockTimeSeconds: number,
+): bigint {
+  const grace = targetBlockTimeSeconds * DIFFICULTY_EASE_GRACE_MULTIPLIER;
+  if (!Number.isFinite(secondsSinceParent) || secondsSinceParent <= grace) {
+    return baseDifficulty;
+  }
+  const halvings = Math.floor((secondsSinceParent - grace) / DIFFICULTY_EASE_HALVING_SECONDS) + 1;
+  const eased = baseDifficulty >> BigInt(Math.min(halvings, 64));
+  return eased < MIN_DIFFICULTY ? MIN_DIFFICULTY : eased;
+}

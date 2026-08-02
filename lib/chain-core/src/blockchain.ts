@@ -7,7 +7,7 @@ import type { SimpleStateManager } from "@ethereumjs/statemanager";
 import { createEmberchainCommon } from "./common";
 import { createStateManager, dumpState, loadState, getBalance, getNonce, credit, debit, ensureAccount } from "./state";
 import { generateWallet, walletFromPrivateKey, encodeTxPayload, signPayload, hashTransaction, normalizeHexAddress } from "./crypto";
-import { mine, retargetDifficulty, batchSizeForIntensity, hashHeader, targetForDifficulty, MAX_TARGET, MIN_DIFFICULTY, type MinableHeader } from "./mining";
+import { mine, retargetDifficulty, easedDifficulty, MAX_FUTURE_TIMESTAMP_MS, batchSizeForIntensity, hashHeader, targetForDifficulty, MAX_TARGET, MIN_DIFFICULTY, type MinableHeader } from "./mining";
 import { loadChainFile, saveChainFile, flushChainFile, type PersistedChain } from "./persistence";
 import type {
   StoredBlock,
@@ -1303,6 +1303,21 @@ export class Blockchain {
     return total / (slice.length - 1);
   }
 
+  /**
+   * Difficulty a block stamped `timestampMs` must meet, after easing for how
+   * long the chain has been silent.  Single source of truth for the template
+   * and for every validation path, so they can never disagree.
+   */
+  private requiredDifficultyAt(timestampMs: number): bigint {
+    const parent = this.blocks[this.blocks.length - 1];
+    const secondsSinceParent = (timestampMs - new Date(parent.timestamp).getTime()) / 1000;
+    return easedDifficulty(
+      this.difficulty,
+      secondsSinceParent,
+      EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+    );
+  }
+
   async getMiningTemplate(minerAddress: string): Promise<{
     header: {
       number: number;
@@ -1326,15 +1341,17 @@ export class Blockchain {
     this.recentMiners.set(minerAddress.toLowerCase(), Date.now());
     const parent = this.blocks[this.blocks.length - 1];
     const pendingSlice = this.mempool.slice(0, MAX_TXS_PER_BLOCK);
+    const timestamp = Date.now();
+    const difficulty = this.requiredDifficultyAt(timestamp);
     const header = {
       number: parent.number + 1,
       parentHash: parent.hash,
-      timestamp: Date.now(),
+      timestamp,
       miner: minerAddress,
-      difficulty: this.difficulty.toString(),
+      difficulty: difficulty.toString(),
       transactionsRoot: transactionsRootOf(pendingSlice.map((t) => t.hash)),
     };
-    const blockTarget = targetForDifficulty(this.difficulty);
+    const blockTarget = targetForDifficulty(difficulty);
     const rawShareTarget = blockTarget * BigInt(EMBERCHAIN_CONFIG.shareDifficultyDivisor);
     const shareTarget = rawShareTarget > MAX_TARGET ? MAX_TARGET : rawShareTarget;
     return {
@@ -1377,6 +1394,17 @@ export class Blockchain {
       difficulty: BigInt(params.header.difficulty),
       transactionsRoot: params.header.transactionsRoot as PrefixedHexString,
     };
+    if (params.header.timestamp > Date.now() + MAX_FUTURE_TIMESTAMP_MS) {
+      throw new Error("Block timestamp is too far in the future");
+    }
+    // The header carries its own difficulty, so without this floor a miner could
+    // simply claim an easy one.  Easing is applied so late blocks stay valid.
+    const minDifficulty = this.requiredDifficultyAt(params.header.timestamp);
+    if (BigInt(params.header.difficulty) < minDifficulty) {
+      throw new Error(
+        `Block difficulty below required minimum (need ${minDifficulty}, got ${params.header.difficulty})`,
+      );
+    }
     const nonce = BigInt(params.nonce);
     const { hashHex, hashValue } = hashHeader(minableHeader, nonce);
     const target = targetForDifficulty(BigInt(params.header.difficulty));
@@ -1409,12 +1437,6 @@ export class Blockchain {
 
     await this.applyBlock(minableHeader, included, nonce, hashHex);
     this.mining.blocksMinedThisSession += 1;
-    // Use rolling window average — this.blocks now includes the new block.
-    this.difficulty = retargetDifficulty(
-      this.difficulty,
-      this.averageRecentBlockTimeSec(),
-      EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
-    );
     return this.blocks[this.blocks.length - 1];
   }
 
@@ -1459,19 +1481,22 @@ export class Blockchain {
       if (params.header.parentHash !== parent.hash) {
         throw new Error("Stale share: chain has advanced since this template was issued");
       }
-      if (params.header.difficulty !== this.difficulty.toString()) {
+      if (params.header.timestamp > Date.now() + MAX_FUTURE_TIMESTAMP_MS) {
+        throw new Error("Share timestamp is too far in the future");
+      }
+      // Difficulty is eased the longer the chain stays silent, so this is a floor
+      // rather than an equality check — but still stops a miner forging an easy one.
+      const minDifficulty = this.requiredDifficultyAt(params.header.timestamp);
+      if (BigInt(params.header.difficulty) < minDifficulty) {
         throw new Error(
-          `Stale share: difficulty mismatch (expected ${this.difficulty}, got ${params.header.difficulty})`,
+          `Share difficulty below required minimum (need ${minDifficulty}, got ${params.header.difficulty})`,
         );
       }
     }
 
-    // For stale shares use the difficulty that was in effect when the work was done
-    // (submitted by the client); for current shares use the canonical chain difficulty
-    // so a miner cannot forge a lower difficulty to reach an easier target.
-    const effectiveDifficulty = isStaleByOne
-      ? BigInt(params.header.difficulty)
-      : this.difficulty;
+    // Always score against the difficulty the work was actually done at; the
+    // floor check above is what prevents a miner claiming an easier target.
+    const effectiveDifficulty = BigInt(params.header.difficulty);
 
     const minableHeader: MinableHeader = {
       number: params.header.number,
@@ -1550,12 +1575,6 @@ export class Blockchain {
       });
       await this.applyBlock(minableHeader, included, nonce, hashHex);
       this.mining.blocksMinedThisSession += 1;
-      // Use rolling window average — this.blocks now includes the new block.
-      this.difficulty = retargetDifficulty(
-        this.difficulty,
-        this.averageRecentBlockTimeSec(),
-        EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
-      );
     }
 
     return { accepted: true, shares: prev + 1, blockFound };
@@ -1566,12 +1585,13 @@ export class Blockchain {
       const minerAddress = this.mining.minerAddress!;
       const parent = this.blocks[this.blocks.length - 1];
       const included = this.mempool.splice(0, MAX_TXS_PER_BLOCK);
+      const timestamp = Date.now();
       const header: MinableHeader = {
         number: parent.number + 1,
         parentHash: parent.hash,
-        timestamp: Date.now(),
+        timestamp,
         miner: minerAddress,
-        difficulty: this.difficulty,
+        difficulty: this.requiredDifficultyAt(timestamp),
         transactionsRoot: transactionsRootOf(included.map((t) => t.hash)),
       };
       const startedAt = Date.now();
@@ -1602,13 +1622,6 @@ export class Blockchain {
 
       await this.applyBlock(header, included, result.nonce, result.hash);
       this.mining.blocksMinedThisSession += 1;
-
-      // Use rolling window average — this.blocks now includes the new block.
-      this.difficulty = retargetDifficulty(
-        this.difficulty,
-        this.averageRecentBlockTimeSec(),
-        EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
-      );
     }
     this.mining.active = false;
   }
@@ -1933,9 +1946,12 @@ export class Blockchain {
     this.rpcCache.clear();
     this.persist();
 
-    // Retarget difficulty using rolling window — this.blocks now includes the new block.
+    // Retarget from the difficulty this block was actually mined at, not from
+    // this.difficulty.  When easing let a block through far below the standing
+    // difficulty, anchoring to the old value would need ~50 more blocks at −10 %
+    // to converge — which is the freeze all over again.
     this.difficulty = retargetDifficulty(
-      this.difficulty,
+      BigInt(block.difficulty),
       this.averageRecentBlockTimeSec(),
       EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
     );
