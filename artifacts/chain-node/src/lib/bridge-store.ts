@@ -43,13 +43,34 @@ function eventKey(direction: BridgeDirection, nonce: string): string {
   return `${direction}:${nonce}`;
 }
 
+function normalizeEventsRecord(events: unknown): Record<string, BridgeEvent> {
+  if (!events || typeof events !== "object" || Array.isArray(events)) return {};
+  const out: Record<string, BridgeEvent> = {};
+  for (const [key, event] of Object.entries(events as Record<string, unknown>)) {
+    if (!event || typeof event !== "object") continue;
+    const e = event as BridgeEvent;
+    if (!e.nonce || !e.direction) continue;
+    out[key] = e;
+  }
+  return out;
+}
+
 function migrateLegacyKeys(data: BridgeData): void {
+  if (!data.events || Array.isArray(data.events)) {
+    data.events = {};
+    return;
+  }
   const legacy = Object.entries(data.events);
   for (const [key, event] of legacy) {
     if (key.includes(":")) continue;
-    const migrated = eventKey(event.direction ?? "embr_to_base", key);
+    if (!event || typeof event !== "object") {
+      delete data.events[key];
+      continue;
+    }
+    const direction = event.direction ?? "embr_to_base";
+    const migrated = eventKey(direction, key);
     if (!data.events[migrated]) {
-      data.events[migrated] = { ...event, direction: event.direction ?? "embr_to_base" };
+      data.events[migrated] = { ...event, direction };
     }
     delete data.events[key];
   }
@@ -60,8 +81,9 @@ function loadData(): BridgeData {
   try {
     const raw = readFileSync(DATA_FILE, "utf-8");
     const parsed = { ...defaultData(), ...(JSON.parse(raw) as BridgeData) };
-    if (!parsed.events || typeof parsed.events !== "object") parsed.events = {};
+    parsed.events = normalizeEventsRecord(parsed.events);
     migrateLegacyKeys(parsed);
+    if (typeof parsed.nextId !== "number" || parsed.nextId < 1) parsed.nextId = 1;
     cache = parsed;
   } catch (err) {
     console.error("[bridge-store] load failed:", (err as Error).message);
@@ -152,9 +174,13 @@ export async function getBridgeEventByTxHash(txHash: string): Promise<BridgeEven
 }
 
 export async function listPendingByDirection(direction: BridgeDirection): Promise<BridgeEvent[]> {
-  return Object.values(loadData().events)
-    .filter((e) => e.direction === direction && e.status === "pending")
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  try {
+    return Object.values(loadData().events)
+      .filter((e) => e?.direction === direction && e.status === "pending")
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  } catch {
+    return [];
+  }
 }
 
 export async function markBridgeRelayed(
@@ -217,9 +243,17 @@ export function isBridgeRelayed(direction: BridgeDirection, nonce: string): bool
 }
 
 export function listRelayedKeys(): string[] {
-  return Object.values(loadData().events)
-    .filter((e) => e.status === "relayed")
-    .map((e) => eventKey(e.direction, e.nonce));
+  const keys: string[] = [];
+  try {
+    for (const e of Object.values(loadData().events)) {
+      if (!e || e.status !== "relayed") continue;
+      if (e.direction && e.nonce) keys.push(eventKey(e.direction, e.nonce));
+      if (e.txHashSrc) keys.push(`tx:${e.txHashSrc.toLowerCase()}`);
+    }
+  } catch (err) {
+    console.error("[bridge-store] listRelayedKeys failed:", (err as Error).message);
+  }
+  return keys;
 }
 
 export async function getBridgeHistoryForAddress(address: string): Promise<BridgeEvent[]> {

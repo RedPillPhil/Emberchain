@@ -9,62 +9,86 @@ import { listPendingByDirection } from "../lib/bridge-store";
 
 const router: IRouter = Router();
 
+type BaseOutRow = {
+  nonce: string;
+  sender: string;
+  embrRecipient: string;
+  amount: string;
+  txHash: string;
+  blockNumber: number;
+  submittedAt?: string;
+  source: "registered" | "chain";
+};
+
 router.get("/bridge/base-outs", async (req: Request, res: Response): Promise<void> => {
+  const registeredEvents: BaseOutRow[] = [];
+  try {
+    const registered = await listPendingByDirection("base_to_embr");
+    for (const e of registered) {
+      registeredEvents.push({
+        nonce: e.nonce,
+        sender: e.sender,
+        embrRecipient: e.recipient,
+        amount: e.amount,
+        txHash: e.txHashSrc ?? "",
+        blockNumber: 0,
+        submittedAt: e.createdAt,
+        source: "registered",
+      });
+    }
+  } catch (err) {
+    console.error("[bridge-scan] registered base_to_embr failed:", (err as Error).message);
+  }
+
+  const chainMapped: BaseOutRow[] = [];
   try {
     const provider = getBaseProvider();
-    if (!provider) {
-      res.status(503).json({ error: "BASE_RPC_URL is not configured on chain-node" });
-      return;
-    }
-
-    const lookbackRaw = Number(req.query.lookback ?? 50_000);
-    const lookback = Number.isFinite(lookbackRaw)
-      ? Math.min(Math.max(lookbackRaw, 1_000), 200_000)
-      : 50_000;
-
-    const registered = await listPendingByDirection("base_to_embr");
-    const registeredEvents = registered.map((e) => ({
-      nonce: e.nonce,
-      sender: e.sender,
-      embrRecipient: e.recipient,
-      amount: e.amount,
-      txHash: e.txHashSrc ?? "",
-      blockNumber: 0,
-      submittedAt: e.createdAt,
-      source: "registered" as const,
-    }));
-
-    const chainEvents = await scanBaseBridgeOuts(lookback);
-    const chainMapped = await Promise.all(
-      chainEvents.map(async (ev) => {
-        let submittedAt: string | undefined;
-        try {
-          const block = await provider.getBlock(ev.blockNumber);
-          submittedAt = block?.timestamp
-            ? new Date(block.timestamp * 1000).toISOString()
-            : undefined;
-        } catch {
-          /* optional */
-        }
-        return {
+    if (provider) {
+      const lookbackRaw = Number(req.query.lookback ?? 10_000);
+      const lookback = Number.isFinite(lookbackRaw)
+        ? Math.min(Math.max(lookbackRaw, 1_000), 200_000)
+        : 10_000;
+      const chainEvents = await scanBaseBridgeOuts(lookback);
+      for (const ev of chainEvents) {
+        chainMapped.push({
           ...ev,
-          submittedAt,
-          source: "chain" as const,
-        };
-      }),
-    );
-
-    const byNonce = new Map<string, (typeof registeredEvents)[0]>();
-    for (const ev of registeredEvents) {
-      byNonce.set(ev.nonce, ev);
+          source: "chain",
+        });
+      }
     }
-    for (const ev of chainMapped) {
-      if (!byNonce.has(ev.nonce)) byNonce.set(ev.nonce, ev);
-    }
-
-    res.json([...byNonce.values()]);
   } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
+    console.error("[bridge-scan] chain scan failed:", (err as Error).message);
+  }
+
+  const byNonce = new Map<string, BaseOutRow>();
+  for (const ev of registeredEvents) {
+    byNonce.set(ev.nonce, ev);
+  }
+  for (const ev of chainMapped) {
+    if (!byNonce.has(ev.nonce)) byNonce.set(ev.nonce, ev);
+  }
+
+  res.json([...byNonce.values()]);
+});
+
+router.get("/bridge/pending-base-outs", async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const registered = await listPendingByDirection("base_to_embr");
+    res.json(
+      registered.map((e) => ({
+        nonce: e.nonce,
+        sender: e.sender,
+        embrRecipient: e.recipient,
+        amount: e.amount,
+        txHash: e.txHashSrc ?? "",
+        blockNumber: 0,
+        submittedAt: e.createdAt,
+        source: "registered" as const,
+      })),
+    );
+  } catch (err) {
+    console.error("[bridge-scan] pending-base-outs failed:", (err as Error).message);
+    res.json([]);
   }
 });
 

@@ -235,7 +235,8 @@ router.get("/bridge/relayed-keys", async (_req: Request, res: Response): Promise
   try {
     res.json(listRelayedKeys());
   } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
+    console.error("[bridge] relayed-keys failed:", (err as Error).message);
+    res.json([]);
   }
 });
 
