@@ -63,7 +63,10 @@ export function chainNodeRpcUrl(): string {
 /** Resolved API base: explicit env, same-origin on emberchain.org, else chain node. */
 export function resolveApiServer(): string {
   if (API_SERVER) return API_SERVER;
-  return resolveChainNodeUrl();
+  if (isEmberchainSite() && typeof location !== "undefined") return location.origin;
+  const node = resolveChainNodeUrl();
+  if (node) return node;
+  return DEFAULT_CHAIN_NODE;
 }
 
 export function getCommunityWsUrl(): string {
