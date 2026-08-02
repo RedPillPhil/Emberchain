@@ -18,6 +18,13 @@ function isEmberchainSite(): boolean {
   return /^(www\.)?emberchain\.org$/i.test(location.hostname);
 }
 
+/** Wallet UI served from our nginx (emberchain.org or duckdns) — use same-origin /api. */
+function isSelfHostedSite(): boolean {
+  if (typeof location === "undefined") return false;
+  const h = location.hostname.toLowerCase();
+  return isEmberchainSite() || h === "emberchain.duckdns.org";
+}
+
 const DEFAULT_CHAIN_NODE = "https://emberchain.duckdns.org";
 
 /** Emberchain L1 — build-time default; prefer resolveChainNodeUrl() in browser code. */
@@ -32,11 +39,11 @@ export const API_SERVER = trimUrl(import.meta.env.VITE_API_URL);
 
 /**
  * Runtime chain-node base URL for browser fetch/RPC.
- * On emberchain.org hits duckdns directly — Netlify /api proxy to duckdns times out.
- * In dev uses Vite's /api proxy. Otherwise explicit env or duckdns.
+ * Self-hosted (nginx on seed): same-origin /api proxied to chain-node locally.
+ * Legacy CDN hosts: duckdns direct. Dev: Vite /api proxy.
  */
 export function resolveChainNodeUrl(): string {
-  if (isEmberchainSite()) return DEFAULT_CHAIN_NODE;
+  if (isSelfHostedSite()) return "";
   if (import.meta.env.DEV) return "";
   const explicit = trimUrl(import.meta.env.VITE_CHAIN_NODE_URL);
   if (explicit) return explicit;
@@ -60,10 +67,10 @@ export function chainNodeRpcUrl(): string {
   return chainNodeApi("/api/rpc");
 }
 
-/** Resolved API base: explicit env, duckdns on emberchain.org, else chain node. */
+/** Resolved API base: explicit env, same-origin when self-hosted, else duckdns. */
 export function resolveApiServer(): string {
   if (API_SERVER) return API_SERVER;
-  if (isEmberchainSite()) return DEFAULT_CHAIN_NODE;
+  if (isSelfHostedSite()) return chainNodeOrigin();
   const node = resolveChainNodeUrl();
   if (node) return node;
   return DEFAULT_CHAIN_NODE;

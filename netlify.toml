@@ -1,4 +1,7 @@
-# Emberchain wallet + Ember Delta static deploy (replaces vercel.json)
+# DEPRECATED — free Netlify/Vercel tiers hit bandwidth limits quickly.
+# Host static files on the seed server instead: scripts/deploy-vm/README.md
+#
+# Emberchain wallet + Ember Delta static deploy (legacy Netlify)
 # Netlify UI: connect repo, branch `main`, leave build settings empty to use this file.
 
 [build]

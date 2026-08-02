@@ -1,94 +1,78 @@
-# EmberChain Production Migration
+# Host the website on your seed server (recommended)
 
-Two options to fix the miner flood issue. Pick one.
+Netlify and Vercel free tiers burn through **bandwidth** fast (~1 MB JS bundle × every visitor × auto-deploys).
+Your seed server already runs **chain-node** — serve the static wallet from nginx on the same box for **zero extra hosting cost**.
 
----
+## Why duckdns / seed server (not GitHub Pages)
 
-## Option A — Cloudflare (30 min, no server access needed)
+| | Seed server + nginx | GitHub Pages |
+|---|---|---|
+| Cost | Already paying for VM | Free |
+| API | Same origin `/api` → local chain-node | Cross-origin to duckdns only |
+| Bandwidth | Your VM quota (much larger) | 100 GB/mo soft limit |
+| Deploy | `git pull && bash deploy-static-from-git.sh` | GitHub Actions + DNS |
+| emberchain.org | Point A record to VM IP | CNAME to github.io |
 
-Cloudflare sits in front of Replit and blocks miners at the edge before they
-ever reach the server.
+**GitHub Pages works** as a static-only fallback, but the seed server is simpler because API and UI share one domain.
 
-### Steps
-
-1. **Create a free Cloudflare account** at https://cloudflare.com
-
-2. **Add your domain**  
-   Click "Add site" → enter `emberchain.org` → choose the **Free** plan.  
-   Cloudflare will scan and import your current DNS records automatically.
-
-3. **Update nameservers at your registrar**  
-   Cloudflare will show you two nameservers (e.g. `ada.ns.cloudflare.com`).  
-   Log into wherever you bought `emberchain.org` and replace the nameservers
-   with those two values. DNS propagation takes 5–30 minutes.
-
-4. **Add a WAF rule to block miners**  
-   In Cloudflare dashboard: Security → WAF → Create rule  
-   - **Field:** URI Path  
-   - **Operator:** starts with  
-   - **Value:** `/api/mining`  
-   - **Action:** Block  
-   Save. That's it — miners are stopped at Cloudflare's edge, zero reach
-   Replit.
-
-5. **Enable "Under Attack Mode" temporarily** (optional but helpful)  
-   Security → Settings → Security Level → "Under Attack" for a few hours
-   while miners back off.
-
----
-
-## Option B — DigitalOcean VM (permanent, miners never reach Replit)
-
-Your existing DigitalOcean VM becomes the primary host. nginx serves the
-wallet locally, blocks mining routes, and proxies legitimate API calls to
-Replit. Miners hitting `emberchain.org/api/mining/*` get a 503 from nginx
-with zero upstream connections opened.
-
-### What you need
-- SSH access to the VM
-- Your VM's public IP address
-- DNS control for `emberchain.org`
-
-### Steps
-
-**On your LOCAL machine:**
+## One-time setup on the seed server
 
 ```bash
-# Find out the VM's public IP
-ssh root@<VM_IP> "curl -s ifconfig.me"
+# 1. Install nginx + certbot (if missing)
+apt-get update && apt-get install -y nginx certbot python3-certbot-nginx rsync
 
-# Upload the files
-scp scripts/deploy-vm/wallet.tar.gz    root@<VM_IP>:/tmp/
-scp scripts/deploy-vm/nginx-emberchain.conf root@<VM_IP>:/tmp/
-scp scripts/deploy-vm/deploy.sh        root@<VM_IP>:/tmp/
+# 2. Clone or use existing repo
+cd /root/Emberchain/emberchain
+git pull origin main
+
+# 3. Build and publish static files + install nginx config
+bash scripts/deploy-vm/deploy-static-from-git.sh
+
+# 4. SSL (after DNS points here)
+certbot --nginx -d emberchain.org -d www.emberchain.org -d emberchain.duckdns.org \
+  --non-interactive --agree-tos -m admin@emberchain.org
 ```
 
-**SSH into the VM and run:**
+## DNS — point emberchain.org at the seed server
+
+At your domain registrar, set:
+
+| Type | Name | Value |
+|------|------|-------|
+| A | `@` | `<seed-server-public-IP>` |
+| A | `www` | `<seed-server-public-IP>` |
+
+Remove Netlify/Vercel DNS records (CNAME, ALIAS, etc.) so traffic stops hitting paused hosts.
+
+`emberchain.duckdns.org` already points at this server.
+
+## After every frontend push
 
 ```bash
-ssh root@<VM_IP>
-chmod +x /tmp/deploy.sh
-bash /tmp/deploy.sh
+cd /root/Emberchain/emberchain
+bash scripts/deploy-vm/deploy-static-from-git.sh
 ```
 
-**Update DNS:**  
-At your domain registrar, change the `A` record for `emberchain.org` from
-Replit's IP to your VM's public IP.
-
-Wait 5–30 minutes for DNS to propagate, then:
+Chain-node code changes still need:
 
 ```bash
-curl -I https://emberchain.org/           # should return 200
-curl -X POST https://emberchain.org/api/mining/share  # should return 503
+pnpm --filter @workspace/chain-node run build
+sudo systemctl restart emberchain-node
 ```
 
-### How it works after migration
+## Verify
 
-```
-miners ──→ emberchain.org/api/mining/* ──→ nginx (VM) → 503 (never hits Replit)
-users  ──→ emberchain.org/             ──→ nginx (VM) → static wallet files
-users  ──→ emberchain.org/api/*        ──→ nginx (VM) → proxy → Replit api-server
+```bash
+curl -I https://emberchain.org/
+curl -s https://emberchain.org/api/healthz
+curl -I https://emberchain.org/ember-delta/
 ```
 
-Replit stays running for the database and API logic — it just never sees miner
-traffic again.
+## What caused Netlify/Vercel limits
+
+1. **Large bundles** — wallet + ember-delta JS is ~1 MB gzipped per load
+2. **Auto-deploy on every git push** — burns build minutes
+3. **Netlify `/api/*` proxy** — doubled bandwidth (even though clients mostly bypass it)
+4. **30s polling** on DEX/order book — many API calls per active user
+
+Hosting static files on nginx and proxying `/api` locally removes the CDN middleman entirely.
