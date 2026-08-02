@@ -195,14 +195,34 @@ export async function scanDexTradeLogs(lookback: number): Promise<{
   }
 
   let logs: DexTradeLogDto[] = [];
-  try {
-    logs = await scanViaBlockscout(scanFrom);
-  } catch (err) {
-    console.error("[dex-trade-scan] blockscout failed:", (err as Error).message);
+
+  // RPC with Trade topic filter is authoritative — Blockscout address/logs mixes
+  // Deposit/Withdraw pages and often misses sparse Trade events (e.g. partial fills).
+  if (provider && head > scanFrom) {
+    logs = await scanViaRpc(scanFrom, head);
   }
 
-  if (logs.length === 0 && provider && head > scanFrom) {
-    logs = await scanViaRpc(scanFrom, head);
+  if (logs.length === 0) {
+    try {
+      logs = await scanViaBlockscout(scanFrom);
+    } catch (err) {
+      console.error("[dex-trade-scan] blockscout failed:", (err as Error).message);
+    }
+  } else {
+    // Merge any Blockscout-only entries (RPC chunk failures).
+    try {
+      const fromIndexer = await scanViaBlockscout(scanFrom);
+      const seen = new Set(logs.map((l) => `${l.transactionHash}:${l.logIndex}`));
+      for (const l of fromIndexer) {
+        const key = `${l.transactionHash}:${l.logIndex}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          logs.push(l);
+        }
+      }
+    } catch {
+      /* RPC result is enough */
+    }
   }
 
   logs.sort((a, b) => {

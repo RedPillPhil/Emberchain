@@ -47,12 +47,13 @@ export function parseTradeLogs(
 
     const tokenFloat = parseFloat(formatEther(tokenAmt));
     const ethFloat = parseFloat(formatEther(ethAmt));
-    if (tokenFloat <= 0 || ethFloat <= 0) continue;
+    // Partial fills can be tiny — don't drop sub-wei amounts due to float rounding.
+    if (tokenAmt <= 0n || ethAmt <= 0n) continue;
 
     const price = ethFloat / tokenFloat;
 
     rows.push({
-      id: `${log.transactionHash ?? "0x"}-${log.logIndex ?? 0}`,
+      id: `${log.transactionHash ?? "0x"}-${log.logIndex ?? 0}-${log.args.orderHash ?? ""}`,
       blockNumber: log.blockNumber ?? 0n,
       logIndex: log.logIndex ?? 0,
       side,
