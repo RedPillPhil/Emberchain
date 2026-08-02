@@ -36,6 +36,56 @@ export interface BaseToEmbrPending {
 
 export type PendingBridge = EmbrToBasePending | BaseToEmbrPending;
 
+function relayedKey(direction: PendingBridge["direction"], nonce: string): string {
+  return `${direction}:${nonce}`;
+}
+
+async function fetchRelayedKeys(): Promise<Set<string>> {
+  try {
+    const res = await fetch(chainNodeApi("/api/bridge/relayed-keys"), {
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) return new Set();
+    const keys = (await res.json()) as string[];
+    return new Set(keys);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Tell chain-node this bridge was handled — never show in admin again. */
+export async function markBridgeRelayedOnServer(
+  item: PendingBridge,
+  txHashDst?: string,
+): Promise<void> {
+  try {
+    await fetch(chainNodeApi("/api/bridge/mark-relayed"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        direction: item.direction,
+        nonce: item.nonce,
+        txHashSrc: item.txHash,
+        txHashDst,
+        sender: item.sender,
+        recipient: item.direction === "embr_to_base" ? item.baseRecipient : item.embrRecipient,
+        amount: item.amount,
+      }),
+    });
+  } catch {
+    /* best-effort — on-chain completion still applies on next refresh */
+  }
+}
+
+async function isBridgeCompleted(
+  direction: PendingBridge["direction"],
+  nonce: string,
+  relayed: Set<string>,
+): Promise<boolean> {
+  if (relayed.has(relayedKey(direction, nonce))) return true;
+  return isBridgeLegComplete(direction, nonce);
+}
+
 const embrBridgeIface = new Interface([...EMBR_BRIDGE_ABI]);
 const LOCK_EMBR_SELECTOR = embrBridgeIface.getFunction("lockEMBR")!.selector;
 
@@ -70,7 +120,10 @@ function normalizeAddress(addr: string | null | undefined): string | null {
 }
 
 /** Emberchain JSON-RPC stubs eth_getLogs → always []. Scan via REST instead. */
-async function fetchEmbrToBaseLocks(limit = 500): Promise<EmbrToBasePending[]> {
+async function fetchEmbrToBaseLocks(
+  relayed: Set<string>,
+  limit = 500,
+): Promise<EmbrToBasePending[]> {
   const res = await fetch(
     `${chainNodeApi("/api/transactions")}?address=${EMBER_BRIDGE_ADDRESS}&limit=${limit}`,
     { headers: { Accept: "application/json" } },
@@ -103,7 +156,7 @@ async function fetchEmbrToBaseLocks(limit = 500): Promise<EmbrToBasePending[]> {
     const parsed = parseLockEmbrTx(tx);
     if (!parsed) continue;
 
-    const completed = await isNonceUsedOnBase(parsed.nonce);
+    const completed = await isBridgeCompleted("embr_to_base", parsed.nonce, relayed);
     locks.push({
       direction: "embr_to_base",
       nonce: parsed.nonce,
@@ -135,6 +188,7 @@ function parseLockEmbrTx(tx: ChainTxFull): { baseRecipient: string; nonce: strin
 
 /** Look up a single EMBR lock tx by hash (for manual admin completion). */
 export async function fetchEmbrLockByTxHash(txHash: string): Promise<EmbrToBasePending | null> {
+  const relayed = await fetchRelayedKeys();
   const res = await fetch(chainNodeApi(`/api/transactions/${encodeURIComponent(txHash)}`), {
     headers: { Accept: "application/json" },
   });
@@ -144,7 +198,7 @@ export async function fetchEmbrLockByTxHash(txHash: string): Promise<EmbrToBaseP
   const parsed = parseLockEmbrTx(tx);
   if (!parsed) return null;
 
-  const completed = await isNonceUsedOnBase(parsed.nonce);
+  const completed = await isBridgeCompleted("embr_to_base", parsed.nonce, relayed);
   return {
     direction: "embr_to_base",
     nonce: parsed.nonce,
@@ -178,6 +232,7 @@ async function queryFilterChunked(
 
 /** Look up a single Base bridgeOut tx by hash (for manual admin completion). */
 export async function fetchBaseOutByTxHash(txHash: string): Promise<BaseToEmbrPending | null> {
+  const relayed = await fetchRelayedKeys();
   const res = await fetch(chainNodeApi(`/api/bridge/base-out/${encodeURIComponent(txHash)}`), {
     headers: { Accept: "application/json" },
   });
@@ -195,7 +250,7 @@ export async function fetchBaseOutByTxHash(txHash: string): Promise<BaseToEmbrPe
     ? ev.embrRecipient
     : `0x${ev.embrRecipient.replace(/^0x/i, "")}`;
 
-  const completed = await isBridgeLegComplete("base_to_embr", ev.nonce);
+  const completed = await isBridgeCompleted("base_to_embr", ev.nonce, relayed);
   return {
     direction: "base_to_embr",
     nonce: ev.nonce,
@@ -208,7 +263,10 @@ export async function fetchBaseOutByTxHash(txHash: string): Promise<BaseToEmbrPe
   };
 }
 
-async function fetchBaseToEmbrOuts(lookbackBlocks = 50_000): Promise<BaseToEmbrPending[]> {
+async function fetchBaseToEmbrOuts(
+  relayed: Set<string>,
+  lookbackBlocks = 50_000,
+): Promise<BaseToEmbrPending[]> {
   try {
     const res = await fetch(
       `${chainNodeApi("/api/bridge/base-outs")}?lookback=${lookbackBlocks}`,
@@ -231,7 +289,7 @@ async function fetchBaseToEmbrOuts(lookbackBlocks = 50_000): Promise<BaseToEmbrP
           const embrRecipient = ev.embrRecipient.startsWith("0x")
             ? ev.embrRecipient
             : `0x${ev.embrRecipient.replace(/^0x/i, "")}`;
-          const completed = await isBridgeLegComplete("base_to_embr", ev.nonce);
+          const completed = await isBridgeCompleted("base_to_embr", ev.nonce, relayed);
           pending.push({
             direction: "base_to_embr",
             nonce: ev.nonce,
@@ -276,7 +334,7 @@ async function fetchBaseToEmbrOuts(lookbackBlocks = 50_000): Promise<BaseToEmbrP
     const embrRecipient = embrRecipientRaw.startsWith("0x")
       ? embrRecipientRaw
       : `0x${embrRecipientRaw.replace(/^0x/i, "")}`;
-    const completed = await isBridgeLegComplete("base_to_embr", nonce);
+    const completed = await isBridgeCompleted("base_to_embr", nonce, relayed);
     const blockTs = await getBaseBlockTimestamp(log.blockNumber);
     pending.push({
       direction: "base_to_embr",
@@ -294,9 +352,10 @@ async function fetchBaseToEmbrOuts(lookbackBlocks = 50_000): Promise<BaseToEmbrP
 }
 
 export async function fetchPendingBridges(lookbackBlocks = 50_000): Promise<PendingBridge[]> {
+  const relayed = await fetchRelayedKeys();
   const [embrLocks, baseOuts] = await Promise.all([
-    fetchEmbrToBaseLocks(500),
-    fetchBaseToEmbrOuts(lookbackBlocks).catch(() => [] as BaseToEmbrPending[]),
+    fetchEmbrToBaseLocks(relayed, 500),
+    fetchBaseToEmbrOuts(relayed, lookbackBlocks).catch(() => [] as BaseToEmbrPending[]),
   ]);
   return [...embrLocks, ...baseOuts].sort((a, b) => {
     const ta = a.submittedAt ? Date.parse(a.submittedAt) : a.blockNumber;

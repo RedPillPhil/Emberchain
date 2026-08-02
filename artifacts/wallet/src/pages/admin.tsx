@@ -15,9 +15,9 @@ import {
   fetchPendingBridges,
   formatBridgeTime,
   formatEmbr,
+  markBridgeRelayedOnServer,
   type PendingBridge,
 } from "@/lib/bridge-admin";
-import { isBridgeLegComplete } from "@/lib/bridge-read";
 import {
   deriveBridgeWallets,
   fetchLaunchById,
@@ -239,29 +239,19 @@ function BridgeTab({
   async function complete(row: PendingBridge) {
     setActing(row.nonce + row.direction);
     try {
-      if (await isBridgeLegComplete(row.direction, row.nonce)) {
-        removeRow(row);
-        toast({
-          title: "Already completed",
-          description: "This bridge was already relayed on the destination chain.",
-        });
-        return;
-      }
-
       const hash =
         row.direction === "embr_to_base"
           ? await completeEmbrToBase(privateKey, row)
           : await completeBaseToEmbr(privateKey, row);
 
+      const destTxHash = hash !== "already_completed" ? hash : undefined;
+      await markBridgeRelayedOnServer(row, destTxHash);
       removeRow(row);
+
       if (hash === "already_completed") {
-        toast({
-          title: "Already completed",
-          description: "This bridge was already relayed — removed from the pending list.",
-        });
-      } else {
-        toast({ title: "Bridge completed", description: hash });
+        return;
       }
+      toast({ title: "Bridge completed", description: hash });
     } catch (err) {
       toast({
         title: "Completion failed",

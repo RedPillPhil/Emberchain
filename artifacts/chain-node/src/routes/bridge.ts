@@ -10,6 +10,10 @@ import {
   createBridgeEvent,
   getBridgeEventByNonce,
   getBridgeHistoryForAddress,
+  isBridgeRelayed,
+  listRelayedKeys,
+  upsertBridgeRelayed,
+  type BridgeDirection,
 } from "../lib/bridge-store";
 import { fetchBaseBridgeOutByTxHash } from "../lib/base-bridge-scan";
 
@@ -222,6 +226,49 @@ router.post("/bridge/register-base-out", async (req: Request, res: Response): Pr
       txHashSrc: txHash,
       status: "pending",
     });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+router.get("/bridge/relayed-keys", async (_req: Request, res: Response): Promise<void> => {
+  try {
+    res.json(listRelayedKeys());
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+router.post("/bridge/mark-relayed", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const body = req.body as {
+      direction?: BridgeDirection;
+      nonce?: string;
+      txHashSrc?: string;
+      txHashDst?: string;
+      sender?: string;
+      recipient?: string;
+      amount?: string;
+    };
+    const { direction, nonce, txHashSrc, txHashDst, sender, recipient, amount } = body ?? {};
+    if (direction !== "embr_to_base" && direction !== "base_to_embr") {
+      res.status(400).json({ error: "direction must be embr_to_base or base_to_embr" });
+      return;
+    }
+    if (!nonce) {
+      res.status(400).json({ error: "nonce is required" });
+      return;
+    }
+    await upsertBridgeRelayed({
+      direction,
+      nonce: String(nonce),
+      txHashSrc,
+      txHashDst,
+      sender,
+      recipient,
+      amount,
+    });
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

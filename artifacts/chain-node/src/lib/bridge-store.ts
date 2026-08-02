@@ -157,14 +157,69 @@ export async function listPendingByDirection(direction: BridgeDirection): Promis
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export async function markBridgeRelayed(nonce: string, direction: BridgeDirection, txHashDst?: string): Promise<void> {
+export async function markBridgeRelayed(
+  nonce: string,
+  direction: BridgeDirection,
+  txHashDst?: string,
+): Promise<void> {
   const data = loadData();
-  const event = data.events[eventKey(direction, nonce)];
+  const key = eventKey(direction, nonce);
+  const event = data.events[key];
   if (!event) return;
   event.status = "relayed";
   if (txHashDst) event.txHashDst = txHashDst;
   event.updatedAt = new Date().toISOString();
   scheduleSave();
+}
+
+/** Persist admin completion so scans never surface this bridge again. */
+export async function upsertBridgeRelayed(params: {
+  direction: BridgeDirection;
+  nonce: string;
+  txHashSrc?: string;
+  txHashDst?: string;
+  sender?: string;
+  recipient?: string;
+  amount?: string;
+}): Promise<void> {
+  const data = loadData();
+  const key = eventKey(params.direction, params.nonce);
+  const now = new Date().toISOString();
+  const existing = data.events[key];
+  if (existing) {
+    existing.status = "relayed";
+    if (params.txHashDst) existing.txHashDst = params.txHashDst;
+    if (params.txHashSrc && !existing.txHashSrc) existing.txHashSrc = params.txHashSrc;
+    existing.updatedAt = now;
+  } else {
+    data.events[key] = {
+      id: data.nextId++,
+      nonce: params.nonce,
+      direction: params.direction,
+      sender: (params.sender ?? "").toLowerCase(),
+      recipient: (params.recipient ?? "").toLowerCase(),
+      amount: params.amount ?? "0",
+      status: "relayed",
+      txHashSrc: params.txHashSrc ?? null,
+      txHashDst: params.txHashDst ?? null,
+      errorMsg: null,
+      retryCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+  scheduleSave();
+}
+
+export function isBridgeRelayed(direction: BridgeDirection, nonce: string): boolean {
+  const event = loadData().events[eventKey(direction, nonce)];
+  return event?.status === "relayed";
+}
+
+export function listRelayedKeys(): string[] {
+  return Object.values(loadData().events)
+    .filter((e) => e.status === "relayed")
+    .map((e) => eventKey(e.direction, e.nonce));
 }
 
 export async function getBridgeHistoryForAddress(address: string): Promise<BridgeEvent[]> {
