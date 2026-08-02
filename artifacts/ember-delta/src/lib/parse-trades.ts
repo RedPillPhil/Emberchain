@@ -10,6 +10,17 @@ export interface ParsedTrade {
   price: number;
   amount: number;
   total: number;
+  maker: string;
+  taker: string;
+  transactionHash: string;
+}
+
+export interface TradeChartPoint {
+  time: string;
+  close: number;
+  closeEth: number;
+  volume: number;
+  block: string;
 }
 
 /** Parse EmberDelta Trade logs into wTOKEN/ETH prices. */
@@ -60,6 +71,9 @@ export function parseTradeLogs(
       price,
       amount: tokenFloat,
       total: ethFloat,
+      maker: log.args.maker ?? "",
+      taker: log.args.taker ?? "",
+      transactionHash: log.transactionHash ?? "",
     });
   }
 
@@ -67,7 +81,10 @@ export function parseTradeLogs(
 }
 
 /** Chronological chart points from parsed trades (oldest → newest). */
-export function tradesToChartPoints(trades: ParsedTrade[]) {
+export function tradesToChartPoints(
+  trades: ParsedTrade[],
+  ethUsd?: number | null,
+): TradeChartPoint[] {
   const sorted = [...trades].sort((a, b) => {
     const blockCmp = a.blockNumber > b.blockNumber ? 1 : a.blockNumber < b.blockNumber ? -1 : 0;
     if (blockCmp !== 0) return blockCmp;
@@ -76,7 +93,8 @@ export function tradesToChartPoints(trades: ParsedTrade[]) {
 
   return sorted.map((t, i) => ({
     time: sorted.length <= 5 ? `#${t.blockNumber}` : `${i + 1}`,
-    close: t.price,
+    close: ethUsd ? t.price * ethUsd : t.price,
+    closeEth: t.price,
     volume: t.amount,
     block: t.blockNumber.toString(),
   }));

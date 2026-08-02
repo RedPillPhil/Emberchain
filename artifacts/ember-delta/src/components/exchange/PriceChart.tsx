@@ -1,8 +1,21 @@
-import React, { useMemo } from 'react';
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { formatNumber } from '@/lib/utils';
+import React, { useMemo, useState } from 'react';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { formatNumber, formatUsd, cn } from '@/lib/utils';
 import { chartPriceDomain, parseTradeLogs, tradesToChartPoints } from '@/lib/parse-trades';
+import { useEthUsdPrice } from '@/lib/eth-usd';
 import type { TradeLogEntry } from '@/pages/Exchange';
+
+type PriceCurrency = 'eth' | 'usd';
+type ChartStyle = 'line' | 'bar';
 
 interface ChartProps {
   symbol: string;
@@ -12,14 +25,49 @@ interface ChartProps {
   currentPrice: number;
 }
 
+function ChartToggle({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex rounded-md border border-border overflow-hidden text-[10px] font-sans">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onChange(opt.value)}
+          className={cn(
+            'px-2 py-0.5 transition-colors',
+            value === opt.value
+              ? 'bg-primary/20 text-primary'
+              : 'text-muted-foreground hover:bg-white/5',
+          )}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function PriceChart({ symbol, tokenAddress, tradeLogs, currentPrice }: ChartProps) {
+  const ethUsd = useEthUsdPrice();
+  const [currency, setCurrency] = useState<PriceCurrency>('eth');
+  const [chartStyle, setChartStyle] = useState<ChartStyle>('line');
+
   const trades = useMemo(
     () => parseTradeLogs(tradeLogs, tokenAddress),
     [tradeLogs, tokenAddress],
   );
 
   const chartData = useMemo(() => {
-    const points = tradesToChartPoints(trades);
+    const ethUsdForChart = currency === 'usd' ? ethUsd : null;
+    const points = tradesToChartPoints(trades, ethUsdForChart);
     if (points.length === 1) {
       return [
         { ...points[0], time: '1' },
@@ -27,16 +75,19 @@ export function PriceChart({ symbol, tokenAddress, tradeLogs, currentPrice }: Ch
       ];
     }
     return points;
-  }, [trades]);
+  }, [trades, currency, ethUsd]);
 
-  const displayPrice = trades.length > 0
+  const latestTrade = trades.length > 0
     ? trades.reduce((latest, t) =>
         t.blockNumber > latest.blockNumber ||
         (t.blockNumber === latest.blockNumber && t.logIndex > latest.logIndex)
           ? t
           : latest,
-      trades[0]).price
-    : currentPrice;
+      trades[0])
+    : null;
+
+  const displayPriceEth = latestTrade?.price ?? currentPrice;
+  const displayPriceUsd = ethUsd ? displayPriceEth * ethUsd : null;
 
   const yDomain = useMemo(
     () => chartPriceDomain(chartData.map((d) => d.close)),
@@ -49,19 +100,95 @@ export function PriceChart({ symbol, tokenAddress, tradeLogs, currentPrice }: Ch
   const color = isUp ? 'hsl(var(--success))' : 'hsl(var(--destructive))';
   const hasTrades = trades.length > 0;
 
+  const yTickFormatter = (val: number) =>
+    currency === 'usd' ? formatUsd(val) : formatNumber(val, 6);
+
+  const tooltipContent = ({ active, payload }: { active?: boolean; payload?: Array<{ payload: typeof chartData[0] }> }) => {
+    if (!active || !payload?.length) return null;
+    const row = payload[0].payload;
+    const priceEth = row.closeEth;
+    const priceUsd = ethUsd ? priceEth * ethUsd : null;
+
+    return (
+      <div className="bg-popover border border-border p-2 rounded shadow-xl text-xs font-mono">
+        {row.block && (
+          <div className="text-muted-foreground mb-1">Block {row.block}</div>
+        )}
+        <div className="text-white">
+          Price: {formatNumber(priceEth, 6)} ETH
+          {priceUsd != null && (
+            <span className="text-muted-foreground"> ({formatUsd(priceUsd)})</span>
+          )}
+        </div>
+        <div className="text-muted-foreground mt-1">
+          Size: {formatNumber(row.volume, 4)} {symbol}
+        </div>
+      </div>
+    );
+  };
+
+  const sharedAxes = (
+    <>
+      <XAxis dataKey="time" hide />
+      <YAxis
+        domain={yDomain}
+        orientation="right"
+        tickFormatter={yTickFormatter}
+        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))', fontFamily: 'monospace' }}
+        axisLine={false}
+        tickLine={false}
+        width={currency === 'usd' ? 64 : 72}
+      />
+      <Tooltip content={tooltipContent} />
+    </>
+  );
+
   return (
     <div className="flex flex-col h-full bg-card border-b border-border">
-      <div className="flex items-center justify-between p-2 border-b border-border shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="font-bold text-lg text-white">{symbol}/ETH</div>
-          <div className="flex flex-col">
+      <div className="flex items-center justify-between p-2 border-b border-border shrink-0 gap-2 flex-wrap">
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="font-bold text-lg text-white shrink-0">
+            {symbol}/{currency === 'usd' ? 'USD' : 'ETH'}
+          </div>
+          <div className="flex flex-col min-w-0">
             <span className={`text-sm font-bold font-mono ${isUp ? 'text-bid' : 'text-ask'}`}>
-              {displayPrice > 0 ? formatNumber(displayPrice, 6) : '—'}
+              {displayPriceEth > 0 ? (
+                currency === 'usd' && displayPriceUsd != null
+                  ? formatUsd(displayPriceUsd)
+                  : formatNumber(displayPriceEth, 6)
+              ) : '—'}
             </span>
-            <span className="text-[10px] text-muted-foreground font-mono">
-              {hasTrades ? `${trades.length} on-chain trade${trades.length === 1 ? '' : 's'}` : 'No trades yet'}
+            <span className="text-[10px] text-muted-foreground font-mono truncate">
+              {displayPriceEth > 0 && currency === 'eth' && displayPriceUsd != null && (
+                <>{formatUsd(displayPriceUsd)} · </>
+              )}
+              {displayPriceEth > 0 && currency === 'usd' && (
+                <>{formatNumber(displayPriceEth, 6)} ETH · </>
+              )}
+              {hasTrades
+                ? `${trades.length} on-chain trade${trades.length === 1 ? '' : 's'}`
+                : 'No trades yet'}
             </span>
           </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <ChartToggle
+            value={currency}
+            options={[
+              { value: 'eth', label: 'ETH' },
+              { value: 'usd', label: 'USD' },
+            ]}
+            onChange={(v) => setCurrency(v as PriceCurrency)}
+          />
+          <ChartToggle
+            value={chartStyle}
+            options={[
+              { value: 'line', label: 'Line' },
+              { value: 'bar', label: 'Bar' },
+            ]}
+            onChange={(v) => setChartStyle(v as ChartStyle)}
+          />
         </div>
       </div>
 
@@ -73,6 +200,19 @@ export function PriceChart({ symbol, tokenAddress, tradeLogs, currentPrice }: Ch
               The chart plots real fill prices from on-chain Trade events.
             </p>
           </div>
+        ) : chartStyle === 'bar' ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+              {sharedAxes}
+              <Bar
+                dataKey="close"
+                fill={color}
+                fillOpacity={0.75}
+                isAnimationActive={false}
+                radius={[2, 2, 0, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
@@ -82,35 +222,7 @@ export function PriceChart({ symbol, tokenAddress, tradeLogs, currentPrice }: Ch
                   <stop offset="95%" stopColor={color} stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <XAxis dataKey="time" hide />
-              <YAxis
-                domain={yDomain}
-                orientation="right"
-                tickFormatter={(val) => formatNumber(val, 6)}
-                tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))', fontFamily: 'monospace' }}
-                axisLine={false}
-                tickLine={false}
-                width={72}
-              />
-              <Tooltip
-                content={({ active, payload }) => {
-                  if (active && payload && payload.length) {
-                    const row = payload[0].payload as { time: string; close: number; volume: number; block?: string };
-                    return (
-                      <div className="bg-popover border border-border p-2 rounded shadow-xl text-xs font-mono">
-                        {row.block && (
-                          <div className="text-muted-foreground mb-1">Block {row.block}</div>
-                        )}
-                        <div className="text-white">Price: {formatNumber(row.close, 6)} ETH</div>
-                        <div className="text-muted-foreground mt-1">
-                          Size: {formatNumber(row.volume, 4)} {symbol}
-                        </div>
-                      </div>
-                    );
-                  }
-                  return null;
-                }}
-              />
+              {sharedAxes}
               <Area
                 type="monotone"
                 dataKey="close"

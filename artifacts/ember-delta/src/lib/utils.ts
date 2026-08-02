@@ -12,6 +12,20 @@ export function formatNumber(num: number, decimals: number = 2): string {
   }).format(num);
 }
 
+export function formatUsd(amount: number): string {
+  if (!Number.isFinite(amount) || amount <= 0) return "—";
+  if (amount >= 10_000) return `$${formatNumber(amount, 0)}`;
+  if (amount >= 100) return `$${formatNumber(amount, 0)}`;
+  if (amount >= 1) return `$${formatNumber(amount, 2)}`;
+  if (amount >= 0.01) return `$${formatNumber(amount, 2)}`;
+  return `$${formatNumber(amount, 4)}`;
+}
+
+export function shortAddress(addr: string, chars = 4): string {
+  if (!addr || addr.length < 10) return addr || "—";
+  return `${addr.slice(0, 2 + chars)}…${addr.slice(-chars)}`;
+}
+
 /** Strip spreadsheet/formula junk and validate a 0x-prefixed address. */
 export function normalizeHexAddress(addr: string | null | undefined): string | null {
   if (addr == null || addr === "") return null;
