@@ -52,6 +52,7 @@ function Router() {
         <Route path="/setup" component={Setup} />
         <Route path="/send" component={Send} />
         <Route path="/mining" component={Mining} />
+        <Route path="/ledger/:address" component={Ledger} />
         <Route path="/ledger" component={Ledger} />
         <Route path="/blocks" component={Blocks} />
         <Route path="/blocks/:number" component={BlockDetail} />

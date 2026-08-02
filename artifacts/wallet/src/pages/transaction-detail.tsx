@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ArrowLeft, ArrowLeftRight, CheckCircle2, XCircle, Loader2, AlertTriangle, Code2 } from "lucide-react";
 import { formatEmbr } from "@/lib/utils";
 import { decodeCalldata, formatUint256Display } from "@/lib/calldata-decoder";
+import { DecodedAddressLink, LedgerAddressLink } from "@/components/explorer/address-link";
 
 export default function TransactionDetail() {
   const { hash } = useParams();
@@ -61,15 +62,15 @@ export default function TransactionDetail() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-4 p-4 hover:bg-secondary/20 transition-colors">
                   <dt className="text-muted-foreground font-sans font-bold uppercase tracking-widest text-xs md:col-span-1 flex items-center">From</dt>
-                  <dd className="md:col-span-3 break-all bg-secondary/50 w-fit px-2 py-1 rounded-sm border border-border">{tx.from}</dd>
+                  <dd className="md:col-span-3 break-all">
+                    <LedgerAddressLink address={tx.from} />
+                  </dd>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-4 p-4 hover:bg-secondary/20 transition-colors">
                   <dt className="text-muted-foreground font-sans font-bold uppercase tracking-widest text-xs md:col-span-1 flex items-center">To</dt>
                   <dd className="md:col-span-3 break-all">
                     {tx.to ? (
-                      <span className="bg-secondary/50 w-fit px-2 py-1 rounded-sm border border-border">
-                        {tx.to.replace(/^=+/, "")}
-                      </span>
+                      <LedgerAddressLink address={tx.to} />
                     ) : (
                       <span className="text-accent italic font-sans font-bold uppercase text-xs tracking-widest">Contract Creation</span>
                     )}
@@ -92,7 +93,12 @@ export default function TransactionDetail() {
                 {tx.contractAddress && (
                   <div className="grid grid-cols-1 md:grid-cols-4 p-4 hover:bg-secondary/20 transition-colors bg-accent/5">
                     <dt className="text-accent font-sans font-bold uppercase tracking-widest text-xs md:col-span-1 flex items-center">Created Contract</dt>
-                    <dd className="md:col-span-3 break-all font-bold text-accent border border-accent/30 bg-accent/10 px-2 py-1 rounded-sm w-fit">{tx.contractAddress}</dd>
+                    <dd className="md:col-span-3 break-all">
+                      <LedgerAddressLink
+                        address={tx.contractAddress}
+                        className="font-bold text-accent border-accent/30 bg-accent/10 hover:border-accent/60"
+                      />
+                    </dd>
                   </div>
                 )}
                 <div className="grid grid-cols-1 md:grid-cols-4 p-4 hover:bg-secondary/20 transition-colors">
@@ -138,12 +144,12 @@ export default function TransactionDetail() {
                             </dt>
                             <dd className="md:col-span-3 break-all">
                               {p.type === "address" ? (
-                                <Link
-                                  href={`/wallets/${p.value}`}
-                                  className="bg-secondary/50 px-2 py-1 rounded-sm border border-border hover:border-primary/50 hover:bg-primary/10 transition-colors inline-block"
-                                >
-                                  {p.value}
-                                </Link>
+                                <DecodedAddressLink
+                                  functionName={decoded.functionName}
+                                  paramName={p.name}
+                                  address={p.value}
+                                  selector={decoded.selector}
+                                />
                               ) : fmt ? (
                                 <span className="font-bold text-foreground">
                                   {fmt.display}

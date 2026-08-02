@@ -8,7 +8,7 @@ import {
   useListWallets,
 } from "@workspace/api-client-react";
 import type { Transaction, Wallet } from "@workspace/api-client-react";
-import { Link } from "wouter";
+import { Link, useParams } from "wouter";
 import { useActiveWallet } from "@/hooks/use-active-wallet";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -43,6 +43,8 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn, formatEmbr, formatHash } from "@/lib/utils";
+import { decodeCalldata, formatUint256Display } from "@/lib/calldata-decoder";
+import { DecodedAddressLink, LedgerAddressLink } from "@/components/explorer/address-link";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const HASH_RE    = /^0x[0-9a-fA-F]{64}$/;
@@ -422,14 +424,12 @@ function TransactionResult({ hash, onAddressClick }: { hash: string; onAddressCl
             <span>{new Date(tx.createdAt).toLocaleString()}</span>
           </Row>
           <Row label="From">
-            <button onClick={() => onAddressClick(tx.from)} className="text-primary hover:underline break-all text-left">
-              {tx.from}
-            </button>
+            <LedgerAddressLink address={tx.from} className="text-primary hover:underline bg-transparent border-0 px-0 py-0" />
             <CopyButton text={tx.from} />
           </Row>
           <Row label="To">
             {tx.to
-              ? <><button onClick={() => onAddressClick(tx.to!)} className="text-primary hover:underline break-all text-left">{tx.to}</button><CopyButton text={tx.to} /></>
+              ? <><LedgerAddressLink address={tx.to} className="text-primary hover:underline bg-transparent border-0 px-0 py-0" /><CopyButton text={tx.to} /></>
               : <Pill className="bg-accent/10 text-accent border-accent/40"><FileCode2 className="w-3 h-3" /> Contract Creation</Pill>}
           </Row>
           <Row label="Value">
@@ -450,16 +450,51 @@ function TransactionResult({ hash, onAddressClick }: { hash: string; onAddressCl
         </dl>
       </Card>
 
-      {tx.data && tx.data !== "0x" && (
-        <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-border bg-secondary/30 text-xs font-sans font-bold uppercase tracking-widest text-muted-foreground">
-            Input Data
-          </div>
-          <div className="p-4 bg-black font-mono text-xs text-muted-foreground break-all max-h-40 overflow-y-auto">
-            {tx.data}
-          </div>
-        </Card>
-      )}
+      {tx.data && tx.data !== "0x" && (() => {
+        const decoded = decodeCalldata(tx.data);
+        if (decoded) {
+          return (
+            <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-border bg-secondary/30 text-xs font-sans font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                <Code2 className="w-4 h-4 text-primary" />
+                Decoded Input — <span className="text-primary">{decoded.functionName}</span>
+                <span className="text-muted-foreground font-mono normal-case">{decoded.selector}</span>
+              </div>
+              <dl>
+                {decoded.params.map((p) => {
+                  const fmt = p.type === "uint256" ? formatUint256Display(p.value, p.name) : null;
+                  return (
+                    <Row key={p.name} label={`${p.name} (${p.type})`}>
+                      {p.type === "address" ? (
+                        <DecodedAddressLink
+                          functionName={decoded.functionName}
+                          paramName={p.name}
+                          address={p.value}
+                          selector={decoded.selector}
+                        />
+                      ) : fmt ? (
+                        <span className="font-bold">{fmt.display}</span>
+                      ) : (
+                        <span>{p.value}</span>
+                      )}
+                    </Row>
+                  );
+                })}
+              </dl>
+            </Card>
+          );
+        }
+        return (
+          <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-border bg-secondary/30 text-xs font-sans font-bold uppercase tracking-widest text-muted-foreground">
+              Input Data
+            </div>
+            <div className="p-4 bg-black font-mono text-xs text-muted-foreground break-all max-h-40 overflow-y-auto">
+              {tx.data}
+            </div>
+          </Card>
+        );
+      })()}
 
       {tx.error && (
         <Card className="border-destructive/40 bg-destructive/5 rounded-sm overflow-hidden">
@@ -1044,6 +1079,7 @@ function TopHolders({ onAddressClick }: { onAddressClick: (a: string) => void })
 
 export default function Ledger() {
   const { activeWallet } = useActiveWallet();
+  const params = useParams<{ address?: string }>();
   const [query, setQuery]     = useState("");
   const [committed, setCommitted] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1052,6 +1088,17 @@ export default function Ledger() {
   const isAddress  = ADDRESS_RE.test(committed);
   const isHash     = HASH_RE.test(committed);
   const hasResult  = isAddress || isHash;
+
+  // Deep link: /ledger?q=0x… or /ledger/0x…
+  useEffect(() => {
+    const fromQuery = new URLSearchParams(window.location.search).get("q")?.trim() ?? "";
+    const fromPath = params.address?.trim() ?? "";
+    const candidate = fromQuery || fromPath;
+    if (ADDRESS_RE.test(candidate) || HASH_RE.test(candidate)) {
+      setQuery(candidate);
+      setCommitted(candidate);
+    }
+  }, [params.address]);
 
   // Commit search (debounce-free — only on Enter or when pattern fully matches)
   useEffect(() => {

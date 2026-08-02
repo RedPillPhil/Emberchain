@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Coins, Code2, Loader2, ExternalLink, CheckCircle2, RefreshCw } from "lucide-react";
 import { cn, formatHash } from "@/lib/utils";
+import { ledgerAddressUrl } from "@/lib/explorer-links";
 import { resolveApiServer } from "@/lib/api-server";
 
 function formatTokenAmount(raw: string, decimals: number): string {
@@ -270,7 +271,7 @@ export default function Tokens() {
                         <td className="p-3 font-mono text-xs text-muted-foreground">
                           {c.creator ? (
                             <button
-                              onClick={(e) => { e.stopPropagation(); setLocation(`/ledger/${c.creator}`); }}
+                              onClick={(e) => { e.stopPropagation(); setLocation(ledgerAddressUrl(c.creator!)); }}
                               className="text-primary hover:underline"
                             >
                               {formatHash(c.creator, 4)}

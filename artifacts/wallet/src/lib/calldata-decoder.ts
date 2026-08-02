@@ -7,6 +7,8 @@
  * are flagged as "complex" and left as hex.
  */
 
+import { decodedAddressLink } from "./explorer-links";
+
 export interface DecodedParam {
   name: string;
   type: string;
@@ -137,6 +139,12 @@ export function decodeCalldata(data: string): DecodedCall | null {
   });
 
   return { selector, functionName: def.name, params };
+}
+
+/** External explorer for cross-chain address params (e.g. Base recipient on lockEMBR). */
+export function externalAddressUrl(functionName: string, paramName: string, address: string): string | null {
+  const link = decodedAddressLink(functionName, paramName, address);
+  return link.external ? link.href : null;
 }
 
 /** Format a uint256 value for display (if it looks like a wei amount, convert to EMBR) */
