@@ -8,8 +8,9 @@ import { OrderForm } from '@/components/exchange/OrderForm';
 import { BUILT_IN_PAIRS, getAllPairs, addCustomPair, type TradingPair } from '@/lib/custom-pairs';
 import type { ParsedOpenOrder } from '@/lib/dex-orders';
 import { usePublicClient } from 'wagmi';
-import { parseAbi } from 'viem';
-import { EMBER_DELTA_ADDRESS, BASE_CHAIN_ID, ERC20_ABI } from '@/lib/contracts';
+import { chainNodeApi } from '@/lib/config';
+import { BASE_CHAIN_ID, ERC20_ABI } from '@/lib/contracts';
+import { DEX_TRADES_LOOKBACK, useSlowPoll } from '@/lib/dex-poll';
 import { useSearch } from 'wouter';
 
 // ── Shared Trade-event types ──────────────────────────────────────────────
@@ -28,58 +29,56 @@ export interface TradeLogEntry {
   logIndex: number | null;
 }
 
-const TRADE_ABI = parseAbi([
-  'event Trade(address indexed tokenGet, uint256 amountGet, address indexed tokenGive, uint256 amountGive, address indexed taker, address maker, bytes32 orderHash)',
-]);
+interface DexTradeLogDto {
+  tokenGet: string;
+  amountGet: string;
+  tokenGive: string;
+  amountGive: string;
+  taker: string;
+  maker: string;
+  orderHash: string;
+  blockNumber: number;
+  transactionHash: string;
+  logIndex: number;
+}
 
-// ── Shared hook: one eth_getLogs per 15 s, paused when tab is hidden ──────
-function useSharedTradeData(tokenAddress: `0x${string}`) {
-  const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
+function dtoToTradeLogEntry(d: DexTradeLogDto): TradeLogEntry {
+  return {
+    args: {
+      tokenGet: d.tokenGet as `0x${string}`,
+      amountGet: BigInt(d.amountGet),
+      tokenGive: d.tokenGive as `0x${string}`,
+      amountGive: BigInt(d.amountGive),
+      taker: d.taker as `0x${string}`,
+      maker: d.maker as `0x${string}`,
+      orderHash: d.orderHash as `0x${string}`,
+    },
+    blockNumber: BigInt(d.blockNumber),
+    transactionHash: d.transactionHash as `0x${string}`,
+    logIndex: d.logIndex,
+  };
+}
+
+// ── Shared trade fetch — server-side Base scan (browser eth_getLogs is unreliable) ──────
+function useSharedTradeData(_tokenAddress: `0x${string}`) {
   const [currentBlock, setCurrentBlock] = useState<bigint>(0n);
   const [tradeLogs, setTradeLogs] = useState<TradeLogEntry[]>([]);
 
   const fetchLogs = useCallback(async () => {
-    if (!publicClient) return;
     try {
-      const latest = await publicClient.getBlockNumber();
-      const fromBlock = latest > 9000n ? latest - 9000n : 0n;
-      const logs = await publicClient.getLogs({
-        address: EMBER_DELTA_ADDRESS,
-        event: TRADE_ABI[0],
-        fromBlock,
-        toBlock: 'latest',
-      });
-      setCurrentBlock(latest);
-      setTradeLogs(logs as TradeLogEntry[]);
+      const res = await fetch(
+        chainNodeApi(`/api/dex/trades?lookback=${DEX_TRADES_LOOKBACK}`),
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as { headBlock?: number; logs?: DexTradeLogDto[] };
+      setCurrentBlock(BigInt(data.headBlock ?? 0));
+      setTradeLogs((data.logs ?? []).map(dtoToTradeLogEntry));
     } catch {
       /* silent — keep stale data */
     }
-  }, [publicClient]);
+  }, []);
 
-  useEffect(() => {
-    if (!publicClient) return;
-
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-
-    const start = () => {
-      if (intervalId) return;
-      fetchLogs();
-      intervalId = setInterval(fetchLogs, 15_000);
-    };
-    const stop = () => {
-      if (intervalId) { clearInterval(intervalId); intervalId = null; }
-    };
-
-    const handleVisibility = () => (document.hidden ? stop() : start());
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    if (!document.hidden) start();
-
-    return () => {
-      stop();
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [publicClient, fetchLogs]);
+  useSlowPoll(fetchLogs);
 
   return { currentBlock, tradeLogs };
 }

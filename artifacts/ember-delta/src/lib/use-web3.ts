@@ -29,7 +29,7 @@ export function useWeb3() {
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
     chainId: BASE_CHAIN_ID,
-    query: { enabled: !!address && onBase, refetchInterval: 15000 },
+    query: { enabled: !!address && onBase, refetchInterval: 30_000 },
   });
 
   const { data: ethDepositedRaw, refetch: refetchEthDeposited } = useReadContract({
@@ -38,7 +38,7 @@ export function useWeb3() {
     functionName: 'tokens',
     args: address && onBase ? [ETH_ADDR, address] : undefined,
     chainId: BASE_CHAIN_ID,
-    query: { enabled: !!address && onBase, refetchInterval: 10000 },
+    query: { enabled: !!address && onBase, refetchInterval: 30_000 },
   });
 
   const { data: wembrDepositedRaw, refetch: refetchWembrDeposited } = useReadContract({
@@ -47,7 +47,7 @@ export function useWeb3() {
     functionName: 'tokens',
     args: address && onBase ? [WEMBR_ADDRESS, address] : undefined,
     chainId: BASE_CHAIN_ID,
-    query: { enabled: !!address && onBase, refetchInterval: 10000 },
+    query: { enabled: !!address && onBase, refetchInterval: 30_000 },
   });
 
   const ethBalance = ethBalanceData ? parseFloat(formatEther(ethBalanceData.value)) : null;

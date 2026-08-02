@@ -14,8 +14,23 @@ import {
   verifyTradeOnChain,
   type DexOrder,
 } from "../lib/dex-orders-store";
+import { scanDexTradeLogs } from "../lib/dex-trade-scan";
 
 const router: IRouter = Router();
+
+router.get("/dex/trades", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const lookbackRaw = Number(req.query.lookback ?? 50_000);
+    const lookback = Number.isFinite(lookbackRaw)
+      ? Math.min(Math.max(lookbackRaw, 1_000), 500_000)
+      : 50_000;
+    const { headBlock, logs } = await scanDexTradeLogs(lookback);
+    res.setHeader("Cache-Control", "public, max-age=30");
+    res.json({ headBlock, logs });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
 
 router.get("/dex/orders", async (req: Request, res: Response): Promise<void> => {
   try {

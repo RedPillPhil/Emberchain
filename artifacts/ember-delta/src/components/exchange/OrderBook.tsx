@@ -5,6 +5,7 @@ import { formatEther } from 'viem';
 import { Loader2, X, RefreshCw } from 'lucide-react';
 import { chainNodeApi } from '@/lib/config';
 import { ETH_ADDR, BASE_CHAIN_ID } from '@/lib/contracts';
+import { DEX_POLL_MS } from '@/lib/dex-poll';
 import {
   parseOpenOrders,
   fetchRawOpenOrders,
@@ -53,6 +54,8 @@ export const OrderBook = React.memo(function OrderBook({
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const fetchGenRef = useRef(0);
+  const currentBlockRef = useRef(currentBlock);
+  currentBlockRef.current = currentBlock;
   const [cancellingHash, setCancellingHash] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; err: boolean } | null>(null);
 
@@ -79,7 +82,7 @@ export const OrderBook = React.memo(function OrderBook({
     return rows[0]?.price ?? null;
   }, [tradeLogs, tokenAddress]);
 
-  const fetchOrders = useCallback(async (opts?: { showLoading?: boolean }) => {
+  const fetchOrders = useCallback(async (opts?: { showLoading?: boolean; enrich?: boolean }) => {
     const gen = ++fetchGenRef.current;
     if (opts?.showLoading !== false) setLoading(true);
 
@@ -87,14 +90,14 @@ export const OrderBook = React.memo(function OrderBook({
       const raw = await fetchRawOpenOrders(tokenAddress);
       if (gen !== fetchGenRef.current) return;
 
-      let block = currentBlock;
+      let block = currentBlockRef.current;
       if (block === 0n && publicClient) {
         block = await publicClient.getBlockNumber();
       }
       if (gen !== fetchGenRef.current) return;
 
       let parsed = parseOpenOrders(raw, tokenAddress, block);
-      if (publicClient) {
+      if (opts?.enrich !== false && publicClient) {
         parsed = await enrichOrdersWithChainVolume(publicClient, parsed);
       }
       if (gen !== fetchGenRef.current) return;
@@ -108,29 +111,38 @@ export const OrderBook = React.memo(function OrderBook({
     } finally {
       if (gen === fetchGenRef.current) setLoading(false);
     }
-  }, [tokenAddress, currentBlock, publicClient]);
+  }, [tokenAddress, publicClient]);
 
+  // Initial load + after user places/cancels/fills an order (full enrich).
   useEffect(() => {
     setFetchError(null);
     setOpenOrders([]);
-    fetchOrders();
-  }, [fetchOrders, refreshKey]);
+    void fetchOrders({ showLoading: true, enrich: true });
+  }, [tokenAddress, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Background refresh: REST only — no per-order Base RPC calls.
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
+    const tick = () => {
+      void fetchOrders({ showLoading: false, enrich: false });
+    };
+
     const start = () => {
       if (intervalId) return;
-      intervalId = setInterval(() => { void fetchOrders({ showLoading: false }); }, 15_000);
+      intervalId = setInterval(tick, DEX_POLL_MS);
     };
     const stop = () => {
       if (intervalId) { clearInterval(intervalId); intervalId = null; }
     };
 
-    const handleVisibility = () => (document.hidden ? stop() : start());
+    const handleVisibility = () => {
+      if (document.hidden) stop();
+      else { tick(); start(); }
+    };
     document.addEventListener('visibilitychange', handleVisibility);
 
-    if (!document.hidden) start();
+    start();
 
     return () => {
       stop();

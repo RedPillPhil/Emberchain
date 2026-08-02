@@ -18,9 +18,9 @@ import {
   computeReservedBalances,
   fetchRawOpenOrders,
   parseOpenOrders,
-  enrichOrdersWithChainVolume,
   type ParsedOpenOrder,
 } from '@/lib/dex-orders';
+import { DEX_POLL_MS } from '@/lib/dex-poll';
 import { useDexDeposited, useDexDepositEvents, ETH_ADDR } from '@/lib/dex-balances';
 import {
   explainTradeError,
@@ -224,12 +224,9 @@ export const OrderForm = React.memo(function OrderForm({
       return;
     }
     try {
-      const currentBlock = publicClient ? await publicClient.getBlockNumber() : 0n;
       const raw = await fetchRawOpenOrders(pair.tokenAddress);
-      let orders = parseOpenOrders(raw, pair.tokenAddress, currentBlock);
-      if (publicClient) {
-        orders = await enrichOrdersWithChainVolume(publicClient, orders);
-      }
+      const block = publicClient ? await publicClient.getBlockNumber() : 0n;
+      const orders = parseOpenOrders(raw, pair.tokenAddress, block);
       const { ethReserved, tokenReserved } = computeReservedBalances(orders, address);
       setReservedEth(ethReserved);
       setReservedToken(tokenReserved);
@@ -239,8 +236,8 @@ export const OrderForm = React.memo(function OrderForm({
   }, [address, pair.tokenAddress, publicClient]);
 
   useEffect(() => {
-    loadReserved();
-    const id = setInterval(loadReserved, 15_000);
+    void loadReserved();
+    const id = setInterval(() => { void loadReserved(); }, DEX_POLL_MS);
     return () => clearInterval(id);
   }, [loadReserved]);
 
