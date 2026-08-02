@@ -68,6 +68,20 @@ curl -s https://emberchain.org/api/healthz
 curl -I https://emberchain.org/ember-delta/
 ```
 
+## Self-hosted checklist (after leaving Netlify/Vercel)
+
+1. **DNS** — `emberchain.org` A records → seed server IP (not Netlify)
+2. **nginx** — `/api/` proxies to `127.0.0.1:8080` (match `PORT` in `emberchain-node.service`)
+3. **WebSocket** — nginx config includes `Upgrade` / `Connection` headers (community live chat)
+4. **Redeploy static site** after every frontend push — Netlify auto-deploy no longer runs:
+   ```bash
+   bash scripts/deploy-vm/deploy-static-from-git.sh
+   ```
+5. **chain-node** — `systemctl status emberchain-node` active; `/api/healthz` returns JSON not 502
+6. **Hard refresh** browser (Ctrl+Shift+R) after deploy — old JS may still call duckdns or broken proxies
+
+Frontend detects self-hosted hosts (`emberchain.org`, `emberchain.duckdns.org`) and uses same-origin `/api` automatically — no env vars needed if you redeploy the latest build.
+
 ## What caused Netlify/Vercel limits
 
 1. **Large bundles** — wallet + ember-delta JS is ~1 MB gzipped per load

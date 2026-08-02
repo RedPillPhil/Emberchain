@@ -95,7 +95,14 @@ function getWsUrl(): string {
   return getCommunityWsUrl();
 }
 
-const BASE = `${resolveApiServer()}/api/community`;
+function communityBase(): string {
+  return `${resolveApiServer()}/api/community`;
+}
+
+function appendChatMessage(prev: ChatMessage[], message: ChatMessage): ChatMessage[] {
+  if (prev.some((m) => m.id === message.id)) return prev;
+  return [...prev, message].slice(-200);
+}
 
 // ── Author chip with hover tooltip ───────────────────────────────────────────
 
@@ -177,7 +184,7 @@ function ProfilePanel({
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    fetch(`${BASE}/profile/${address}`)
+    fetch(`${communityBase()}/profile/${address}`)
       .then((r) => (r.ok ? r.json() as Promise<Profile> : null))
       .then((p) => {
         if (p) { setNickname(p.nickname ?? ""); setAddressPublic(p.addressPublic); }
@@ -189,7 +196,7 @@ function ProfilePanel({
   const handleSave = async () => {
     setSaving(true);
     try {
-      const res = await fetch(`${BASE}/profile`, {
+      const res = await fetch(`${communityBase()}/profile`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address, nickname: nickname.trim() || null, addressPublic }),
@@ -305,7 +312,7 @@ function useWs(onEvent: (e: WsEvent) => void) {
     const poll = async () => {
       try {
         const since = lastIdRef.current;
-        const url = since > 0 ? `${BASE}/messages?since=${since}` : `${BASE}/messages`;
+        const url = since > 0 ? `${communityBase()}/messages?since=${since}` : `${communityBase()}/messages`;
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const messages = (await res.json()) as ChatMessage[];
@@ -317,6 +324,7 @@ function useWs(onEvent: (e: WsEvent) => void) {
           onEventRef.current({ type: "history", messages });
         } else {
           for (const m of messages) {
+            if (m.id <= since) continue;
             onEventRef.current({ type: "chat_message", message: m });
           }
         }
@@ -408,7 +416,7 @@ function useWs(onEvent: (e: WsEvent) => void) {
     }
     if (data.type === "chat" && data.author && data.content) {
       try {
-        const res = await fetch(`${BASE}/messages`, {
+        const res = await fetch(`${communityBase()}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ author: data.author, content: data.content }),
@@ -419,6 +427,7 @@ function useWs(onEvent: (e: WsEvent) => void) {
           lastIdRef.current = Math.max(lastIdRef.current, message.id);
         }
       } catch { /* ignore */ }
+      return;
     }
   }, []);
 
@@ -543,7 +552,7 @@ function PostCard({
     if (!open && comments.length === 0) {
       setLoadingComments(true);
       try {
-        const res = await fetch(`${BASE}/posts/${post.id}`);
+        const res = await fetch(`${communityBase()}/posts/${post.id}`);
         const data = await res.json() as Post & { comments: Comment[] };
         setComments(data.comments ?? []);
       } catch { /* ignore */ } finally { setLoadingComments(false); }
@@ -554,7 +563,7 @@ function PostCard({
     if (!address || voting) return;
     setVoting(true);
     try {
-      const res = await fetch(`${BASE}/posts/${post.id}/vote`, {
+      const res = await fetch(`${communityBase()}/posts/${post.id}/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address, vote: v }),
@@ -725,7 +734,7 @@ export default function Community() {
   // Load own profile on mount
   useEffect(() => {
     if (!address) return;
-    fetch(`${BASE}/profile/${address}`)
+    fetch(`${communityBase()}/profile/${address}`)
       .then((r) => (r.ok ? r.json() as Promise<Profile> : null))
       .then((p) => { if (p) setMyProfile(p); })
       .catch(() => {});
@@ -733,7 +742,9 @@ export default function Community() {
 
   const { send, online, mode } = useWs((event) => {
     if (event.type === "history") setChatMessages(event.messages);
-    if (event.type === "chat_message") setChatMessages((p) => [...p, event.message].slice(-200));
+    if (event.type === "chat_message") {
+      setChatMessages((p) => appendChatMessage(p, event.message));
+    }
     if (event.type === "new_comment") setLiveComments((p) => [...p, event.comment].slice(-200));
     if (event.type === "new_post") setPosts((p) => [event.post, ...p]);
     if (event.type === "post_upvoted") {
@@ -752,9 +763,9 @@ export default function Community() {
   useEffect(() => {
     if (tab !== "forum" || posts.length > 0) return;
     setLoadingPosts(true);
-    const postsReq = fetch(`${BASE}/posts`).then((r) => r.json() as Promise<Post[]>);
+    const postsReq = fetch(`${communityBase()}/posts`).then((r) => r.json() as Promise<Post[]>);
     const votesReq = address
-      ? fetch(`${BASE}/my-votes?address=${address}`).then((r) => r.ok ? r.json() as Promise<Record<string, number>> : {})
+      ? fetch(`${communityBase()}/my-votes?address=${address}`).then((r) => r.ok ? r.json() as Promise<Record<string, number>> : {})
       : Promise.resolve({} as Record<string, number>);
     Promise.all([postsReq, votesReq])
       .then(([loadedPosts, rawVotes]) => {
@@ -793,7 +804,7 @@ export default function Community() {
     if (!address) return;
     setShowNewPost(false);
     try {
-      await fetch(`${BASE}/posts`, {
+      await fetch(`${communityBase()}/posts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ author: address, title, content }),
