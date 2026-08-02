@@ -140,6 +140,35 @@ function normalizeSignatureV(v: number): number {
   return v;
 }
 
+interface CachedVolume {
+  available_get: string;
+  amount: number;
+  total: number;
+  price: number;
+  at: number;
+}
+
+const volumeCache = new Map<string, CachedVolume>();
+const VOLUME_CACHE_MS = 30_000;
+
+export function invalidateOrderVolumeCache(orderHash?: string): void {
+  if (orderHash) volumeCache.delete(orderHash);
+  else volumeCache.clear();
+}
+
+function applyCachedVolume(order: ParsedOpenOrder): ParsedOpenOrder | null {
+  const cached = volumeCache.get(order.hash);
+  if (!cached || Date.now() - cached.at >= VOLUME_CACHE_MS) return null;
+  if (cached.available_get === "0") return null;
+  return {
+    ...order,
+    amount: cached.amount,
+    total: cached.total,
+    price: cached.price,
+    available_get: cached.available_get,
+  };
+}
+
 /** Adjust display sizes from on-chain remaining volume; drop fully filled orders. */
 export async function enrichOrdersWithChainVolume(
   client: PublicClient,
@@ -147,6 +176,9 @@ export async function enrichOrdersWithChainVolume(
 ): Promise<ParsedOpenOrder[]> {
   const enriched = await Promise.all(
     orders.map(async (order) => {
+      const fromCache = applyCachedVolume(order);
+      if (fromCache) return fromCache;
+
       try {
         const available = (await client.readContract({
           address: EMBER_DELTA_ADDRESS,
@@ -166,7 +198,16 @@ export async function enrichOrdersWithChainVolume(
           ],
         })) as bigint;
 
-        if (available === 0n) return null;
+        if (available === 0n) {
+          volumeCache.set(order.hash, {
+            available_get: "0",
+            amount: 0,
+            total: 0,
+            price: order.price,
+            at: Date.now(),
+          });
+          return null;
+        }
 
         const amountGet = BigInt(order.amount_get);
         const amountGive = BigInt(order.amount_give);
@@ -185,14 +226,34 @@ export async function enrichOrdersWithChainVolume(
 
         const price = amountFloat > 0 ? totalFloat / amountFloat : order.price;
 
-        return {
+        const row = {
           ...order,
           amount: amountFloat,
           total: totalFloat,
           price,
           available_get: available.toString(),
         };
+
+        volumeCache.set(order.hash, {
+          available_get: row.available_get,
+          amount: row.amount,
+          total: row.total,
+          price: row.price,
+          at: Date.now(),
+        });
+
+        return row;
       } catch {
+        const stale = volumeCache.get(order.hash);
+        if (stale && stale.available_get !== "0") {
+          return {
+            ...order,
+            amount: stale.amount,
+            total: stale.total,
+            price: stale.price,
+            available_get: stale.available_get,
+          };
+        }
         return order;
       }
     }),

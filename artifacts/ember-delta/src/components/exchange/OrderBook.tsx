@@ -10,6 +10,7 @@ import {
   parseOpenOrders,
   fetchRawOpenOrders,
   enrichOrdersWithChainVolume,
+  invalidateOrderVolumeCache,
   type ParsedOpenOrder,
 } from '@/lib/dex-orders';
 import type { TradeLogEntry } from '@/pages/Exchange';
@@ -82,7 +83,7 @@ export const OrderBook = React.memo(function OrderBook({
     return rows[0]?.price ?? null;
   }, [tradeLogs, tokenAddress]);
 
-  const fetchOrders = useCallback(async (opts?: { showLoading?: boolean; enrich?: boolean }) => {
+  const fetchOrders = useCallback(async (opts?: { showLoading?: boolean; forceRefresh?: boolean }) => {
     const gen = ++fetchGenRef.current;
     if (opts?.showLoading !== false) setLoading(true);
 
@@ -97,7 +98,8 @@ export const OrderBook = React.memo(function OrderBook({
       if (gen !== fetchGenRef.current) return;
 
       let parsed = parseOpenOrders(raw, tokenAddress, block);
-      if (opts?.enrich !== false && publicClient) {
+      if (opts?.forceRefresh) invalidateOrderVolumeCache();
+      if (publicClient) {
         parsed = await enrichOrdersWithChainVolume(publicClient, parsed);
       }
       if (gen !== fetchGenRef.current) return;
@@ -113,19 +115,19 @@ export const OrderBook = React.memo(function OrderBook({
     }
   }, [tokenAddress, publicClient]);
 
-  // Initial load + after user places/cancels/fills an order (full enrich).
+  // Initial load + after user places/cancels/fills an order.
   useEffect(() => {
     setFetchError(null);
     setOpenOrders([]);
-    void fetchOrders({ showLoading: true, enrich: true });
+    void fetchOrders({ showLoading: true, forceRefresh: true });
   }, [tokenAddress, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Background refresh: REST only — no per-order Base RPC calls.
+  // Background refresh — always use on-chain remaining volume (cached to limit RPC).
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
     const tick = () => {
-      void fetchOrders({ showLoading: false, enrich: false });
+      void fetchOrders({ showLoading: false });
     };
 
     const start = () => {
