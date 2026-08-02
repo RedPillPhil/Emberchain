@@ -41,13 +41,36 @@ const TRADE_TOPIC = ethers.id(
 let cache: DexOrdersData | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
+function defaultData(): DexOrdersData {
+  return { orders: {} };
+}
+
+function normalizeOrder(raw: DexOrder): DexOrder {
+  return {
+    ...raw,
+    hash: raw.hash,
+    token_get: raw.token_get.toLowerCase(),
+    token_give: raw.token_give.toLowerCase(),
+    maker: raw.maker.toLowerCase(),
+    created_at: raw.created_at ?? new Date(0).toISOString(),
+  };
+}
+
 function loadData(): DexOrdersData {
   if (cache) return cache;
   try {
     const raw = readFileSync(DATA_FILE, "utf-8");
-    cache = { ...defaultData(), ...(JSON.parse(raw) as DexOrdersData) };
-  } catch {
-    cache = { orders: {} };
+    const parsed = { ...defaultData(), ...(JSON.parse(raw) as DexOrdersData) };
+    if (!parsed.orders || typeof parsed.orders !== "object") {
+      parsed.orders = {};
+    }
+    for (const [key, order] of Object.entries(parsed.orders)) {
+      parsed.orders[key] = normalizeOrder(order);
+    }
+    cache = parsed;
+  } catch (err) {
+    console.error("[dex-orders-store] load failed:", (err as Error).message);
+    cache = defaultData();
   }
   return cache!;
 }
@@ -103,7 +126,7 @@ export async function listOrders(token?: string, status = "open"): Promise<DexOr
     rows = rows.filter((o) => o.token_get === t || o.token_give === t);
   }
   return rows
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))
     .slice(0, 200);
 }
 
