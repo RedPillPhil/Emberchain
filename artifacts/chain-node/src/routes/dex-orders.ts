@@ -14,12 +14,15 @@ import {
   verifyTradeOnChain,
   type DexOrder,
 } from "../lib/dex-orders-store";
-import { scanDexTradeLogs } from "../lib/dex-trade-scan";
+import { scanDexTradeLogs, parseTradesFromTxHash, invalidateTradeScanCache } from "../lib/dex-trade-scan";
+import { upsertRecordedTrades } from "../lib/dex-fills-store";
 
 const router: IRouter = Router();
+const TX_HASH_RE = /^0x[0-9a-fA-F]{64}$/;
 
 router.get("/dex/trades", async (req: Request, res: Response): Promise<void> => {
   try {
+    if (req.query.refresh === "1") invalidateTradeScanCache();
     const lookbackRaw = Number(req.query.lookback ?? 0);
     // lookback=0 → full history from deploy block; otherwise clamp 1k–500k blocks
     const lookback = lookbackRaw === 0
@@ -30,6 +33,26 @@ router.get("/dex/trades", async (req: Request, res: Response): Promise<void> => 
     const { headBlock, logs } = await scanDexTradeLogs(lookback);
     res.setHeader("Cache-Control", "public, max-age=30");
     res.json({ headBlock, logs });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+router.post("/dex/trades/ingest", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { txHash } = req.body as { txHash?: string };
+    if (!txHash || !TX_HASH_RE.test(txHash)) {
+      res.status(400).json({ error: "txHash (32-byte hex) is required" });
+      return;
+    }
+    const trades = await parseTradesFromTxHash(txHash);
+    if (trades.length === 0) {
+      res.status(404).json({ error: "No Trade events in that Base transaction" });
+      return;
+    }
+    upsertRecordedTrades(trades);
+    invalidateTradeScanCache();
+    res.json({ ok: true, count: trades.length, trades });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
@@ -75,8 +98,6 @@ router.post("/dex/orders", async (req: Request, res: Response): Promise<void> =>
   }
 });
 
-const TX_HASH_RE = /^0x[0-9a-fA-F]{64}$/;
-
 router.post("/dex/orders/:hash/fill", async (req: Request<{ hash: string }>, res: Response): Promise<void> => {
   try {
     const { txHash } = req.body as { txHash?: string };
@@ -90,6 +111,10 @@ router.post("/dex/orders/:hash/fill", async (req: Request<{ hash: string }>, res
       res.status(422).json({ error: `On-chain verification failed: ${proofErr}` });
       return;
     }
+
+    const trades = await parseTradesFromTxHash(txHash);
+    upsertRecordedTrades(trades);
+    invalidateTradeScanCache();
 
     const order = await getOrder(req.params.hash);
     if (!order) {

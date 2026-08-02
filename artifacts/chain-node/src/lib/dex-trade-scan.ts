@@ -4,6 +4,7 @@
 
 import { Interface } from "ethers";
 import { getBaseProvider } from "./base-provider";
+import { listRecordedTrades } from "./dex-fills-store";
 
 export const EMBER_DELTA_ADDRESS = (
   process.env.EMBER_DELTA_ADDRESS ?? "0x365f70E546e3D4D35745e7C91Cf189956E2fBEFA"
@@ -11,7 +12,7 @@ export const EMBER_DELTA_ADDRESS = (
 
 /** First block with EmberDelta activity on Base (July 2026 deploy). Override via env. */
 export const BASE_DELTA_FROM_BLOCK = Number(
-  process.env.BASE_DELTA_FROM_BLOCK ?? "49120000",
+  process.env.BASE_DELTA_FROM_BLOCK ?? "49000000",
 );
 
 const TRADE_ABI = [
@@ -38,7 +39,7 @@ export interface DexTradeLogDto {
   logIndex: number;
 }
 
-function parseTradeLog(log: {
+export function parseTradeLog(log: {
   topics: readonly string[];
   data: string;
   transactionHash: string;
@@ -139,39 +140,118 @@ async function scanViaRpc(fromBlock: number, toBlock: number): Promise<DexTradeL
   const provider = getBaseProvider();
   if (!provider) return [];
 
-  const chunkSize = 2_000;
+  const chunkSize = 9_999;
   const events: DexTradeLogDto[] = [];
+  const failedRanges: Array<{ from: number; to: number }> = [];
 
   for (let from = fromBlock; from <= toBlock; from += chunkSize) {
     const to = Math.min(from + chunkSize - 1, toBlock);
-    try {
-      const logs = await provider.getLogs({
-        address: EMBER_DELTA_ADDRESS,
-        topics: [TRADE_TOPIC],
-        fromBlock: from,
-        toBlock: to,
-      });
-      for (const log of logs) {
-        const parsed = parseTradeLog({
-          topics: log.topics,
-          data: log.data,
-          transactionHash: log.transactionHash,
-          blockNumber: log.blockNumber,
-          logIndex: log.index,
+    let chunkLogs: Awaited<ReturnType<typeof provider.getLogs>> | null = null;
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        chunkLogs = await provider.getLogs({
+          address: EMBER_DELTA_ADDRESS,
+          topics: [TRADE_TOPIC],
+          fromBlock: from,
+          toBlock: to,
         });
-        if (parsed) events.push(parsed);
+        break;
+      } catch (err) {
+        if (attempt < 3) {
+          await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+          continue;
+        }
+        console.error("[dex-trade-scan] rpc chunk failed:", from, to, (err as Error).message);
+        failedRanges.push({ from, to });
       }
-    } catch (err) {
-      console.error("[dex-trade-scan] rpc chunk failed:", from, (err as Error).message);
     }
-    await new Promise((r) => setTimeout(r, 100));
+
+    if (!chunkLogs) continue;
+    for (const log of chunkLogs) {
+      const parsed = parseTradeLog({
+        topics: log.topics,
+        data: log.data,
+        transactionHash: log.transactionHash,
+        blockNumber: log.blockNumber,
+        logIndex: log.index,
+      });
+      if (parsed) events.push(parsed);
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  // Retry failed ranges once with smaller sub-chunks.
+  for (const { from, to } of failedRanges) {
+    for (let sub = from; sub <= to; sub += 2_000) {
+      const subTo = Math.min(sub + 1999, to);
+      try {
+        const logs = await provider.getLogs({
+          address: EMBER_DELTA_ADDRESS,
+          topics: [TRADE_TOPIC],
+          fromBlock: sub,
+          toBlock: subTo,
+        });
+        for (const log of logs) {
+          const parsed = parseTradeLog({
+            topics: log.topics,
+            data: log.data,
+            transactionHash: log.transactionHash,
+            blockNumber: log.blockNumber,
+            logIndex: log.index,
+          });
+          if (parsed) events.push(parsed);
+        }
+      } catch (err) {
+        console.error("[dex-trade-scan] rpc sub-chunk failed:", sub, (err as Error).message);
+      }
+      await new Promise((r) => setTimeout(r, 80));
+    }
   }
 
   return events;
 }
 
+export async function parseTradesFromTxHash(txHash: string): Promise<DexTradeLogDto[]> {
+  const provider = getBaseProvider();
+  if (!provider) return [];
+  const receipt = await provider.getTransactionReceipt(txHash);
+  if (!receipt || receipt.status !== 1) return [];
+
+  const rows: DexTradeLogDto[] = [];
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== EMBER_DELTA_ADDRESS) continue;
+    const parsed = parseTradeLog({
+      topics: log.topics,
+      data: log.data,
+      transactionHash: receipt.hash,
+      blockNumber: receipt.blockNumber,
+      logIndex: log.index,
+    });
+    if (parsed) rows.push(parsed);
+  }
+  return rows;
+}
+
+function mergeTradeLogs(...groups: DexTradeLogDto[][]): DexTradeLogDto[] {
+  const byKey = new Map<string, DexTradeLogDto>();
+  for (const group of groups) {
+    for (const row of group) {
+      byKey.set(`${row.transactionHash}:${row.logIndex}`, row);
+    }
+  }
+  return [...byKey.values()].sort((a, b) => {
+    if (a.blockNumber !== b.blockNumber) return b.blockNumber - a.blockNumber;
+    return b.logIndex - a.logIndex;
+  });
+}
+
 let cachedScan: { at: number; fromBlock: number; logs: DexTradeLogDto[] } | null = null;
 const CACHE_MS = 45_000;
+
+export function invalidateTradeScanCache(): void {
+  cachedScan = null;
+}
 
 export async function scanDexTradeLogs(lookback: number): Promise<{
   headBlock: number;
@@ -224,6 +304,8 @@ export async function scanDexTradeLogs(lookback: number): Promise<{
       /* RPC result is enough */
     }
   }
+
+  logs = mergeTradeLogs(logs, listRecordedTrades());
 
   logs.sort((a, b) => {
     if (a.blockNumber !== b.blockNumber) return b.blockNumber - a.blockNumber;
