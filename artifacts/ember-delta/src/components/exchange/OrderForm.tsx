@@ -550,13 +550,13 @@ export const OrderForm = React.memo(function OrderForm({
         </div>
 
         <div className="space-y-1 font-mono text-sm mb-2">
-          <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">In DEX (on-chain deposit)</div>
+          <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">In DEX (available to trade)</div>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-white/80">
               <TokenIcon symbol="ETH" size={14} /> ETH
             </div>
             <div className={cn("font-bold", isConnected ? "text-white" : "text-muted-foreground")}>
-              {isConnected ? dexEthTotal.toFixed(4) : '—'}
+              {isConnected ? dexEthAvailable.toFixed(4) : '—'}
             </div>
           </div>
           <div className="flex items-center justify-between">
@@ -564,21 +564,19 @@ export const OrderForm = React.memo(function OrderForm({
               <TokenIcon symbol={pair.symbol} size={14} /> {pair.symbol}
             </div>
             <div className={cn("font-bold", isConnected ? "text-white" : "text-muted-foreground")}>
-              {isConnected ? dexTokenTotal.toFixed(4) : '—'}
+              {isConnected ? dexTokenAvailable.toFixed(4) : '—'}
             </div>
           </div>
           {isConnected && (reservedEth > 0 || reservedToken > 0) && (
             <div className="text-[9px] text-muted-foreground pt-1 space-y-0.5">
-              <div className="uppercase tracking-wider">Available to trade</div>
+              <div className="uppercase tracking-wider">Locked in open orders</div>
               <div>
-                {dexEthAvailable.toFixed(4)} ETH
-                {' · '}
-                {dexTokenAvailable.toFixed(4)} {pair.symbol}
-              </div>
-              <div>
-                {reservedEth > 0 && `${reservedEth.toFixed(4)} ETH in open orders`}
+                {reservedEth > 0 && `${reservedEth.toFixed(4)} ETH`}
                 {reservedEth > 0 && reservedToken > 0 && ' · '}
-                {reservedToken > 0 && `${reservedToken.toFixed(4)} ${pair.symbol} in open orders`}
+                {reservedToken > 0 && `${reservedToken.toFixed(4)} ${pair.symbol}`}
+              </div>
+              <div className="text-[8px] normal-case">
+                Total deposited: {dexEthTotal.toFixed(4)} ETH · {dexTokenTotal.toFixed(4)} {pair.symbol}
               </div>
             </div>
           )}

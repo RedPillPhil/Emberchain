@@ -10,7 +10,8 @@ import { useWriteContract, useReadContract } from 'wagmi';
 import { API, apiFetch } from '@/lib/api';
 import { chainNodeApi } from '@/lib/config';
 import { useEmbrWallet } from '@/lib/embr-wallet';
-import { encLockEMBR } from '@/lib/bridge-encoding';
+import { encLockEMBR, encBridgeOut, encApprove, encAllowance, encBalanceOf, decodeUint256 } from '@/lib/bridge-encoding';
+import { useBaseWallet } from '@/lib/use-base-wallet';
 import {
   EMBER_BRIDGE_ADDRESS,
   EMBERCHAIN_BRIDGE_ADDRESS,
@@ -88,6 +89,27 @@ function bridgeStatusMessage(status: BridgeStatus, direction?: EmbrDirection): s
   if (status === 'relayed') return 'Relayer submitted the destination-chain transaction.';
   if (status === 'failed') return 'This bridge request failed.';
   return 'Waiting for relayer to complete the bridge.';
+}
+
+async function tryRegisterBaseOut(body: {
+  txHash: string;
+  embrRecipient: string;
+  amount: string;
+  nonce: string;
+}): Promise<void> {
+  const base = API;
+  if (!base) return;
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    const r = await fetch(`${base}/api/bridge/register-base-out`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (r.status === 201 || r.status === 200) return;
+    if (r.status !== 202 && r.status !== 404) return;
+    await new Promise((w) => setTimeout(w, 3000));
+  }
 }
 
 async function tryRegisterBridge(body: {
@@ -361,8 +383,7 @@ function EmbrBridgeForm({
   startBridgePoll: (nonce: string, direction: EmbrDirection) => void;
 }) {
   const { activeWallet, isLoaded: embrWalletLoaded } = useEmbrWallet();
-  const { writeContractAsync } = useWriteContract();
-  const { wembrWalletBalance } = useWeb3();
+  const baseWallet = useBaseWallet();
 
   const [direction, setDirection] = useState<EmbrDirection>('embr_to_base');
   const [amount, setAmount] = useState('');
@@ -372,6 +393,7 @@ function EmbrBridgeForm({
   const [submitStep, setSubmitStep] = useState('');
   const [confirmCountdown, setConfirmCountdown] = useState<number | null>(null);
   const [embrBalanceWei, setEmbrBalanceWei] = useState<bigint>(0n);
+  const [wembrBalanceWei, setWembrBalanceWei] = useState<bigint>(0n);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopConfirmCountdown = useCallback(() => {
@@ -431,7 +453,27 @@ function EmbrBridgeForm({
 
   useEffect(() => {
     if (address && !baseRecipient) setBaseRecipient(address);
-  }, [address, baseRecipient]);
+    if (baseWallet.wallet?.address && !baseRecipient) {
+      setBaseRecipient(baseWallet.wallet.address);
+    }
+  }, [address, baseRecipient, baseWallet.wallet?.address]);
+
+  useEffect(() => {
+    if (!baseWallet.wallet || direction !== 'base_to_embr') {
+      setWembrBalanceWei(0n);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const hex = await baseWallet.ethCall(WEMBR_TOKEN, encBalanceOf(baseWallet.wallet!.address));
+        if (!cancelled) setWembrBalanceWei(decodeUint256(hex));
+      } catch { /* ignore */ }
+    };
+    load();
+    const id = setInterval(load, 15_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [baseWallet.wallet, direction, baseWallet.ethCall]);
 
   useEffect(() => {
     if (activeWallet?.address && direction === 'base_to_embr' && !embrRecipient) {
@@ -460,7 +502,8 @@ function EmbrBridgeForm({
     return () => { cancelled = true; clearInterval(id); };
   }, [activeWallet?.address]);
 
-  const isOnBase = chainId === BASE_CHAIN_ID;
+  const baseConnected = !!baseWallet.wallet;
+  const baseOnMainnet = baseWallet.isOnBase && baseWallet.targetChainId === 8453;
 
   const submitEmbrToBase = async () => {
     if (!activeWallet) {
@@ -509,14 +552,14 @@ function EmbrBridgeForm({
       try {
         await waitForChainTransaction(tx.hash);
         stopConfirmCountdown();
-        const inflight: BridgeInflight = {
+        const locked: BridgeInflight = {
           nonce: nonce.toString(),
           status: 'locked',
           txHash: tx.hash,
           submittedAt: Date.now(),
           direction: 'embr_to_base',
         };
-        setInflight(inflight);
+        setInflight(locked);
         startBridgePoll(nonce.toString(), 'embr_to_base');
         setAmount('');
         showToast('EMBR locked on-chain — wEMBR will arrive on Base once the relayer completes the bridge.', 'success');
@@ -526,7 +569,6 @@ function EmbrBridgeForm({
           amount: amountWei.toString(),
           nonce: nonce.toString(),
         });
-        // Refresh EMBR balance after lock
         try {
           const r = await fetch(chainNodeApi(`/api/wallets/${activeWallet.address}`));
           if (r.ok) {
@@ -557,12 +599,16 @@ function EmbrBridgeForm({
   };
 
   const submitBaseToEmbr = async () => {
-    if (!isConnected) {
-      connectWallet();
+    if (!baseWallet.wallet) {
+      await baseWallet.connect();
       return;
     }
-    if (!isOnBase) {
-      switchToBase();
+    if (!baseOnMainnet) {
+      await baseWallet.switchToBase();
+      return;
+    }
+    if (baseWallet.targetChainId !== 8453) {
+      showToast('EmberSwap bridge requires Base Mainnet (chain 8453), not testnet.', 'error');
       return;
     }
     const amountWei = parseEther(amount || '0');
@@ -574,29 +620,43 @@ function EmbrBridgeForm({
       showToast('Enter a valid EMBR recipient address', 'error');
       return;
     }
+    if (!BASE_BRIDGE_ADDRESS || !WEMBR_TOKEN) {
+      showToast('Bridge contract not configured.', 'error');
+      return;
+    }
 
     const nonce = BigInt(Date.now());
     setIsSubmitting(true);
     try {
-      setSubmitStep('Check MetaMask — approve wEMBR spend (1/2)');
-      showToast('Check MetaMask — approve wEMBR spend (step 1 of 2)');
-      await writeContractAsync({
-        address: WEMBR_TOKEN,
-        abi: ERC20_ABI,
-        functionName: 'approve',
-        args: [BASE_BRIDGE_ADDRESS, amountWei * 2n],
-        chainId: BASE_CHAIN_ID,
-      });
+      const allowanceHex = await baseWallet.ethCall(
+        WEMBR_TOKEN,
+        encAllowance(baseWallet.wallet.address, BASE_BRIDGE_ADDRESS),
+      );
+      const currentAllowance = decodeUint256(allowanceHex);
+      if (currentAllowance < amountWei) {
+        setSubmitStep('Check MetaMask — approve wEMBR (1/2)');
+        showToast('Check MetaMask — approve wEMBR spend (step 1 of 2)', 'success');
+        await baseWallet.sendTx({
+          to: WEMBR_TOKEN,
+          data: encApprove(BASE_BRIDGE_ADDRESS, amountWei * 2n),
+        });
+        await new Promise((r) => setTimeout(r, 8000));
+      }
+
       setSubmitStep('Check MetaMask — confirm bridge (2/2)');
-      showToast('Approved — confirm the bridge transaction (step 2 of 2)');
-      await new Promise((r) => setTimeout(r, 3000));
-      const txHash = await writeContractAsync({
-        address: BASE_BRIDGE_ADDRESS,
-        abi: BRIDGE_ABI,
-        functionName: 'bridgeOut',
-        args: [amountWei, embrRecipient, nonce],
-        chainId: BASE_CHAIN_ID,
+      const txHash = await baseWallet.sendTx({
+        to: BASE_BRIDGE_ADDRESS,
+        data: encBridgeOut(amountWei, embrRecipient, nonce),
       });
+
+      const receipt = await baseWallet.waitForTx(txHash);
+      if (receipt.status !== 1) {
+        throw new Error('bridgeOut reverted on Base — wEMBR was not burned');
+      }
+      if (receipt.to?.toLowerCase() !== BASE_BRIDGE_ADDRESS.toLowerCase()) {
+        throw new Error('Transaction did not reach the bridge on Base Mainnet. Switch MetaMask to Base (8453) and retry.');
+      }
+
       setInflight({
         nonce: nonce.toString(),
         status: 'locked',
@@ -606,10 +666,16 @@ function EmbrBridgeForm({
       });
       startBridgePoll(nonce.toString(), 'base_to_embr');
       setAmount('');
-      showToast('wEMBR burned on Base — EMBR will arrive on Emberchain once the relayer completes the bridge.', 'success');
+      showToast(`wEMBR burned on Base Mainnet (tx ${txHash.slice(0, 10)}…). EMBR releases after relayer completes.`, 'success');
+      void tryRegisterBaseOut({
+        txHash,
+        embrRecipient,
+        amount: amountWei.toString(),
+        nonce: nonce.toString(),
+      });
     } catch (e: unknown) {
-      const err = e as { shortMessage?: string; message?: string };
-      showToast(`Bridge failed: ${err?.shortMessage ?? err?.message ?? 'unknown error'}`, 'error');
+      const msg = e instanceof Error ? e.message : 'unknown error';
+      showToast(`Bridge failed: ${msg}`, 'error');
     } finally {
       setIsSubmitting(false);
       setSubmitStep('');
@@ -624,8 +690,8 @@ function EmbrBridgeForm({
       if (!activeWallet) return 'Unlock EMBR wallet';
       return 'Bridge EMBR → wEMBR';
     }
-    if (!isConnected) return 'Connect MetaMask';
-    if (!isOnBase) return 'Switch to Base';
+    if (!baseConnected) return 'Connect MetaMask';
+    if (!baseOnMainnet) return 'Switch to Base Mainnet';
     return 'Bridge wEMBR → EMBR';
   };
 
@@ -670,16 +736,18 @@ function EmbrBridgeForm({
             </span>
           </div>
         )
-      ) : isConnected ? (
+      ) : baseConnected ? (
         <div
           className={cn(
             'text-xs px-3 py-2 rounded border flex items-center gap-2',
-            isOnBase
+            baseOnMainnet
               ? 'bg-success/10 border-success/30 text-bid'
               : 'bg-orange-500/10 border-orange-500/30 text-orange-400',
           )}
         >
-          {isOnBase ? '✓ MetaMask connected to Base' : '⚠ Click bridge to switch MetaMask to Base'}
+          {baseOnMainnet
+            ? `✓ MetaMask on Base Mainnet (${shortAddr(baseWallet.wallet!.address)})`
+            : '⚠ Switch MetaMask to Base Mainnet (chain 8453)'}
         </div>
       ) : null}
 
@@ -699,13 +767,13 @@ function EmbrBridgeForm({
                   Max: {formatEther(maxBridgeWei)} EMBR
                 </button>
               )}
-              {direction === 'base_to_embr' && isConnected && (
+              {direction === 'base_to_embr' && baseConnected && wembrBalanceWei > 0n && (
                 <button
                   type="button"
-                  onClick={() => wembrWalletBalance != null && setAmount(wembrWalletBalance.toFixed(4))}
+                  onClick={() => setAmount(formatEther(wembrBalanceWei))}
                   className="text-xs text-primary hover:underline font-bold uppercase tracking-widest"
                 >
-                  Max: {wembrWalletBalance?.toFixed(4) ?? '—'} wEMBR
+                  Max: {formatEther(wembrBalanceWei)} wEMBR
                 </button>
               )}
             </div>
