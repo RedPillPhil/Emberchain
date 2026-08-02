@@ -9,14 +9,18 @@ import { Flame, Zap, Hash, Database, Terminal, Cpu, Share2 } from "lucide-react"
 import { cn, formatEmbr } from "@/lib/utils";
 import type { FromWorkerMsg, ToWorkerMsg, WorkerErrorMsg } from "@/workers/mining.worker";
 
-// ── mining node — direct calls bypass the site origin entirely ───────────────
-// In production builds, shares and templates go straight to the dedicated
-// Emberchain node. In development the empty string falls back to the same-
-// origin dev proxy so local testing still works.
-const MINING_NODE = (
-  (import.meta.env.VITE_MINING_NODE_URL as string | undefined) ??
-  (import.meta.env.PROD ? "https://emberchain.duckdns.org" : "")
-).replace(/\/$/, "");
+import { isSelfHostedSite } from "@/lib/config";
+
+// ── mining node — same-origin on self-hosted; duckdns fallback for legacy CDN builds ──
+function resolveMiningNode(): string {
+  const explicit = (import.meta.env.VITE_MINING_NODE_URL as string | undefined)?.trim().replace(/\/+$/, "");
+  if (explicit) return explicit;
+  if (import.meta.env.DEV) return "";
+  if (isSelfHostedSite() && typeof location !== "undefined") return location.origin;
+  return "https://emberchain.duckdns.org";
+}
+
+const MINING_NODE = resolveMiningNode();
 
 /** fetch() with an AbortController timeout — prevents indefinite hangs after block commits. */
 async function timedFetch(url: string, opts: RequestInit = {}, ms = 6000): Promise<Response> {
@@ -30,10 +34,12 @@ async function timedFetch(url: string, opts: RequestInit = {}, ms = 6000): Promi
 }
 
 async function fetchMiningTemplate(minerAddress: string): Promise<MiningTemplate> {
-  const r = await timedFetch(
-    `${MINING_NODE}/api/mining/template?minerAddress=${encodeURIComponent(minerAddress)}`,
-  );
-  if (!r.ok) throw new Error(`Template fetch failed: ${r.status}`);
+  const url = `${MINING_NODE}/api/mining/template?minerAddress=${encodeURIComponent(minerAddress)}`;
+  const r = await timedFetch(url, {}, 10_000);
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    throw new Error(`Template fetch failed: HTTP ${r.status}${body ? ` — ${body.slice(0, 120)}` : ""}`);
+  }
   return r.json() as Promise<MiningTemplate>;
 }
 
@@ -344,9 +350,10 @@ export default function Mining() {
       try {
         template = await fetchMiningTemplate(activeWallet.address);
         break;
-      } catch {
+      } catch (err) {
         if (attempt === 8) {
-          addLog(`Could not reach mining server after ${attempt} attempts — try again in a moment.`, "warn");
+          const detail = err instanceof Error ? err.message : String(err);
+          addLog(`Could not reach mining server after ${attempt} attempts — ${detail}`, "warn");
           stopWorker();
           return;
         }
