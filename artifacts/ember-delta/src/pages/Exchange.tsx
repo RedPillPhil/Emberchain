@@ -67,7 +67,7 @@ function useSharedTradeData(_tokenAddress: `0x${string}`) {
   const fetchLogs = useCallback(async () => {
     try {
       const res = await fetch(
-        chainNodeApi(`/api/dex/trades?lookback=${DEX_TRADES_LOOKBACK}`),
+        chainNodeApi(`/api/dex/trades?lookback=${DEX_TRADES_LOOKBACK || 0}`),
       );
       if (!res.ok) return;
       const data = (await res.json()) as { headBlock?: number; logs?: DexTradeLogDto[] };

@@ -9,12 +9,17 @@ export const EMBER_DELTA_ADDRESS = (
   process.env.EMBER_DELTA_ADDRESS ?? "0x365f70E546e3D4D35745e7C91Cf189956E2fBEFA"
 ).toLowerCase();
 
+/** First block with EmberDelta activity on Base (July 2026 deploy). Override via env. */
+export const BASE_DELTA_FROM_BLOCK = Number(
+  process.env.BASE_DELTA_FROM_BLOCK ?? "49120000",
+);
+
 const TRADE_ABI = [
   "event Trade(address indexed tokenGet, uint256 amountGet, address indexed tokenGive, uint256 amountGive, address indexed taker, address maker, bytes32 orderHash)",
 ] as const;
 
 const tradeIface = new Interface([...TRADE_ABI]);
-export const TRADE_TOPIC = tradeIface.getEvent("Trade")!.topicHash;
+export const TRADE_TOPIC = tradeIface.getEvent("Trade")!.topicHash.toLowerCase();
 
 const BLOCKSCOUT_BASE = (
   process.env.BASE_BLOCKSCOUT_URL ?? "https://base.blockscout.com"
@@ -40,7 +45,7 @@ function parseTradeLog(log: {
   blockNumber: number;
   logIndex: number;
 }): DexTradeLogDto | null {
-  if (log.topics[0] !== TRADE_TOPIC) return null;
+  if ((log.topics[0] ?? "").toLowerCase() !== TRADE_TOPIC) return null;
   try {
     const parsed = tradeIface.parseLog({
       topics: [...log.topics],
@@ -64,16 +69,28 @@ function parseTradeLog(log: {
   }
 }
 
-async function scanViaBlockscout(minBlock: number): Promise<DexTradeLogDto[]> {
+function resolveScanFromBlock(head: number): number {
+  const deployFrom =
+    Number.isFinite(BASE_DELTA_FROM_BLOCK) && BASE_DELTA_FROM_BLOCK > 0
+      ? BASE_DELTA_FROM_BLOCK
+      : 0;
+  if (head > 0 && deployFrom > 0) return Math.min(deployFrom, head);
+  return deployFrom > 0 ? deployFrom : 0;
+}
+
+async function scanViaBlockscout(fromBlock: number): Promise<DexTradeLogDto[]> {
   const events: DexTradeLogDto[] = [];
   let nextParams: Record<string, string> | null = null;
 
-  for (let page = 0; page < 50; page++) {
+  for (let page = 0; page < 80; page++) {
     const qs = nextParams
       ? "?" + new URLSearchParams(nextParams).toString()
       : "";
     const url = `${BLOCKSCOUT_BASE}/api/v2/addresses/${EMBER_DELTA_ADDRESS}/logs${qs}`;
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    const res = await fetch(url, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(20_000),
+    });
     if (!res.ok) {
       console.error("[dex-trade-scan] blockscout HTTP", res.status);
       break;
@@ -90,14 +107,20 @@ async function scanViaBlockscout(minBlock: number): Promise<DexTradeLogDto[]> {
       next_page_params?: Record<string, string> | null;
     };
 
-    for (const item of body.items ?? []) {
-      if (!item.topics?.[0] || item.topics[0] !== TRADE_TOPIC) continue;
-      if ((item.block_number ?? 0) < minBlock) continue;
+    const items = body.items ?? [];
+    if (items.length === 0) break;
+
+    let oldestOnPage = Number.MAX_SAFE_INTEGER;
+    for (const item of items) {
+      const blockNum = item.block_number ?? 0;
+      oldestOnPage = Math.min(oldestOnPage, blockNum);
+      if (blockNum < fromBlock) continue;
+      if ((item.topics?.[0] ?? "").toLowerCase() !== TRADE_TOPIC) continue;
       const parsed = parseTradeLog({
-        topics: item.topics,
+        topics: item.topics ?? [],
         data: item.data ?? "0x",
         transactionHash: item.transaction_hash ?? "",
-        blockNumber: item.block_number ?? 0,
+        blockNumber: blockNum,
         logIndex: item.index ?? 0,
       });
       if (parsed) events.push(parsed);
@@ -105,6 +128,8 @@ async function scanViaBlockscout(minBlock: number): Promise<DexTradeLogDto[]> {
 
     nextParams = body.next_page_params ?? null;
     if (!nextParams) break;
+    // Blockscout pages newest-first — stop once we've passed the deploy block.
+    if (oldestOnPage < fromBlock) break;
   }
 
   return events;
@@ -139,13 +164,13 @@ async function scanViaRpc(fromBlock: number, toBlock: number): Promise<DexTradeL
     } catch (err) {
       console.error("[dex-trade-scan] rpc chunk failed:", from, (err as Error).message);
     }
-    await new Promise((r) => setTimeout(r, 80));
+    await new Promise((r) => setTimeout(r, 100));
   }
 
   return events;
 }
 
-let cachedScan: { at: number; minBlock: number; logs: DexTradeLogDto[] } | null = null;
+let cachedScan: { at: number; fromBlock: number; logs: DexTradeLogDto[] } | null = null;
 const CACHE_MS = 45_000;
 
 export async function scanDexTradeLogs(lookback: number): Promise<{
@@ -154,24 +179,30 @@ export async function scanDexTradeLogs(lookback: number): Promise<{
 }> {
   const provider = getBaseProvider();
   const head = provider ? await provider.getBlockNumber() : 0;
-  const minBlock = head > lookback ? head - lookback : 0;
+  const scanFrom = resolveScanFromBlock(head);
+  const filterFrom =
+    lookback > 0 && head > lookback ? Math.max(scanFrom, head - lookback) : scanFrom;
 
-  if (cachedScan && Date.now() - cachedScan.at < CACHE_MS && cachedScan.minBlock <= minBlock) {
+  if (
+    cachedScan &&
+    Date.now() - cachedScan.at < CACHE_MS &&
+    cachedScan.fromBlock <= scanFrom
+  ) {
     return {
       headBlock: head,
-      logs: cachedScan.logs.filter((l) => l.blockNumber >= minBlock),
+      logs: cachedScan.logs.filter((l) => l.blockNumber >= filterFrom),
     };
   }
 
   let logs: DexTradeLogDto[] = [];
   try {
-    logs = await scanViaBlockscout(minBlock);
+    logs = await scanViaBlockscout(scanFrom);
   } catch (err) {
     console.error("[dex-trade-scan] blockscout failed:", (err as Error).message);
   }
 
-  if (logs.length === 0 && provider && head > 0) {
-    logs = await scanViaRpc(minBlock, head);
+  if (logs.length === 0 && provider && head > scanFrom) {
+    logs = await scanViaRpc(scanFrom, head);
   }
 
   logs.sort((a, b) => {
@@ -179,6 +210,13 @@ export async function scanDexTradeLogs(lookback: number): Promise<{
     return b.logIndex - a.logIndex;
   });
 
-  cachedScan = { at: Date.now(), minBlock, logs };
-  return { headBlock: head, logs };
+  console.info(
+    `[dex-trade-scan] ${logs.length} Trade events (blocks ${scanFrom}–${head}, filter ≥${filterFrom})`,
+  );
+
+  cachedScan = { at: Date.now(), fromBlock: scanFrom, logs };
+  return {
+    headBlock: head,
+    logs: logs.filter((l) => l.blockNumber >= filterFrom),
+  };
 }

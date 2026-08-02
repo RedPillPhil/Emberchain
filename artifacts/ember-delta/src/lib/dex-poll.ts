@@ -3,8 +3,8 @@ import { useEffect } from "react";
 /** Background refresh for DEX order book + trade history (avoid Base RPC rate limits). */
 export const DEX_POLL_MS = 30_000;
 
-/** Block lookback for trade history (server-side scan). */
-export const DEX_TRADES_LOOKBACK = 20_000;
+/** Block lookback for trade history — 0 = full history from deploy (server default). */
+export const DEX_TRADES_LOOKBACK = 0;
 
 /**
  * Run `fn` once immediately, then every DEX_POLL_MS while the tab is visible.

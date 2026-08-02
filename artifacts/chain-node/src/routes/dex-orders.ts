@@ -20,10 +20,13 @@ const router: IRouter = Router();
 
 router.get("/dex/trades", async (req: Request, res: Response): Promise<void> => {
   try {
-    const lookbackRaw = Number(req.query.lookback ?? 50_000);
-    const lookback = Number.isFinite(lookbackRaw)
-      ? Math.min(Math.max(lookbackRaw, 1_000), 500_000)
-      : 50_000;
+    const lookbackRaw = Number(req.query.lookback ?? 0);
+    // lookback=0 → full history from deploy block; otherwise clamp 1k–500k blocks
+    const lookback = lookbackRaw === 0
+      ? 0
+      : Number.isFinite(lookbackRaw)
+        ? Math.min(Math.max(lookbackRaw, 1_000), 500_000)
+        : 0;
     const { headBlock, logs } = await scanDexTradeLogs(lookback);
     res.setHeader("Cache-Control", "public, max-age=30");
     res.json({ headBlock, logs });
