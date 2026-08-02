@@ -32,11 +32,11 @@ export const API_SERVER = trimUrl(import.meta.env.VITE_API_URL);
 
 /**
  * Runtime chain-node base URL for browser fetch/RPC.
- * On emberchain.org uses same-origin /api (Vercel proxies to duckdns).
+ * On emberchain.org hits duckdns directly — Netlify /api proxy to duckdns times out.
  * In dev uses Vite's /api proxy. Otherwise explicit env or duckdns.
  */
 export function resolveChainNodeUrl(): string {
-  if (isEmberchainSite()) return "";
+  if (isEmberchainSite()) return DEFAULT_CHAIN_NODE;
   if (import.meta.env.DEV) return "";
   const explicit = trimUrl(import.meta.env.VITE_CHAIN_NODE_URL);
   if (explicit) return explicit;
@@ -60,10 +60,10 @@ export function chainNodeRpcUrl(): string {
   return chainNodeApi("/api/rpc");
 }
 
-/** Resolved API base: explicit env, same-origin on emberchain.org, else chain node. */
+/** Resolved API base: explicit env, duckdns on emberchain.org, else chain node. */
 export function resolveApiServer(): string {
   if (API_SERVER) return API_SERVER;
-  if (isEmberchainSite() && typeof location !== "undefined") return location.origin;
+  if (isEmberchainSite()) return DEFAULT_CHAIN_NODE;
   const node = resolveChainNodeUrl();
   if (node) return node;
   return DEFAULT_CHAIN_NODE;

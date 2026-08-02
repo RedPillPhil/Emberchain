@@ -9,7 +9,7 @@
   NODE_VERSION = "20"
   VITE_BASE_CHAIN_ID = "8453"
 
-# Same-origin /api → chain-node on duckdns (exchange, bridge, community, etc.)
+# Same-origin /api → chain-node on duckdns (currently broken from Netlify edge — clients use duckdns directly)
 [[redirects]]
   from = "/api/*"
   to = "https://emberchain.duckdns.org/api/:splat"
