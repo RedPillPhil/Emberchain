@@ -1376,6 +1376,24 @@ function BridgeTab() {
     [API],
   );
 
+  const tryRegisterBaseOut = useCallback(
+    async (body: { txHash: string; embrRecipient: string; amount: string; nonce: string }) => {
+      if (!API) return;
+      const deadline = Date.now() + 90_000;
+      while (Date.now() < deadline) {
+        const r = await fetch(API + "/api/bridge/register-base-out", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (r.status === 201 || r.status === 200) return;
+        if (r.status !== 202 && r.status !== 404) return;
+        await new Promise((w) => setTimeout(w, 3000));
+      }
+    },
+    [API],
+  );
+
   // Poll on-chain completion (works without api-server) + optional API status
   const startBridgePoll = useCallback(
     (nonce: string, dir: Direction) => {
@@ -1621,7 +1639,13 @@ function BridgeTab() {
       setAmount("");
       toast({
         title: "wEMBR burned on Base",
-        description: "Transaction confirmed. EMBR will be released on Emberchain once the relayer completes the bridge.",
+        description: "Your burn is confirmed. EMBR will arrive on Emberchain once the relayer releases it.",
+      });
+      void tryRegisterBaseOut({
+        txHash,
+        embrRecipient,
+        amount: amountWei.toString(),
+        nonce: nonce.toString(),
       });
     } catch (err) {
       toast({

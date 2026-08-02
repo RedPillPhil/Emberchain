@@ -11,6 +11,7 @@ import {
   getBridgeEventByNonce,
   getBridgeHistoryForAddress,
 } from "../lib/bridge-store";
+import { fetchBaseBridgeOutByTxHash } from "../lib/base-bridge-scan";
 
 const router: IRouter = Router();
 
@@ -134,7 +135,7 @@ router.post("/bridge/register", async (req: Request, res: Response): Promise<voi
     });
 
     if (createResult.kind === "conflict") {
-      const existing = await getBridgeEventByNonce(nonceStr);
+      const existing = await getBridgeEventByNonce(nonceStr, "embr_to_base");
       res.status(200).json({
         message: "Bridge request already registered",
         nonce: nonceStr,
@@ -145,6 +146,78 @@ router.post("/bridge/register", async (req: Request, res: Response): Promise<voi
 
     res.status(201).json({
       message: "Bridge request registered — wEMBR will appear on Base shortly",
+      nonce: nonceStr,
+      txHashSrc: txHash,
+      status: "pending",
+    });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+router.post("/bridge/register-base-out", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const body = req.body as {
+      txHash?: string;
+      embrRecipient?: string;
+      amount?: string;
+      nonce?: string | number;
+    };
+    const { txHash, embrRecipient, amount, nonce } = body ?? {};
+
+    if (!txHash) {
+      res.status(400).json({ error: "txHash is required" });
+      return;
+    }
+    if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+      res.status(400).json({ error: "txHash must be a valid 32-byte hex string (0x…64)" });
+      return;
+    }
+
+    const parsed = await fetchBaseBridgeOutByTxHash(txHash);
+    if (!parsed) {
+      res.status(404).json({ error: "BridgeOut transaction not found or not confirmed on Base" });
+      return;
+    }
+
+    const nonceStr = String(nonce ?? parsed.nonce);
+    const recipient = (embrRecipient ?? parsed.embrRecipient).trim();
+    const amountStr = amount ?? parsed.amount;
+
+    if (nonceStr !== parsed.nonce) {
+      res.status(400).json({ error: "nonce does not match the on-chain BridgeOut event" });
+      return;
+    }
+    if (recipient.toLowerCase() !== parsed.embrRecipient.toLowerCase()) {
+      res.status(400).json({ error: "embrRecipient does not match the on-chain BridgeOut event" });
+      return;
+    }
+    if (BigInt(amountStr) !== BigInt(parsed.amount)) {
+      res.status(400).json({ error: "amount does not match the on-chain BridgeOut event" });
+      return;
+    }
+
+    const createResult = await createBridgeEvent({
+      nonce: nonceStr,
+      direction: "base_to_embr",
+      sender: parsed.sender.toLowerCase(),
+      recipient: recipient.toLowerCase(),
+      amount: amountStr,
+      txHashSrc: txHash,
+    });
+
+    if (createResult.kind === "conflict") {
+      const existing = await getBridgeEventByNonce(nonceStr, "base_to_embr");
+      res.status(200).json({
+        message: "Base bridge already registered",
+        nonce: nonceStr,
+        status: existing?.status ?? "unknown",
+      });
+      return;
+    }
+
+    res.status(201).json({
+      message: "Base→EMBR bridge registered — awaiting relayer release on Emberchain",
       nonce: nonceStr,
       txHashSrc: txHash,
       status: "pending",

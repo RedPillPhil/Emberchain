@@ -3,20 +3,11 @@
  */
 
 import { Router, type IRouter, type Request, type Response } from "express";
-import { Contract } from "ethers";
 import { getBaseProvider } from "../lib/base-provider";
+import { scanBaseBridgeOuts, fetchBaseBridgeOutByTxHash } from "../lib/base-bridge-scan";
+import { listPendingByDirection } from "../lib/bridge-store";
 
 const router: IRouter = Router();
-
-const EMBERCHAIN_BRIDGE_ADDRESS = (
-  process.env.EMBERCHAIN_BRIDGE_ADDRESS ?? "0x1573EdF8F933601e6f37AC9B104cF62C7f85a0F4"
-).toLowerCase();
-
-const BASE_BRIDGE_ABI = [
-  "event BridgeOut(address indexed sender, string embrRecipient, uint256 amount, uint256 indexed nonce)",
-] as const;
-
-const LOG_CHUNK_SIZE = 10_000;
 
 router.get("/bridge/base-outs", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -31,39 +22,65 @@ router.get("/bridge/base-outs", async (req: Request, res: Response): Promise<voi
       ? Math.min(Math.max(lookbackRaw, 1_000), 200_000)
       : 50_000;
 
-    const baseBridge = new Contract(EMBERCHAIN_BRIDGE_ADDRESS, BASE_BRIDGE_ABI, provider);
-    const baseHeight = await provider.getBlockNumber();
-    const baseFrom = Math.max(0, baseHeight - lookback);
+    const registered = await listPendingByDirection("base_to_embr");
+    const registeredEvents = registered.map((e) => ({
+      nonce: e.nonce,
+      sender: e.sender,
+      embrRecipient: e.recipient,
+      amount: e.amount,
+      txHash: e.txHashSrc ?? "",
+      blockNumber: 0,
+      submittedAt: e.createdAt,
+      source: "registered" as const,
+    }));
 
-    const logs: Awaited<ReturnType<Contract["queryFilter"]>> = [];
-    for (let from = baseFrom; from <= baseHeight; from += LOG_CHUNK_SIZE) {
-      const to = Math.min(from + LOG_CHUNK_SIZE - 1, baseHeight);
-      const chunk = await baseBridge.queryFilter(baseBridge.filters.BridgeOut(), from, to);
-      logs.push(...chunk);
+    const chainEvents = await scanBaseBridgeOuts(lookback);
+    const chainMapped = await Promise.all(
+      chainEvents.map(async (ev) => {
+        let submittedAt: string | undefined;
+        try {
+          const block = await provider.getBlock(ev.blockNumber);
+          submittedAt = block?.timestamp
+            ? new Date(block.timestamp * 1000).toISOString()
+            : undefined;
+        } catch {
+          /* optional */
+        }
+        return {
+          ...ev,
+          submittedAt,
+          source: "chain" as const,
+        };
+      }),
+    );
+
+    const byNonce = new Map<string, (typeof registeredEvents)[0]>();
+    for (const ev of registeredEvents) {
+      byNonce.set(ev.nonce, ev);
+    }
+    for (const ev of chainMapped) {
+      if (!byNonce.has(ev.nonce)) byNonce.set(ev.nonce, ev);
     }
 
-    const events = [];
-    for (const log of logs) {
-      if (!("args" in log) || !log.args) continue;
-      let blockTimestamp: number | undefined;
-      try {
-        const block = await provider.getBlock(log.blockNumber);
-        blockTimestamp = block?.timestamp;
-      } catch {
-        /* optional */
-      }
-      events.push({
-        nonce: (log.args[3] as bigint).toString(),
-        sender: log.args[0] as string,
-        embrRecipient: log.args[1] as string,
-        amount: (log.args[2] as bigint).toString(),
-        txHash: log.transactionHash,
-        blockNumber: log.blockNumber,
-        submittedAt: blockTimestamp ? new Date(blockTimestamp * 1000).toISOString() : undefined,
-      });
-    }
+    res.json([...byNonce.values()]);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
 
-    res.json(events);
+router.get("/bridge/base-out/:txHash", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const txHash = req.params.txHash;
+    if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+      res.status(400).json({ error: "txHash must be a valid 32-byte hex string" });
+      return;
+    }
+    const parsed = await fetchBaseBridgeOutByTxHash(txHash);
+    if (!parsed) {
+      res.status(404).json({ error: "No BridgeOut event found in this Base transaction" });
+      return;
+    }
+    res.json(parsed);
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

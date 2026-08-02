@@ -39,12 +39,29 @@ function defaultData(): BridgeData {
   return { nextId: 1, events: {} };
 }
 
+function eventKey(direction: BridgeDirection, nonce: string): string {
+  return `${direction}:${nonce}`;
+}
+
+function migrateLegacyKeys(data: BridgeData): void {
+  const legacy = Object.entries(data.events);
+  for (const [key, event] of legacy) {
+    if (key.includes(":")) continue;
+    const migrated = eventKey(event.direction ?? "embr_to_base", key);
+    if (!data.events[migrated]) {
+      data.events[migrated] = { ...event, direction: event.direction ?? "embr_to_base" };
+    }
+    delete data.events[key];
+  }
+}
+
 function loadData(): BridgeData {
   if (cache) return cache;
   try {
     const raw = readFileSync(DATA_FILE, "utf-8");
     const parsed = { ...defaultData(), ...(JSON.parse(raw) as BridgeData) };
     if (!parsed.events || typeof parsed.events !== "object") parsed.events = {};
+    migrateLegacyKeys(parsed);
     cache = parsed;
   } catch (err) {
     console.error("[bridge-store] load failed:", (err as Error).message);
@@ -90,7 +107,7 @@ export async function createBridgeEvent(
   params: CreateBridgeEventParams,
 ): Promise<CreateBridgeEventResult> {
   const data = loadData();
-  const key = params.nonce;
+  const key = eventKey(params.direction, params.nonce);
   if (data.events[key]) return { kind: "conflict" };
 
   const now = new Date().toISOString();
@@ -114,8 +131,40 @@ export async function createBridgeEvent(
   return { kind: "inserted", event };
 }
 
-export async function getBridgeEventByNonce(nonce: string): Promise<BridgeEvent | null> {
-  return loadData().events[nonce] ?? null;
+export async function getBridgeEventByNonce(
+  nonce: string,
+  direction?: BridgeDirection,
+): Promise<BridgeEvent | null> {
+  const data = loadData();
+  if (direction) return data.events[eventKey(direction, nonce)] ?? null;
+  return (
+    data.events[eventKey("embr_to_base", nonce)]
+    ?? data.events[eventKey("base_to_embr", nonce)]
+    ?? null
+  );
+}
+
+export async function getBridgeEventByTxHash(txHash: string): Promise<BridgeEvent | null> {
+  const normalized = txHash.toLowerCase();
+  return Object.values(loadData().events).find(
+    (e) => e.txHashSrc?.toLowerCase() === normalized,
+  ) ?? null;
+}
+
+export async function listPendingByDirection(direction: BridgeDirection): Promise<BridgeEvent[]> {
+  return Object.values(loadData().events)
+    .filter((e) => e.direction === direction && e.status === "pending")
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function markBridgeRelayed(nonce: string, direction: BridgeDirection, txHashDst?: string): Promise<void> {
+  const data = loadData();
+  const event = data.events[eventKey(direction, nonce)];
+  if (!event) return;
+  event.status = "relayed";
+  if (txHashDst) event.txHashDst = txHashDst;
+  event.updatedAt = new Date().toISOString();
+  scheduleSave();
 }
 
 export async function getBridgeHistoryForAddress(address: string): Promise<BridgeEvent[]> {

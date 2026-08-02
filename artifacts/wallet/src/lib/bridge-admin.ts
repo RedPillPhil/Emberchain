@@ -176,6 +176,38 @@ async function queryFilterChunked(
   return logs;
 }
 
+/** Look up a single Base bridgeOut tx by hash (for manual admin completion). */
+export async function fetchBaseOutByTxHash(txHash: string): Promise<BaseToEmbrPending | null> {
+  const res = await fetch(chainNodeApi(`/api/bridge/base-out/${encodeURIComponent(txHash)}`), {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) return null;
+  const ev = (await res.json()) as {
+    nonce: string;
+    sender: string;
+    embrRecipient: string;
+    amount: string;
+    txHash: string;
+    blockNumber: number;
+  };
+
+  const embrRecipient = ev.embrRecipient.startsWith("0x")
+    ? ev.embrRecipient
+    : `0x${ev.embrRecipient.replace(/^0x/i, "")}`;
+
+  const completed = await isBridgeLegComplete("base_to_embr", ev.nonce);
+  return {
+    direction: "base_to_embr",
+    nonce: ev.nonce,
+    sender: ev.sender,
+    embrRecipient,
+    amount: ev.amount,
+    txHash: ev.txHash,
+    blockNumber: ev.blockNumber,
+    completed,
+  };
+}
+
 async function fetchBaseToEmbrOuts(lookbackBlocks = 50_000): Promise<BaseToEmbrPending[]> {
   try {
     const res = await fetch(
@@ -196,12 +228,15 @@ async function fetchBaseToEmbrOuts(lookbackBlocks = 50_000): Promise<BaseToEmbrP
         }>;
         const pending: BaseToEmbrPending[] = [];
         for (const ev of events) {
-          const completed = await isNonceUsedOnEmbr(ev.nonce);
+          const embrRecipient = ev.embrRecipient.startsWith("0x")
+            ? ev.embrRecipient
+            : `0x${ev.embrRecipient.replace(/^0x/i, "")}`;
+          const completed = await isBridgeLegComplete("base_to_embr", ev.nonce);
           pending.push({
             direction: "base_to_embr",
             nonce: ev.nonce,
             sender: ev.sender,
-            embrRecipient: ev.embrRecipient,
+            embrRecipient,
             amount: ev.amount,
             txHash: ev.txHash,
             blockNumber: ev.blockNumber,
@@ -237,13 +272,17 @@ async function fetchBaseToEmbrOuts(lookbackBlocks = 50_000): Promise<BaseToEmbrP
   for (const log of baseLogs) {
     if (!("args" in log) || !log.args) continue;
     const nonce = (log.args[3] as bigint).toString();
-    const completed = await isNonceUsedOnEmbr(nonce);
+    const embrRecipientRaw = log.args[1] as string;
+    const embrRecipient = embrRecipientRaw.startsWith("0x")
+      ? embrRecipientRaw
+      : `0x${embrRecipientRaw.replace(/^0x/i, "")}`;
+    const completed = await isBridgeLegComplete("base_to_embr", nonce);
     const blockTs = await getBaseBlockTimestamp(log.blockNumber);
     pending.push({
       direction: "base_to_embr",
       nonce,
       sender: log.args[0] as string,
-      embrRecipient: log.args[1] as string,
+      embrRecipient,
       amount: (log.args[2] as bigint).toString(),
       txHash: log.transactionHash,
       blockNumber: log.blockNumber,

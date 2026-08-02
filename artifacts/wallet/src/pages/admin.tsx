@@ -10,6 +10,7 @@ import { useRelayerAuth } from "@/hooks/use-relayer-auth";
 import {
   completeBaseToEmbr,
   completeEmbrToBase,
+  fetchBaseOutByTxHash,
   fetchEmbrLockByTxHash,
   fetchPendingBridges,
   formatBridgeTime,
@@ -277,19 +278,30 @@ function BridgeTab({
     if (!hash) return;
     setLoading(true);
     try {
-      const row = await fetchEmbrLockByTxHash(hash);
+      let row: PendingBridge | null = await fetchEmbrLockByTxHash(hash);
+      if (!row) row = await fetchBaseOutByTxHash(hash);
       if (!row || row.completed) {
         toast({
-          title: row ? "Already completed" : "Not a lockEMBR tx",
+          title: row ? "Already completed" : "Not a bridge tx",
           description: row
             ? "This bridge has already been completed on the destination chain."
-            : "Hash not found or not a successful bridge lock.",
+            : "Hash not found as an EMBR lock or Base bridgeOut transaction.",
           variant: "destructive",
         });
         return;
       }
-      setRows((prev) => (prev.some((p) => p.txHash === row.txHash) ? prev : [row, ...prev]));
-      toast({ title: "Lock found", description: `${formatEmbr(row.amount)} EMBR → ${row.baseRecipient}` });
+      setRows((prev) =>
+        prev.some((p) => p.nonce === row!.nonce && p.direction === row!.direction)
+          ? prev
+          : [row!, ...prev],
+      );
+      toast({
+        title: "Bridge found",
+        description:
+          row.direction === "embr_to_base"
+            ? `${formatEmbr(row.amount)} EMBR → ${row.baseRecipient}`
+            : `${formatEmbr(row.amount)} wEMBR → ${row.embrRecipient}`,
+      });
     } catch (err) {
       toast({
         title: "Lookup failed",
@@ -328,7 +340,7 @@ function BridgeTab({
 
       <div className="flex gap-2">
         <Input
-          placeholder="Paste EMBR lock tx hash (0x…)"
+          placeholder="Paste bridge tx hash — EMBR lock or Base bridgeOut (0x…)"
           value={txLookup}
           onChange={(e) => setTxLookup(e.target.value)}
         />
