@@ -7,7 +7,7 @@ import {
 import { TokenIcon } from '@/components/TokenIcon';
 import { useWeb3 } from '@/lib/use-web3';
 import { useWriteContract, useReadContract } from 'wagmi';
-import { API, apiFetch } from '@/lib/api';
+import { getApiBase, apiFetch } from '@/lib/api';
 import { chainNodeApi } from '@/lib/config';
 import { useEmbrWallet } from '@/lib/embr-wallet';
 import { encLockEMBR, encBridgeOut, encApprove, encAllowance, encBalanceOf, decodeUint256 } from '@/lib/bridge-encoding';
@@ -97,7 +97,7 @@ async function tryRegisterBaseOut(body: {
   amount: string;
   nonce: string;
 }): Promise<void> {
-  const base = API;
+  const base = getApiBase();
   if (!base) return;
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
@@ -118,7 +118,7 @@ async function tryRegisterBridge(body: {
   amount: string;
   nonce: string;
 }): Promise<void> {
-  const base = API;
+  const base = getApiBase();
   if (!base) return;
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
@@ -334,7 +334,7 @@ function BridgeHistory({ address }: { address: string }) {
     if (!address) return;
     setLoading(true);
     try {
-      const r = await fetch(`${API}/api/bridge/history/${address}`);
+      const r = await fetch(`${getApiBase()}/api/bridge/history/${address}`);
       if (r.ok) setEvents(await r.json());
     } catch { /* ignore */ }
     finally { setLoading(false); }
@@ -1455,7 +1455,7 @@ export default function Bridge() {
           );
           return;
         }
-        if (API) {
+        if (getApiBase()) {
           try {
             const data = (await apiFetch(`/api/bridge/status/${nonce}`)) as { status?: BridgeStatus };
             const status = data.status;
@@ -1477,7 +1477,7 @@ export default function Bridge() {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       try {
-        const r = await fetch(`${API}/api/bridge/status/${nonce}`);
+        const r = await fetch(`${getApiBase()}/api/bridge/status/${nonce}`);
         if (!r.ok) return;
         const data = await r.json();
         const status = data.status as BridgeStatus;
@@ -1494,7 +1494,7 @@ export default function Bridge() {
 
     const fetchListings = async (attempt = 0) => {
       try {
-        const r = await fetch(`${API}/api/token-launch/listings`);
+        const r = await fetch(`${getApiBase()}/api/token-launch/listings`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data: TokenListing[] = await r.json();
         const live = data.filter(l => (l as any).status === 'live');

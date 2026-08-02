@@ -10,24 +10,35 @@ import { syncAndWait, isChainSynced } from "../lib/sync-loop";
 const router = Router();
 
 router.post("/transactions", async (req: Request, res: Response): Promise<void> => {
-  let body;
   try {
-    body = CreateTransactionBody.parse(req.body ?? {});
+    let body;
+    try {
+      body = CreateTransactionBody.parse(req.body ?? {});
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "Invalid transaction body",
+      });
+      return;
+    }
+    // Ensure the local chain is current before accepting the transaction.
+    if (!isChainSynced()) await syncAndWait(5_000);
+    try {
+      const tx = await chain.submitTransaction(body);
+      try {
+        res.status(201).json(CreateTransactionResponse.parse(tx));
+      } catch {
+        // Never return HTML 500 from a response-shape mismatch — send the raw tx.
+        res.status(201).json(tx);
+      }
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : "Failed to submit transaction" });
+    }
   } catch (err) {
-    res.status(400).json({
-      error: err instanceof Error ? err.message : "Invalid transaction body",
-    });
-    return;
-  }
-  // Ensure the local chain is current before accepting the transaction.
-  // If we've been in idle-sync mode (60s interval) the tip could be stale.
-  // syncAndWait() completes within 5 s or proceeds anyway — never blocks the user.
-  if (!isChainSynced()) await syncAndWait(5_000);
-  try {
-    const tx = await chain.submitTransaction(body);
-    res.status(201).json(CreateTransactionResponse.parse(tx));
-  } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : "Failed to submit transaction" });
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : "Failed to submit transaction",
+      });
+    }
   }
 });
 

@@ -1,11 +1,17 @@
 /**
  * API base — matches artifacts/wallet (resolveApiServer + same-origin /api in dev).
  */
-export { resolveApiServer } from "@/lib/config";
-
 import { resolveApiServer } from "@/lib/config";
 
-export const API = resolveApiServer();
+export { resolveApiServer };
+
+/** Runtime API base (never empty on emberchain.org). */
+export function getApiBase(): string {
+  return resolveApiServer();
+}
+
+/** @deprecated Use getApiBase() — kept for call sites that expect a string constant. */
+export const API = typeof location !== "undefined" ? resolveApiServer() : "";
 
 export async function apiFetch(path: string, opts?: RequestInit): Promise<unknown> {
   const url = `${resolveApiServer()}${path}`;
