@@ -10,11 +10,13 @@ import {
   createBridgeEvent,
   getBridgeEventByNonce,
   getBridgeHistoryForAddress,
-  isBridgeRelayed,
   listRelayedKeys,
   upsertBridgeRelayed,
   type BridgeDirection,
+  type BridgeEvent,
+  type BridgeStatus,
 } from "../lib/bridge-store";
+import { resolveBridgeStatus, reconcileAllPendingBridges } from "../lib/bridge-reconcile";
 import { fetchBaseBridgeOutByTxHash } from "../lib/base-bridge-scan";
 import { listAdminPendingBridges } from "../lib/bridge-admin-scan";
 
@@ -42,6 +44,30 @@ async function loadBridgeTransaction(hash: string) {
       : tx.status === "failed" ? "failed" as const
       : "pending" as const,
     error: tx.error,
+  };
+}
+
+router.post("/bridge/reconcile", async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const failed = await reconcileAllPendingBridges();
+    res.json({ ok: true, markedFailed: failed });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+function serializeBridgeEvent(event: BridgeEvent, status: BridgeStatus) {
+  return {
+    nonce: event.nonce,
+    direction: event.direction,
+    status,
+    sender: event.sender,
+    recipient: event.recipient,
+    amount: event.amount,
+    txHashSrc: event.txHashSrc,
+    txHashDst: event.txHashDst,
+    errorMsg: status === "failed" ? (event.errorMsg ?? "Source transaction failed") : event.errorMsg,
+    createdAt: event.createdAt,
   };
 }
 
@@ -293,17 +319,18 @@ router.get("/bridge/status/:nonce", async (req: Request, res: Response): Promise
       res.status(404).json({ error: `No bridge event found for nonce ${nonce}` });
       return;
     }
+    const status = await resolveBridgeStatus(event);
     res.json({
       nonce: event.nonce,
       direction: event.direction,
-      status: event.status,
+      status,
       sender: event.sender,
       recipient: event.recipient,
       amount: event.amount,
       txHashSrc: event.txHashSrc,
       txHashDst: event.txHashDst,
       retryCount: event.retryCount,
-      errorMsg: event.errorMsg,
+      errorMsg: status === "failed" ? (event.errorMsg ?? "Source transaction failed") : event.errorMsg,
       createdAt: event.createdAt,
       updatedAt: event.updatedAt,
     });
@@ -320,17 +347,11 @@ router.get("/bridge/history/:address", async (req: Request, res: Response): Prom
       return;
     }
     const events = await getBridgeHistoryForAddress(address);
-    res.json(events.map((e) => ({
-      nonce: e.nonce,
-      direction: e.direction,
-      status: e.status,
-      sender: e.sender,
-      recipient: e.recipient,
-      amount: e.amount,
-      txHashSrc: e.txHashSrc,
-      txHashDst: e.txHashDst,
-      createdAt: e.createdAt,
-    })));
+    const resolved = await Promise.all(events.map(async (e) => {
+      const status = await resolveBridgeStatus(e);
+      return serializeBridgeEvent(e, status);
+    }));
+    res.json(resolved);
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

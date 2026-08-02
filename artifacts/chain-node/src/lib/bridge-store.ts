@@ -198,6 +198,21 @@ export async function markBridgeRelayed(
   scheduleSave();
 }
 
+export async function markBridgeFailed(
+  nonce: string,
+  direction: BridgeDirection,
+  errorMsg?: string,
+): Promise<void> {
+  const data = loadData();
+  const key = eventKey(direction, nonce);
+  const event = data.events[key];
+  if (!event || event.status === "relayed") return;
+  event.status = "failed";
+  if (errorMsg) event.errorMsg = errorMsg;
+  event.updatedAt = new Date().toISOString();
+  scheduleSave();
+}
+
 /** Persist admin completion so scans never surface this bridge again. */
 export async function upsertBridgeRelayed(params: {
   direction: BridgeDirection;

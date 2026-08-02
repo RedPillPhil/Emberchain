@@ -19,8 +19,13 @@ import { useActiveWallet } from "@/hooks/use-active-wallet";
 import { useBaseWallet } from "@/hooks/use-base-wallet";
 import { useSubmitChainTransaction } from "@/hooks/use-submit-chain-transaction";
 import { useGetWallet } from "@workspace/api-client-react";
+import { Link } from "wouter";
 import { resolveApiServer } from "@/lib/api-server";
-import { maxSpendableEmbr, waitForChainTransaction } from "@/lib/chain-node";
+import {
+  maxSpendableEmbr,
+  waitForChainTransaction,
+  dropChainTransaction,
+} from "@/lib/chain-node";
 import {
   EMBER_BRIDGE_ADDRESS,
   EMBERCHAIN_BRIDGE_ADDRESS,
@@ -470,6 +475,7 @@ interface BridgeEvent {
   amount: string;
   txHashSrc?: string;
   txHashDst?: string;
+  errorMsg?: string;
   createdAt: string;
 }
 
@@ -897,7 +903,7 @@ function TokenPickerModal({
 
 // ── Status badge ─────────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: BridgeStatus }) {
+function StatusBadge({ status, title }: { status: BridgeStatus; title?: string }) {
   if (status === "confirmed")
     return (
       <Badge className="bg-green-500/20 text-green-400 border-green-500/40 uppercase text-xs gap-1">
@@ -924,13 +930,21 @@ function StatusBadge({ status }: { status: BridgeStatus }) {
     );
   if (status === "failed")
     return (
-      <Badge className="bg-red-500/20 text-red-400 border-red-500/40 uppercase text-xs gap-1">
-        <XCircle className="w-3 h-3" /> Failed
+      <span title={title}>
+        <Badge className="bg-red-500/20 text-red-400 border-red-500/40 uppercase text-xs gap-1">
+          <XCircle className="w-3 h-3" /> Failed
+        </Badge>
+      </span>
+    );
+  if (status === "pending")
+    return (
+      <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/40 uppercase text-xs gap-1">
+        <Clock className="w-3 h-3" /> Awaiting relayer
       </Badge>
     );
   return (
-    <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/40 uppercase text-xs gap-1">
-      <Clock className="w-3 h-3" /> Awaiting relayer
+    <Badge className="bg-muted/20 text-muted-foreground border-border uppercase text-xs gap-1">
+      {status}
     </Badge>
   );
 }
@@ -1115,7 +1129,7 @@ function BridgeHistory({ address }: { address: string }) {
                 {formatWei(e.amount)} EMBR
               </span>
             </div>
-            <StatusBadge status={e.status} />
+            <StatusBadge status={e.status} title={e.status === "failed" ? e.errorMsg : undefined} />
           </div>
         ))}
       </div>
@@ -1339,6 +1353,7 @@ function BridgeTab() {
   } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmCountdown, setConfirmCountdown] = useState<number | null>(null);
+  const [droppingTx, setDroppingTx] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -1357,6 +1372,34 @@ function BridgeTab() {
       setConfirmCountdown((sec) => (sec !== null && sec > 0 ? sec - 1 : sec));
     }, 1000);
   }, [stopConfirmCountdown]);
+
+  const dropStuckBridgeTx = useCallback(async () => {
+    const txHash = bridgeStatus?.txHash;
+    if (!txHash || bridgeStatus?.status !== "confirming") return;
+    if (!window.confirm(
+      "Drop this bridge transaction from the mempool?\n\nIt will be marked failed. Your EMBR was never locked — you can bridge again.",
+    )) return;
+
+    setDroppingTx(true);
+    try {
+      await dropChainTransaction(txHash);
+      stopConfirmCountdown();
+      setBridgeStatus((prev) => prev ? { ...prev, status: "failed" } : null);
+      toast({
+        title: "Bridge transaction dropped",
+        description: "Cleared from mempool. You can submit a new bridge when ready.",
+        variant: "destructive",
+      });
+    } catch (err) {
+      toast({
+        title: "Could not drop transaction",
+        description: (err as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setDroppingTx(false);
+    }
+  }, [bridgeStatus, stopConfirmCountdown, toast]);
 
   const tryRegisterBridge = useCallback(
     async (body: { txHash: string; baseRecipient: string; amount: string; nonce: string }) => {
@@ -1953,8 +1996,23 @@ function BridgeTab() {
               </p>
             )}
             {bridgeStatus.txHash && (
-              <div className="text-xs font-mono text-muted-foreground truncate">
-                {bridgeStatus.txHash}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Link
+                  href={`/transactions/${bridgeStatus.txHash}`}
+                  className="text-xs font-mono text-primary hover:underline truncate max-w-full"
+                >
+                  {bridgeStatus.txHash}
+                </Link>
+                {bridgeStatus.status === "confirming" && (
+                  <button
+                    type="button"
+                    disabled={droppingTx}
+                    onClick={() => void dropStuckBridgeTx()}
+                    className="text-[10px] font-bold uppercase tracking-widest text-destructive hover:underline disabled:opacity-50"
+                  >
+                    {droppingTx ? "Dropping…" : "Drop stuck tx"}
+                  </button>
+                )}
               </div>
             )}
           </div>

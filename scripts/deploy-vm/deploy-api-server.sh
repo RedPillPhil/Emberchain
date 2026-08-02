@@ -4,6 +4,8 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
+# shellcheck source=scripts/deploy-vm/docker-compose.sh
+source "$(dirname "$0")/docker-compose.sh"
 
 echo "=== EmberChain api-server deploy ==="
 
@@ -17,9 +19,14 @@ if ! curl -sf http://127.0.0.1:8080/api/healthz >/dev/null; then
   exit 1
 fi
 
-if ! docker compose -f scripts/deploy-vm/docker-compose.yml ps postgres 2>/dev/null | grep -q running; then
+if ! compose -f scripts/deploy-vm/docker-compose.yml ps postgres 2>/dev/null | grep -q running; then
   echo "→ starting PostgreSQL"
-  docker compose -f scripts/deploy-vm/docker-compose.yml up -d postgres
+  COMPOSE_ENV="scripts/deploy-vm/.env"
+  if [[ -f "$COMPOSE_ENV" ]]; then
+    compose -f scripts/deploy-vm/docker-compose.yml --env-file "$COMPOSE_ENV" up -d postgres
+  else
+    compose -f scripts/deploy-vm/docker-compose.yml up -d postgres
+  fi
   sleep 3
 fi
 

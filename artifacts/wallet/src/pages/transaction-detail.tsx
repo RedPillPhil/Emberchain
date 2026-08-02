@@ -1,22 +1,56 @@
-import React from "react";
+import React, { useState } from "react";
 import { Shell } from "@/components/layout/shell";
-import { useGetTransaction } from "@workspace/api-client-react";
+import { useGetTransaction, getGetTransactionQueryKey } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { ArrowLeft, ArrowLeftRight, CheckCircle2, XCircle, Loader2, AlertTriangle, Code2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft, ArrowLeftRight, CheckCircle2, XCircle, Loader2, AlertTriangle, Code2, Trash2 } from "lucide-react";
 import { formatEmbr } from "@/lib/utils";
 import { decodeCalldata, formatUint256Display } from "@/lib/calldata-decoder";
 import { DecodedAddressLink, LedgerAddressLink } from "@/components/explorer/address-link";
+import { dropChainTransaction } from "@/lib/chain-node";
+import { chainNodeBaseUrl } from "@/lib/config";
+import { useToast } from "@/hooks/use-toast";
 
 export default function TransactionDetail() {
   const { hash } = useParams();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [dropping, setDropping] = useState(false);
   
-  const { data: tx, isLoading, isError } = useGetTransaction(hash || "", {
+  const { data: tx, isLoading, isError, refetch } = useGetTransaction(hash || "", {
     query: { 
       enabled: !!hash,
       refetchInterval: (query) => (query.state.data as {status?: string} | undefined)?.status === 'pending' ? 2000 : false 
     }
   });
+
+  const handleDrop = async () => {
+    if (!hash || !tx || tx.status !== "pending") return;
+    if (!window.confirm(
+      "Drop this transaction from the mempool?\n\nIt will be marked failed. Your EMBR was never moved — you can safely submit again.",
+    )) return;
+
+    setDropping(true);
+    try {
+      await dropChainTransaction(hash);
+      await queryClient.invalidateQueries({ queryKey: getGetTransactionQueryKey(hash) });
+      await refetch();
+      toast({
+        title: "Transaction dropped",
+        description: "Removed from mempool. You can submit a new bridge or transfer.",
+      });
+    } catch (err) {
+      toast({
+        title: "Could not drop transaction",
+        description: (err as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setDropping(false);
+    }
+  };
 
   return (
     <Shell requireWallet={false}>
@@ -112,6 +146,35 @@ export default function TransactionDetail() {
               </dl>
             </CardContent>
           </Card>
+
+          {tx.status === "pending" && (
+            <Card className="border-accent/40 bg-accent/5 rounded-sm">
+              <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <div className="font-display uppercase tracking-tight text-sm text-accent flex items-center gap-2 mb-1">
+                    <AlertTriangle className="w-4 h-4" /> Stuck in mempool
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed max-w-xl">
+                    This transaction never mined — often after a node restart. Your balance is unchanged.
+                    Drop it to clear the pending state, then submit again.
+                  </p>
+                  <p className="text-[10px] text-muted-foreground/80 font-mono mt-2 break-all">
+                    Node: {chainNodeBaseUrl() || (typeof location !== "undefined" ? location.origin : "")}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={dropping}
+                  onClick={handleDrop}
+                  className="shrink-0 border-destructive/50 text-destructive hover:bg-destructive/10 uppercase text-xs font-bold tracking-widest gap-2"
+                >
+                  {dropping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  Drop from mempool
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
           {(tx.data && tx.data !== "0x") && (() => {
             const decoded = decodeCalldata(tx.data);

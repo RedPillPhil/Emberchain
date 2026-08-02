@@ -135,6 +135,45 @@ export async function waitForChainTransaction(
   throw new Error(`Transaction ${hash} was not confirmed within ${timeoutMs / 1000}s`);
 }
 
+/** Drop a stuck pending tx from the mempool (marks it failed; safe to resubmit). */
+export async function dropChainTransaction(hash: string): Promise<Transaction> {
+  const { json } = await fetchChainNodeJson<Transaction>(
+    chainNodeApi(`/api/transactions/${encodeURIComponent(hash)}/drop`),
+    { method: "POST", headers: { Accept: "application/json" } },
+  );
+  return json;
+}
+
+export interface MiningStatus {
+  isMining: boolean;
+  minerAddress: string | null;
+  hashRate: number;
+  intensity: number;
+}
+
+/** Ask the chain-node to start its built-in CPU miner (helps confirm mempool txs). */
+export async function startChainNodeMining(
+  minerAddress: string,
+  intensity = 1,
+): Promise<MiningStatus> {
+  const { json } = await fetchChainNodeJson<MiningStatus>(
+    chainNodeApi("/api/mining/start"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ minerAddress, intensity }),
+    },
+  );
+  return json;
+}
+
+export async function getChainNodeMiningStatus(): Promise<MiningStatus> {
+  const { json } = await fetchChainNodeJson<MiningStatus>(
+    chainNodeApi("/api/mining/status"),
+  );
+  return json;
+}
+
 /** Max EMBR send/bridge amount after reserving gas for a given gas limit. */
 export function maxSpendableEmbr(balanceWei: bigint, gasLimit: bigint | string): bigint {
   const gasReserve = BigInt(gasLimit) * CHAIN_GAS_PRICE;

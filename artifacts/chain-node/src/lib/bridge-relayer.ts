@@ -9,6 +9,7 @@ import { logger } from "./logger";
 import {
   createBridgeEvent,
   listPendingByDirection,
+  markBridgeFailed,
   markBridgeRelayed,
   type BridgeEvent,
 } from "./bridge-store";
@@ -64,6 +65,22 @@ async function runEmbrToBaseLoop(
     for (const event of pending) {
       if (stop.stopped) break;
       try {
+        if (event.txHashSrc) {
+          const src = await chain.getTransaction(event.txHashSrc);
+          if (
+            src?.status === "failed"
+            || (src?.status === "pending" && chain.isOrphanedPending(event.txHashSrc))
+          ) {
+            await markBridgeFailed(
+              event.nonce,
+              event.direction,
+              src?.error ?? "Source lock transaction failed or orphaned",
+            );
+            continue;
+          }
+          if (!src || src.status !== "success") continue;
+        }
+
         const txHash = await withRetry(`bridgeIn(${event.nonce})`, async () => {
           const tx = await contract.bridgeIn(event.recipient, BigInt(event.amount), BigInt(event.nonce));
           const receipt = await tx.wait(1);
@@ -180,6 +197,7 @@ export function startBridgeRelayer(): { stop: () => void } {
   const cfg = getConfig();
   if (!cfg.relayerKey) {
     logger.info("[bridge-relayer] disabled — set BRIDGE_RELAYER_PRIVATE_KEY to enable");
+    console.log("[bridge-relayer] disabled — set BRIDGE_RELAYER_PRIVATE_KEY to enable");
     return { stop() {} };
   }
 
@@ -202,6 +220,7 @@ export function startBridgeRelayer(): { stop: () => void } {
   );
 
   logger.info("[bridge-relayer] started");
+  console.log("[bridge-relayer] started");
   handle = {
     stop: () => {
       stop.stopped = true;

@@ -98,6 +98,7 @@ export async function saveProofToDB(
 }
 
 export async function ensureProofsTable(): Promise<void> {
+  if (!process.env.DATABASE_URL?.trim()) return;
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS used_payment_proofs (

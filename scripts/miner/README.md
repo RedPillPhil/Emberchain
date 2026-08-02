@@ -21,6 +21,62 @@ node emberchain-miner.mjs --address 0xYOUR_EMBR_ADDRESS
 | `--threads` | `EMBR_THREADS` | CPU core count | Parallel mining threads |
 | `--batch` | `EMBR_BATCH` | `8000` | Hashes per batch per thread |
 
+## Bridge PC miner (confirm your lock from your computer)
+
+Run on **your PC** — does not start mining on the seed server.
+
+Run **before** clicking Bridge in the wallet (watches for your lock), or pass `-Tx` after submit:
+
+```powershell
+# From repo root on Windows
+.\scripts\miner\mine-for-bridge.ps1 -Node "https://emberchain.org" -Address "0xYOUR_WALLET"
+
+# If you already submitted and have the lock tx hash:
+.\scripts\miner\mine-for-bridge.ps1 `
+  -Node "https://emberchain.org" `
+  -Address "0xYOUR_WALLET" `
+  -Tx "0xLOCK_TX_HASH"
+```
+
+This script:
+1. Watches for your pending `lockEMBR` tx (or uses `--tx`)
+2. Mines from your PC until the lock confirms, then exits
+
+## Verify before mining (node mismatch debug)
+
+```powershell
+# From repo root on Windows — compare two nodes
+.\scripts\miner\verify-and-mine.ps1 -Compare "https://emberchain.org" "https://emberchain.duckdns.org"
+
+# Is your stuck tx on emberchain.org? Is it in the mining template?
+.\scripts\miner\verify-and-mine.ps1 `
+  -Node "https://emberchain.org" `
+  -Address "0xa8f6efc25896c24ac6c9441f9f693c14517aa818" `
+  -Tx "0x2f3ac34b6d645b6414c666f79b5027f26cb9308bf21f2213c5d3f9ef3974cff3" `
+  -CheckOnly
+
+# Bridge #1785643913328 should show status=failed after chain-node deploy
+.\scripts\miner\verify-and-mine.ps1 `
+  -Node "https://emberchain.org" `
+  -Address "0xa8f6efc25896c24ac6c9441f9f693c14517aa818" `
+  -BridgeNonce "1785643913328" `
+  -CheckOnly
+
+# Mine on the node where your tx lives (includes mempool txs in blocks)
+.\scripts\miner\verify-and-mine.ps1 `
+  -Node "https://emberchain.org" `
+  -Address "0xa8f6efc25896c24ac6c9441f9f693c14517aa818" `
+  -Tx "0x2f3ac34b6d645b6414c666f79b5027f26cb9308bf21f2213c5d3f9ef3974cff3"
+```
+
+Or with node directly:
+
+```bash
+cd scripts/miner && npm install
+node emberchain-miner.mjs --node https://emberchain.org --address 0x... --tx 0x... --check-only
+node emberchain-miner.mjs --node https://emberchain.org --address 0x... --tx 0x...
+```
+
 ## Examples
 
 ```bash

@@ -5,6 +5,7 @@ import {
   GetTransactionParams, GetTransactionResponse,
 } from "@workspace/api-zod";
 import { chain } from "../lib/chain";
+import { getBridgeEventByTxHash, markBridgeFailed } from "../lib/bridge-store";
 import { syncAndWait, isChainSynced } from "../lib/sync-loop";
 
 const router = Router();
@@ -60,7 +61,32 @@ router.get("/transactions/:hash", async (req: Request, res: Response): Promise<v
   const params = GetTransactionParams.parse(req.params);
   const tx = await chain.getTransaction(params.hash);
   if (!tx) { res.status(404).json({ error: `Transaction ${params.hash} not found` }); return; }
-  res.json(GetTransactionResponse.parse(tx));
+  const payload = GetTransactionResponse.parse(tx) as Record<string, unknown>;
+  if (tx.status === "pending") {
+    payload.orphaned = chain.isOrphanedPending(params.hash);
+  }
+  res.json(payload);
+});
+
+/** Drop a stuck pending tx — marks it failed so the UI stops showing "In Mempool". */
+router.post("/transactions/:hash/drop", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const params = GetTransactionParams.parse(req.params);
+    const tx = await chain.dropPendingTransaction(params.hash);
+
+    const bridgeEvent = await getBridgeEventByTxHash(params.hash);
+    if (bridgeEvent && bridgeEvent.status === "pending") {
+      await markBridgeFailed(
+        bridgeEvent.nonce,
+        bridgeEvent.direction,
+        tx.error ?? "Source transaction dropped from mempool",
+      );
+    }
+
+    res.json(GetTransactionResponse.parse(tx));
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Failed to drop transaction" });
+  }
 });
 
 export default router;

@@ -341,6 +341,55 @@ export class Blockchain {
       this.blocksByHash.set(genesisBlock.hash, genesisBlock);
     }
     this.evm = await createEVM({ common: this.common, stateManager: this.stateManager });
+    this.rebuildMempoolFromPending();
+  }
+
+  /**
+   * Pending txs are persisted in `transactions` but the mempool is in-memory only.
+   * Re-queue on boot so restarts don't orphan "pending" txs miners never see.
+   */
+  private rebuildMempoolFromPending(): void {
+    const pending = [...this.transactions.values()]
+      .filter((tx) => tx.status === "pending" && !this.txHashToBlock.has(tx.hash))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+    this.mempool = pending.map((tx) => ({
+      hash: tx.hash,
+      from: tx.from,
+      to: tx.to,
+      value: BigInt(tx.value),
+      data: (tx.data ?? "0x") as PrefixedHexString,
+      gasLimit: BigInt(tx.gasLimit),
+    }));
+
+    if (pending.length > 0) {
+      console.log(`[chain] Rebuilt mempool with ${pending.length} pending transaction(s)`);
+    }
+  }
+
+  /** Mark a stuck pending tx as failed so the UI stops polling. Safe to resubmit after drop. */
+  async dropPendingTransaction(hash: string): Promise<StoredTransaction> {
+    await this.whenReady();
+    const key = hash as PrefixedHexString;
+    const tx = this.transactions.get(key);
+    if (!tx) throw new Error("Transaction not found");
+    if (tx.status !== "pending") throw new Error("Only pending transactions can be dropped");
+    if (this.txHashToBlock.has(key)) throw new Error("Transaction already confirmed");
+
+    this.mempool = this.mempool.filter((m) => m.hash !== key);
+    tx.status = "failed";
+    tx.error = "Dropped from mempool (never mined). Safe to resubmit.";
+    this.persist();
+    return tx;
+  }
+
+  /** True when a pending tx is persisted but no longer queued for mining (e.g. after restart). */
+  isOrphanedPending(hash: string): boolean {
+    const key = hash as PrefixedHexString;
+    const tx = this.transactions.get(key);
+    if (!tx || tx.status !== "pending") return false;
+    if (this.txHashToBlock.has(key)) return false;
+    return !this.mempool.some((m) => m.hash === key);
   }
 
   async whenReady(): Promise<void> {
@@ -419,6 +468,8 @@ export class Blockchain {
       for (const [addr, count] of data.currentRoundShares ?? []) {
         this.currentRoundShares.set(addr, count);
       }
+
+      this.rebuildMempoolFromPending();
 
       this.persist();
       const tip = this.blocks[this.blocks.length - 1]!;

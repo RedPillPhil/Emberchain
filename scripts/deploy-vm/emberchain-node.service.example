@@ -1,0 +1,38 @@
+# Example systemd unit for chain-node on the seed server.
+# Copy/adapt to /etc/systemd/system/emberchain-node.service
+#
+#   sudo cp scripts/deploy-vm/emberchain-node.service.example /etc/systemd/system/emberchain-node.service
+#   sudo nano /etc/systemd/system/emberchain-node.service   # set paths + secrets
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now emberchain-node
+
+[Unit]
+Description=Emberchain L1 Node
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Emberchain/emberchain/artifacts/chain-node
+Environment="PORT=8080"
+Environment="NODE_ENV=production"
+# Do NOT set MINING_DISABLED=true on the seed server — browser miners use this node.
+
+# Keep blocks flowing so submitted txs confirm (~8s target). Use intensity 1 only.
+# Optional — only if you want the seed to mine continuously (not required for bridge tests).
+# Environment="AUTO_START_MINING=true"
+# Environment="SEED_MINER_ADDRESS=0xREPLACE_WITH_YOUR_MINER_WALLET"
+# Environment="MINING_INTENSITY=1"
+
+# Automated EMBR ↔ Base bridging (fund wallet with Base ETH for gas)
+Environment="BRIDGE_RELAYER_PRIVATE_KEY=0xREPLACE_ME"
+Environment="BASE_RPC_URL=https://mainnet.base.org"
+Environment="EMBER_BRIDGE_ADDRESS=0x9362587019ea0e4ef90fbd981c615d4441d9d2c4"
+Environment="EMBERCHAIN_BRIDGE_ADDRESS=0x1573EdF8F933601e6f37AC9B104cF62C7f85a0F4"
+
+ExecStart=/usr/bin/node --enable-source-maps ./dist/index.mjs
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

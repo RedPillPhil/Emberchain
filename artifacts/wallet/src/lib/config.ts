@@ -63,6 +63,11 @@ export function chainNodeApi(path: string): string {
   return `${chainNodeOrigin()}${p}`;
 }
 
+/** Base URL for all chain-node traffic (transactions, mining, status). */
+export function chainNodeBaseUrl(): string {
+  return chainNodeOrigin();
+}
+
 export function chainNodeRpcUrl(): string {
   return chainNodeApi("/api/rpc");
 }

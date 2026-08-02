@@ -9,18 +9,7 @@ import { Flame, Zap, Hash, Database, Terminal, Cpu, Share2 } from "lucide-react"
 import { cn, formatEmbr } from "@/lib/utils";
 import type { FromWorkerMsg, ToWorkerMsg, WorkerErrorMsg } from "@/workers/mining.worker";
 
-import { isSelfHostedSite } from "@/lib/config";
-
-// ── mining node — same-origin on self-hosted; duckdns fallback for legacy CDN builds ──
-function resolveMiningNode(): string {
-  const explicit = (import.meta.env.VITE_MINING_NODE_URL as string | undefined)?.trim().replace(/\/+$/, "");
-  if (explicit) return explicit;
-  if (import.meta.env.DEV) return "";
-  if (isSelfHostedSite() && typeof location !== "undefined") return location.origin;
-  return "https://emberchain.duckdns.org";
-}
-
-const MINING_NODE = resolveMiningNode();
+import { chainNodeApi, chainNodeBaseUrl } from "@/lib/config";
 
 /** fetch() with an AbortController timeout — prevents indefinite hangs after block commits. */
 async function timedFetch(url: string, opts: RequestInit = {}, ms = 6000): Promise<Response> {
@@ -34,7 +23,7 @@ async function timedFetch(url: string, opts: RequestInit = {}, ms = 6000): Promi
 }
 
 async function fetchMiningTemplate(minerAddress: string): Promise<MiningTemplate> {
-  const url = `${MINING_NODE}/api/mining/template?minerAddress=${encodeURIComponent(minerAddress)}`;
+  const url = chainNodeApi(`/api/mining/template?minerAddress=${encodeURIComponent(minerAddress)}`);
   const r = await timedFetch(url, {}, 10_000);
   if (!r.ok) {
     const body = await r.text().catch(() => "");
@@ -44,7 +33,7 @@ async function fetchMiningTemplate(minerAddress: string): Promise<MiningTemplate
 }
 
 async function postMiningShare(data: SubmitShareInput): Promise<SubmitShareResult> {
-  const r = await timedFetch(`${MINING_NODE}/api/mining/share`, {
+  const r = await timedFetch(chainNodeApi("/api/mining/share"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -54,7 +43,7 @@ async function postMiningShare(data: SubmitShareInput): Promise<SubmitShareResul
 }
 
 async function postMiningBlock(data: SubmitBlockInput): Promise<void> {
-  const r = await timedFetch(`${MINING_NODE}/api/mining/submit`, {
+  const r = await timedFetch(chainNodeApi("/api/mining/submit"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -68,7 +57,7 @@ async function waitForChainAdvance(aboveHeight: number, signal: AbortSignal): Pr
     await new Promise((r) => setTimeout(r, 1000));
     if (signal.aborted) return;
     try {
-      const r = await timedFetch(`${MINING_NODE}/api/chain/status`, {}, 3000);
+      const r = await timedFetch(chainNodeApi("/api/chain/status"), {}, 3000);
       if (r.ok) {
         const s = await r.json() as { height?: number };
         if ((s.height ?? 0) > aboveHeight) return;
@@ -117,6 +106,14 @@ export default function Mining() {
   const [selectedIntensity, setSelectedIntensity] = useState(2);
   const [logs, setLogs]                       = useState<string[]>([]);
   const [tabBlocked, setTabBlocked]           = useState(false);
+  const [nodeStatus, setNodeStatus]           = useState<{
+    pending: number;
+    isMining: boolean;
+    height: number;
+  } | null>(null);
+  const [templatePending, setTemplatePending] = useState<number | null>(null);
+
+  const nodeEndpoint = chainNodeBaseUrl() || (typeof location !== "undefined" ? location.origin : "");
 
   // Pool of workers — one per CPU core
   const workerPoolRef       = useRef<Worker[]>([]);
@@ -128,6 +125,32 @@ export default function Mining() {
   const channelRef          = useRef<BroadcastChannel | null>(null);
 
   const { data: status } = useGetMiningStatus({ query: { refetchInterval: false } });
+
+  // Poll chain-node status so users can verify mining hits the same node as their txs.
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const r = await timedFetch(chainNodeApi("/api/chain/status"), {}, 5000);
+        if (!r.ok || cancelled) return;
+        const s = await r.json() as {
+          pendingTransactionCount?: number;
+          isMining?: boolean;
+          height?: number;
+        };
+        if (!cancelled) {
+          setNodeStatus({
+            pending: s.pendingTransactionCount ?? 0,
+            isMining: Boolean(s.isMining),
+            height: s.height ?? 0,
+          });
+        }
+      } catch { /* ignore */ }
+    };
+    void poll();
+    const id = setInterval(poll, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
   const addLog = useCallback((msg: string, kind: "default" | "found" | "warn" = "default") => {
     const tag = kind === "found" ? "★ " : kind === "warn" ? "! " : "  ";
@@ -161,6 +184,7 @@ export default function Mining() {
         hashRatesRef.current.clear();
         templateFetchingRef.current = false;
         templateRef.current = tmpl;
+        setTemplatePending(tmpl.pendingTxHashes?.length ?? 0);
 
         const newPool: Worker[] = [];
 
@@ -475,6 +499,31 @@ export default function Mining() {
           Each core runs a dedicated Web Worker grinding keccak256 hashes in parallel — no page freezes, no GPU required.
           Valid shares are submitted for proportional EMBR payout even if your tab doesn't find the winning block.
         </p>
+      </div>
+
+      {/* Node diagnostic — txs and mining must hit the same endpoint */}
+      <div className="mb-6 bg-secondary/30 border border-border rounded-sm p-4 text-xs font-mono space-y-1">
+        <div className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground mb-2">
+          Chain node (transactions + mining)
+        </div>
+        <div className="text-primary break-all">{nodeEndpoint || "(same origin)"}</div>
+        {nodeStatus && (
+          <div className="text-muted-foreground pt-1 space-y-0.5">
+            <div>Block height: <span className="text-foreground">{nodeStatus.height}</span></div>
+            <div>Mempool pending: <span className={nodeStatus.pending > 0 ? "text-amber-400" : "text-foreground"}>{nodeStatus.pending}</span></div>
+            <div>Server mining: <span className="text-foreground">{nodeStatus.isMining ? "active" : "off"}</span></div>
+            {templatePending !== null && (
+              <div>Current block template txs: <span className="text-foreground">{templatePending}</span></div>
+            )}
+          </div>
+        )}
+        {nodeStatus && nodeStatus.pending > 0 && templatePending === 0 && isMining && (
+          <p className="text-destructive font-sans text-[11px] pt-2 leading-relaxed">
+            Mempool has {nodeStatus.pending} pending tx(s) but your mining template includes 0 —
+            you may be on an old site build or a different node than where txs were submitted.
+            Hard-refresh (Ctrl+Shift+R) after redeploying static files.
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
