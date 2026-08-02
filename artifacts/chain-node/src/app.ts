@@ -30,6 +30,13 @@ app.use((req, _res, next) => {
 
 app.use("/api", router);
 
+app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  logger.error({ err }, "Unhandled API error");
+  if (!res.headersSent) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Internal server error" });
+  }
+});
+
 // Simple root — identifies this as the chain node when accessed directly
 app.get("/", (_req, res) => {
   res.json({ service: "Emberchain Node", description: "Standalone blockchain node service. Use /api/rpc for JSON-RPC, /api/sync for peer sync." });

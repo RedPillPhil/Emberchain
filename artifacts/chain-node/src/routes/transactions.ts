@@ -10,7 +10,15 @@ import { syncAndWait, isChainSynced } from "../lib/sync-loop";
 const router = Router();
 
 router.post("/transactions", async (req: Request, res: Response): Promise<void> => {
-  const body = CreateTransactionBody.parse(req.body ?? {});
+  let body;
+  try {
+    body = CreateTransactionBody.parse(req.body ?? {});
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "Invalid transaction body",
+    });
+    return;
+  }
   // Ensure the local chain is current before accepting the transaction.
   // If we've been in idle-sync mode (60s interval) the tip could be stale.
   // syncAndWait() completes within 5 s or proceeds anyway — never blocks the user.

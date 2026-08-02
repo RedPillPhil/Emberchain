@@ -2804,7 +2804,7 @@ export default function EmberSwap() {
       </div>
 
       <Tabs defaultValue="bridge" className="w-full">
-        <TabsList className="grid grid-cols-3 max-w-md bg-secondary rounded-sm p-1 mb-8">
+        <TabsList className="grid grid-cols-3 max-w-lg mx-auto w-full bg-secondary rounded-sm p-1 mb-8">
           <TabsTrigger
             value="bridge"
             className="rounded-sm uppercase font-bold text-xs tracking-widest data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
