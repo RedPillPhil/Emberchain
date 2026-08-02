@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { formatNumber, cn } from '@/lib/utils';
 import { useAccount, useSignMessage, usePublicClient } from 'wagmi';
 import { formatEther } from 'viem';
@@ -52,6 +52,7 @@ export const OrderBook = React.memo(function OrderBook({
   const [openOrders, setOpenOrders] = useState<ParsedOpenOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const fetchGenRef = useRef(0);
   const [cancellingHash, setCancellingHash] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; err: boolean } | null>(null);
 
@@ -78,34 +79,40 @@ export const OrderBook = React.memo(function OrderBook({
     return rows[0]?.price ?? null;
   }, [tradeLogs, tokenAddress]);
 
-  const fetchOrders = useCallback(async () => {
+  const fetchOrders = useCallback(async (opts?: { showLoading?: boolean }) => {
+    const gen = ++fetchGenRef.current;
+    if (opts?.showLoading !== false) setLoading(true);
+
     try {
       const raw = await fetchRawOpenOrders(tokenAddress);
+      if (gen !== fetchGenRef.current) return;
+
       let block = currentBlock;
       if (block === 0n && publicClient) {
         block = await publicClient.getBlockNumber();
       }
+      if (gen !== fetchGenRef.current) return;
+
       let parsed = parseOpenOrders(raw, tokenAddress, block);
       if (publicClient) {
         parsed = await enrichOrdersWithChainVolume(publicClient, parsed);
       }
+      if (gen !== fetchGenRef.current) return;
+
       setOpenOrders(parsed);
       setFetchError(null);
     } catch (e) {
+      if (gen !== fetchGenRef.current) return;
       console.error('OrderBook fetch error', e);
       setFetchError(e instanceof Error ? e.message : 'Failed to load orders');
     } finally {
-      setLoading(false);
+      if (gen === fetchGenRef.current) setLoading(false);
     }
   }, [tokenAddress, currentBlock, publicClient]);
 
   useEffect(() => {
-    setLoading(true);
     setFetchError(null);
     setOpenOrders([]);
-  }, [tokenAddress]);
-
-  useEffect(() => {
     fetchOrders();
   }, [fetchOrders, refreshKey]);
 
@@ -114,7 +121,7 @@ export const OrderBook = React.memo(function OrderBook({
 
     const start = () => {
       if (intervalId) return;
-      intervalId = setInterval(fetchOrders, 15_000);
+      intervalId = setInterval(() => { void fetchOrders({ showLoading: false }); }, 15_000);
     };
     const stop = () => {
       if (intervalId) { clearInterval(intervalId); intervalId = null; }

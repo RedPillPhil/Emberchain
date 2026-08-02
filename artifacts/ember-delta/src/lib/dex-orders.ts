@@ -79,12 +79,55 @@ export function parseOpenOrders(
   return parsed;
 }
 
+const inflightOrderFetches = new Map<string, Promise<Record<string, unknown>[]>>();
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Fetch open orders with in-flight dedupe and retry for transient proxy/server errors. */
 export async function fetchRawOpenOrders(tokenAddress: string): Promise<Record<string, unknown>[]> {
-  const res = await fetch(
-    chainNodeApi(`/api/dex/orders?token=${tokenAddress}&status=open`),
-  );
-  if (!res.ok) throw new Error(`Failed to fetch orders (${res.status})`);
-  return res.json();
+  const url = chainNodeApi(`/api/dex/orders?token=${tokenAddress}&status=open`);
+  const existing = inflightOrderFetches.get(url);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    const maxAttempts = 4;
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) return (await res.json()) as Record<string, unknown>[];
+
+        const retryable = res.status >= 500 || res.status === 429;
+        if (retryable && attempt < maxAttempts - 1) {
+          await sleep(300 * (attempt + 1));
+          continue;
+        }
+        throw new Error(`Failed to fetch orders (${res.status})`);
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        const retryable =
+          lastError.name === "TypeError" ||
+          lastError.message.includes("Failed to fetch") ||
+          lastError.message.includes("NetworkError") ||
+          /\(5\d\d\)/.test(lastError.message);
+        if (retryable && attempt < maxAttempts - 1) {
+          await sleep(300 * (attempt + 1));
+          continue;
+        }
+        throw lastError;
+      }
+    }
+
+    throw lastError ?? new Error("Failed to fetch orders");
+  })().finally(() => {
+    inflightOrderFetches.delete(url);
+  });
+
+  inflightOrderFetches.set(url, promise);
+  return promise;
 }
 
 function asBytes32(hex: string): `0x${string}` {
