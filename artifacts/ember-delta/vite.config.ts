@@ -5,7 +5,7 @@ import { defineConfig, loadEnv } from 'vite';
 
 const env = loadEnv(process.env.NODE_ENV ?? 'development', process.cwd(), '');
 const port = Number(env.PORT ?? '18912');
-const basePath = env.BASE_PATH ?? '/';
+const basePath = process.env.BASE_PATH ?? env.BASE_PATH ?? '/';
 
 const apiProxyTarget =
   env.VITE_API_PROXY_TARGET ??

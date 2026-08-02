@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "cd ../.. && pnpm install",
-  "buildCommand": "cd ../.. && pnpm --filter @workspace/wallet run build && BASE_PATH=/ember-delta/ pnpm --filter @workspace/ember-delta run build && node scripts/stage-ember-delta.mjs",
+  "buildCommand": "cd ../.. && node scripts/build-vercel.mjs",
   "outputDirectory": "dist/public",
   "framework": "vite",
   "rewrites": [
