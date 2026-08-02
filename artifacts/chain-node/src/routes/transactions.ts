@@ -6,6 +6,7 @@ import {
 } from "@workspace/api-zod";
 import { chain } from "../lib/chain";
 import { getBridgeEventByTxHash, markBridgeFailed } from "../lib/bridge-store";
+import { broadcastTransaction } from "../lib/peers";
 import { syncAndWait, isChainSynced } from "../lib/sync-loop";
 
 const router = Router();
@@ -25,6 +26,8 @@ router.post("/transactions", async (req: Request, res: Response): Promise<void> 
     if (!isChainSynced()) await syncAndWait(5_000);
     try {
       const tx = await chain.submitTransaction(body);
+      // Gossip to peers so miners on any node can include it, not just this one.
+      broadcastTransaction(tx).catch(() => {});
       try {
         res.status(201).json(CreateTransactionResponse.parse(tx));
       } catch {

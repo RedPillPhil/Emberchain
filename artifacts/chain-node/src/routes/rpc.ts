@@ -10,6 +10,7 @@ import type { PrefixedHexString } from "@ethereumjs/util";
 import { EMBERCHAIN_ID, createEmberchainCommon, GAS_PRICE } from "@workspace/chain-core";
 import type { StoredBlock, StoredTransaction } from "@workspace/chain-core";
 import { chain } from "../lib/chain";
+import { broadcastTransaction } from "../lib/peers";
 
 const router = Router();
 const CHAIN_ID_HEX = "0x" + EMBERCHAIN_ID.toString(16);
@@ -143,11 +144,12 @@ async function dispatch(method: string, params: unknown[]): Promise<unknown> {
       const from = parsed.getSenderAddress().toString() as PrefixedHexString;
       const hash = bytesToHex(parsed.hash()) as PrefixedHexString;
       const to   = parsed.to?.toString() as PrefixedHexString | undefined;
-      await chain.submitRawEVMTransaction({
+      const stored = await chain.submitRawEVMTransaction({
         hash, from, to: to ?? null,
         value: parsed.value.toString(), data: bytesToHex(parsed.data) as PrefixedHexString,
         gasLimit: parsed.gasLimit.toString(), nonce: parsed.nonce,
       });
+      broadcastTransaction(stored).catch(() => {});
       return hash;
     }
     case "eth_call": {

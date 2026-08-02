@@ -21,6 +21,8 @@ import { useSubmitChainTransaction } from "@/hooks/use-submit-chain-transaction"
 import { useGetWallet } from "@workspace/api-client-react";
 import { Link } from "wouter";
 import { resolveApiServer } from "@/lib/api-server";
+import { chainNodeBaseUrl } from "@/lib/config";
+import { triggerLocalBridgeMiner } from "@/lib/bridge-miner";
 import {
   maxSpendableEmbr,
   waitForChainTransaction,
@@ -1545,6 +1547,25 @@ function BridgeTab() {
                 txHash: tx.hash,
                 submittedAt: Date.now(),
                 direction: "embr_to_base",
+              });
+              const minerNode = chainNodeBaseUrl() || (typeof location !== "undefined" ? location.origin : "https://emberchain.org");
+              void triggerLocalBridgeMiner({
+                node: minerNode,
+                address: activeWallet.address,
+                txHash: tx.hash,
+              }).then((r) => {
+                if (r.ok) {
+                  toast({
+                    title: "Desktop miner started",
+                    description: "Your PC is mining to confirm this bridge lock.",
+                  });
+                } else {
+                  toast({
+                    title: "Start desktop miner",
+                    description: "Run scripts\\miner\\install-auto-miner.ps1 once, then bridge again.",
+                    variant: "destructive",
+                  });
+                }
               });
               try {
                 await waitForChainTransaction(tx.hash);

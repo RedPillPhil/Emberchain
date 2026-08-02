@@ -25,6 +25,16 @@ let _cachedBestPeer: string | null = null;
 let _lastPeerPollMs = 0;
 const PEER_REPOLL_INTERVAL_MS = 5 * 60_000;
 let _bestPeerHeight = 0;
+let _mempoolPauseSinceMs: number | null = null;
+
+/**
+ * Optional: skip importing peer blocks while the mempool has pending txs so local
+ * mining gets a window to confirm them.  Off by default — with transaction gossip
+ * enabled any peer can mine our txs, so pausing only makes this node lag behind.
+ */
+const SYNC_PAUSE_ON_MEMPOOL = process.env.SYNC_PAUSE_ON_MEMPOOL === "true";
+const SYNC_PAUSE_MAX_LAG = Math.max(1, Number(process.env.SYNC_PAUSE_MAX_LAG ?? "2") || 2);
+const SYNC_PAUSE_MAX_MS = Math.max(30_000, Number(process.env.SYNC_PAUSE_MAX_MS ?? "300000") || 300_000);
 
 // Pending callers waiting for the next syncOnce() to complete (for pre-tx sync)
 let _syncWaiters: Array<() => void> = [];
@@ -211,6 +221,35 @@ async function syncOnce(): Promise<void> {
 
     const bestPeer = sortedPeers[0]!;
     if (bestPeer.height > _bestPeerHeight) _bestPeerHeight = bestPeer.height;
+
+    // Pause peer sync while local mempool has txs — lets browser/desktop/server miners
+    // confirm them instead of importing empty peer blocks that skip the mempool.
+    const mempoolPending = (await chain.getStatus().catch(() => null))?.pendingTransactionCount ?? 0;
+    const blocksBehind = bestPeer.height - ourHeight;
+    if (
+      SYNC_PAUSE_ON_MEMPOOL
+      && mempoolPending > 0
+      && blocksBehind > 0
+      && blocksBehind <= SYNC_PAUSE_MAX_LAG
+    ) {
+      const nowMs = Date.now();
+      if (_mempoolPauseSinceMs === null) _mempoolPauseSinceMs = nowMs;
+      const pausedFor = nowMs - _mempoolPauseSinceMs;
+      if (pausedFor < SYNC_PAUSE_MAX_MS) {
+        const peerShort = bestPeer.url.replace(/^https?:\/\//, "");
+        console.log(
+          `[${ts()}] [sync] ⏸ Pausing sync — ${mempoolPending} mempool tx(s), `
+          + `${blocksBehind} block(s) behind ${peerShort} (local mining should confirm)`,
+        );
+        return;
+      }
+      console.warn(
+        `[${ts()}] [sync] ⏱ Mempool pause timeout (${Math.round(pausedFor / 1000)}s) — resuming sync`,
+      );
+      _mempoolPauseSinceMs = null;
+    } else {
+      _mempoolPauseSinceMs = null;
+    }
 
     // Check whether we're already in sync with the best peer
     if (bestPeer.td <= ourTD && bestPeer.height <= ourHeight) {

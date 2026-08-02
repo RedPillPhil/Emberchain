@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { chain } from "../lib/chain";
-import { addPeer, getPeers, broadcastBlock } from "../lib/peers";
+import { addPeer, getPeers, broadcastBlock, broadcastTransaction } from "../lib/peers";
 import type { StoredBlock, StoredTransaction } from "@workspace/chain-core";
 
 const router = Router();
@@ -85,6 +85,30 @@ router.post("/sync/submit-block", async (req: Request, res: Response): Promise<v
     res.status(status).json({ error: msg });
   } finally {
     blockImportInFlight--;
+  }
+});
+
+/**
+ * Receive a transaction gossiped by a peer and queue it in the local mempool
+ * so this node's miners can include it in the next block.
+ */
+router.post("/sync/submit-tx", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { transaction, fromPeer } = req.body as {
+      transaction?: StoredTransaction;
+      fromPeer?: string;
+    };
+    if (!transaction || !transaction.hash || !transaction.from) {
+      res.status(400).json({ error: "Missing or malformed transaction" });
+      return;
+    }
+    if (fromPeer) addPeer(fromPeer);
+    const accepted = await chain.acceptPeerTransaction(transaction);
+    // Only re-gossip the first time we see it, otherwise peers loop forever.
+    if (accepted) broadcastTransaction(transaction, fromPeer).catch(() => {});
+    res.json({ accepted, hash: transaction.hash });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Transaction rejected" });
   }
 });
 

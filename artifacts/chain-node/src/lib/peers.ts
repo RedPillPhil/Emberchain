@@ -126,6 +126,32 @@ export async function announceSelf(selfUrl: string): Promise<void> {
   );
 }
 
+/**
+ * Gossip a pending transaction to all peers so miners on other nodes can
+ * include it.  Without this a tx only ever lives in the mempool of the node
+ * that received it and never gets mined unless that node finds the block.
+ */
+export async function broadcastTransaction(
+  transaction: StoredTransaction,
+  excludeUrl?: string,
+): Promise<void> {
+  const targets = getPeers().filter((p) => p !== excludeUrl);
+  if (targets.length === 0) return;
+  const payload = JSON.stringify({ transaction, fromPeer: MY_URL });
+  await Promise.allSettled(
+    targets.map(async (peer) => {
+      try {
+        await fetch(`${peer}/api/sync/submit-tx`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+          signal: AbortSignal.timeout(8000),
+        });
+      } catch { /* peer offline */ }
+    }),
+  );
+}
+
 export async function broadcastBlock(
   block: StoredBlock,
   transactions: StoredTransaction[],

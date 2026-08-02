@@ -1,12 +1,11 @@
 {
   "name": "emberchain-miner",
   "version": "1.0.0",
-  "description": "Standalone CPU miner for EmberChain",
+  "description": "Standalone CPU miner for EmberChain (zero npm deps — keccak bundled)",
   "type": "module",
   "scripts": {
-    "mine": "node emberchain-miner.mjs"
-  },
-  "dependencies": {
-    "ethereum-cryptography": "^2.2.1"
+    "mine": "node emberchain-miner.mjs",
+    "bridge-mine": "node mine-for-bridge.mjs",
+    "daemon": "node bridge-miner-daemon.mjs"
   }
 }

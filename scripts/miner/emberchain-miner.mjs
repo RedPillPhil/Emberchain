@@ -9,8 +9,7 @@
  *   node mine-for-bridge.mjs --node https://emberchain.org --address 0xYOUR...
  *   node mine-for-bridge.mjs --node https://emberchain.org --address 0xYOUR... --tx 0xHASH
  *
- * Setup (once):
- *   cd scripts/miner && npm install
+ * Setup: none — just run mine.ps1 (no npm install needed)
  *
  * Verify a stuck tx exists on a node, then mine there:
  *   node emberchain-miner.mjs --node https://emberchain.org --address 0xYOUR... --tx 0xSTUCK_HASH
@@ -28,12 +27,10 @@ import { fileURLToPath } from "node:url";
 import os from "node:os";
 
 const require = createRequire(import.meta.url);
-let keccak256;
-try {
-  ({ keccak256 } = require("ethereum-cryptography/keccak.js"));
-} catch {
-  console.error("\n  ✗  Run:  npm install ethereum-cryptography\n");
-  process.exit(1);
+const sha3 = require("./vendor/sha3.cjs");
+/** @param {Uint8Array} data */
+function keccak256(data) {
+  return Uint8Array.from(sha3.keccak256.array(data));
 }
 
 const MAX_TARGET = 2n ** 256n - 1n;
@@ -112,9 +109,22 @@ function parseArgs() {
 }
 
 async function fetchJson(url, init) {
-  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(15_000) });
-  const body = await res.json().catch(() => ({}));
-  return { ok: res.ok, status: res.status, body };
+  const maxAttempts = 5;
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url, { ...init, signal: AbortSignal.timeout(20_000) });
+      const body = await res.json().catch(() => ({}));
+      return { ok: res.ok, status: res.status, body };
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts) {
+        await sleep(Math.min(1000 * attempt, 5000));
+        continue;
+      }
+    }
+  }
+  throw lastErr ?? new Error("fetch failed");
 }
 
 async function getChainStatus(node) {
@@ -190,9 +200,7 @@ async function listRecentTxs(node, address) {
 }
 
 const LOCK_SELECTOR = "0x" + Buffer.from(
-  require("ethereum-cryptography/keccak.js").keccak256(
-    new TextEncoder().encode("lockEMBR(address,uint256)"),
-  ),
+  keccak256(new TextEncoder().encode("lockEMBR(address,uint256)")),
 ).subarray(0, 4).toString("hex");
 
 const BRIDGE_TO = (process.env.EMBER_BRIDGE_ADDRESS ?? "0x9362587019ea0e4ef90fbd981c615d4441d9d2c4").toLowerCase();
@@ -444,49 +452,62 @@ async function mainLoop() {
         },
       });
 
-      w.on("message", async (msg) => {
-        if (stale || stopMining) return;
-        totalHashes += msg.hashes ?? 0;
+      w.on("error", (err) => console.error(`\n  Worker error: ${err.message}`));
+      w.on("message", (msg) => {
+        void handleWorkerMessage(msg).catch((err) => {
+          console.error(`\n  [${ts()}] ⚠  Worker handler error: ${err.message}`);
+        });
+      });
+      workers.push(w);
+    }
+  }
 
-        if (msg.type === "block") {
-          console.log(`\n  [${ts()}] 🟠 BLOCK nonce=${msg.nonce} ${short(msg.hash)}`);
-          const { status, body } = await submitBlock(
-            cfg.node, cfg.address, currentHeader, msg.nonce, msg.hash, currentPending,
-          );
-          if (status === 200) {
-            blocks++;
-            console.log(`  [${ts()}] ✅ Block accepted #${currentBlock} (${currentPending.length} txs)`);
-            if (cfg.tx) {
-              const t = await getTransaction(cfg.node, cfg.tx).catch(() => null);
-              if (t?.status === "success") console.log(`  [${ts()}] ✅ Target tx CONFIRMED`);
-              else if (t) console.log(`  [${ts()}] Target tx still: ${t.status}`);
-            }
-          } else if (status === 409) {
-            console.log(`  [${ts()}] ⚠  Stale block (409)`);
-          } else {
-            console.log(`  [${ts()}] ✗ Block rejected (${status}): ${body?.error ?? JSON.stringify(body)}`);
+  async function handleWorkerMessage(msg) {
+    if (stale || stopMining) return;
+    totalHashes += msg.hashes ?? 0;
+
+    if (msg.type === "block") {
+      console.log(`\n  [${ts()}] 🟠 BLOCK nonce=${msg.nonce} ${short(msg.hash)}`);
+      try {
+        const { status, body } = await submitBlock(
+          cfg.node, cfg.address, currentHeader, msg.nonce, msg.hash, currentPending,
+        );
+        if (status === 200) {
+          blocks++;
+          console.log(`  [${ts()}] ✅ Block accepted #${currentBlock} (${currentPending.length} txs)`);
+          if (cfg.tx) {
+            const t = await getTransaction(cfg.node, cfg.tx).catch(() => null);
+            if (t?.status === "success") console.log(`  [${ts()}] ✅ Target tx CONFIRMED`);
+            else if (t) console.log(`  [${ts()}] Target tx still: ${t.status}`);
           }
-          stale = true;
-          await refreshTemplate();
-        } else if (msg.type === "share") {
-          const { status, body } = await submitShare(cfg.node, cfg.address, currentHeader, msg.nonce);
-          if (status === 200) {
-            shares++;
-            if (body?.blockFound) {
-              blocks++;
-              console.log(`\n  [${ts()}] ✅ Share promoted to block #${currentBlock}`);
-              stale = true;
-              await refreshTemplate();
-            }
-          } else if (status === 409) {
+        } else if (status === 409) {
+          console.log(`  [${ts()}] ⚠  Stale block (409)`);
+        } else {
+          console.log(`  [${ts()}] ✗ Block rejected (${status}): ${body?.error ?? JSON.stringify(body)}`);
+        }
+        stale = true;
+        await refreshTemplate();
+      } catch (err) {
+        console.error(`\n  [${ts()}] ⚠  Block submit network error: ${err.message} — retrying`);
+      }
+    } else if (msg.type === "share") {
+      try {
+        const { status, body } = await submitShare(cfg.node, cfg.address, currentHeader, msg.nonce);
+        if (status === 200) {
+          shares++;
+          if (body?.blockFound) {
+            blocks++;
+            console.log(`\n  [${ts()}] ✅ Share promoted to block #${currentBlock}`);
             stale = true;
             await refreshTemplate();
           }
+        } else if (status === 409) {
+          stale = true;
+          await refreshTemplate();
         }
-      });
-
-      w.on("error", (err) => console.error(`\n  Worker error: ${err.message}`));
-      workers.push(w);
+      } catch (err) {
+        console.error(`\n  [${ts()}] ⚠  Share submit network error: ${err.message} — continuing`);
+      }
     }
   }
 

@@ -24,6 +24,11 @@ Environment="NODE_ENV=production"
 # Environment="SEED_MINER_ADDRESS=0xREPLACE_WITH_YOUR_MINER_WALLET"
 # Environment="MINING_INTENSITY=1"
 
+# Pause peer sync while mempool has pending txs (lets local miners confirm them).
+Environment="SYNC_PAUSE_ON_MEMPOOL=true"
+Environment="SYNC_PAUSE_MAX_LAG=2"
+Environment="SYNC_PAUSE_MAX_MS=300000"
+
 # Automated EMBR ↔ Base bridging (fund wallet with Base ETH for gas)
 Environment="BRIDGE_RELAYER_PRIVATE_KEY=0xREPLACE_ME"
 Environment="BASE_RPC_URL=https://mainnet.base.org"

@@ -815,6 +815,57 @@ export class Blockchain {
     return tx;
   }
 
+  /**
+   * Accept a transaction gossiped from a peer into the local mempool so any
+   * node on the network can mine it, not just the node that received it.
+   * Returns false when the tx is already known (idempotent re-gossip).
+   */
+  async acceptPeerTransaction(input: StoredTransaction): Promise<boolean> {
+    await this.whenReady();
+    const hash = input.hash as PrefixedHexString;
+    if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("Invalid transaction hash");
+    if (!ADDRESS_RE.test(input.from)) throw new Error("Invalid sender address");
+    if (this.transactions.has(hash) || this.txHashToBlock.has(hash)) return false;
+    if (this.mempool.length >= MAX_MEMPOOL_ITEMS) return false;
+
+    const value = BigInt(input.value);
+    const gasLimit = BigInt(input.gasLimit);
+    if (value < 0n || gasLimit <= 0n) throw new Error("Invalid value or gas limit");
+
+    const from = input.from as PrefixedHexString;
+    const balance = await getBalance(this.stateManager, from);
+    if (value + gasLimit * GAS_PRICE > balance) {
+      throw new Error("Insufficient funds for gossiped transaction");
+    }
+
+    const to = normalizeHexAddress(input.to) as PrefixedHexString | null;
+    const data = (input.data && input.data !== "" ? input.data : "0x") as PrefixedHexString;
+
+    this.transactions.set(hash, {
+      ...input,
+      hash,
+      from,
+      to,
+      data,
+      status: "pending",
+      blockNumber: null,
+      contractAddress: null,
+      gasUsed: null,
+      error: null,
+      returnData: null,
+    });
+    this.mempool.push({ hash, from, to, value, data, gasLimit });
+    this.persist();
+    return true;
+  }
+
+  /** Pending mempool transactions, used for peer gossip and re-broadcast. */
+  getMempoolTransactions(): StoredTransaction[] {
+    return this.mempool
+      .map((entry) => this.transactions.get(entry.hash))
+      .filter((tx): tx is StoredTransaction => Boolean(tx));
+  }
+
   async listTransactions(address?: string, limit = 20): Promise<StoredTransaction[]> {
     await this.whenReady();
     let all = [...this.transactions.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));

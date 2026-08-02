@@ -23,24 +23,29 @@ node emberchain-miner.mjs --address 0xYOUR_EMBR_ADDRESS
 
 ## Bridge PC miner (confirm your lock from your computer)
 
-Run on **your PC** — does not start mining on the seed server.
-
-Run **before** clicking Bridge in the wallet (watches for your lock), or pass `-Tx` after submit:
+### One-time setup (auto-launch when you bridge)
 
 ```powershell
-# From repo root on Windows
-.\scripts\miner\mine-for-bridge.ps1 -Node "https://emberchain.org" -Address "0xYOUR_WALLET"
-
-# If you already submitted and have the lock tx hash:
-.\scripts\miner\mine-for-bridge.ps1 `
-  -Node "https://emberchain.org" `
-  -Address "0xYOUR_WALLET" `
-  -Tx "0xLOCK_TX_HASH"
+cd scripts\miner
+.\install-auto-miner.ps1
 ```
 
-This script:
-1. Watches for your pending `lockEMBR` tx (or uses `--tx`)
-2. Mines from your PC until the lock confirms, then exits
+This installs deps, registers a Windows logon task, and starts the **bridge-miner daemon** on `http://127.0.0.1:19747`. When you submit a bridge in the wallet, it auto-starts mining on your PC (same node as the lock tx).
+
+### Manual (without daemon)
+
+```powershell
+# Start daemon for this session only:
+.\start-bridge-miner-daemon.ps1
+
+# Or mine directly (no wallet auto-launch):
+.\mine-for-bridge.ps1 -Node "https://emberchain.org" -Address "0xYOUR_WALLET"
+.\mine-for-bridge.ps1 -Node "https://emberchain.org" -Address "0xYOUR..." -Tx "0xLOCK_HASH"
+```
+
+Runs on **your PC only** — does not start mining on the seed server.
+
+Logs: `scripts/miner/logs/`
 
 ## Verify before mining (node mismatch debug)
 

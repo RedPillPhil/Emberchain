@@ -10,6 +10,7 @@ import { setupCommunityWS } from "./routes/community";
 import { startBridgeAlertLoop } from "./lib/bridge-alert-loop";
 import { startBridgeRelayer } from "./lib/bridge-relayer";
 import { reconcileAllPendingBridges } from "./lib/bridge-reconcile";
+import { broadcastTransaction } from "./lib/peers";
 import type { PersistedChain } from "@workspace/chain-core";
 
 export interface ServerHandle {
@@ -75,6 +76,38 @@ async function maybeAutoStartMining(): Promise<void> {
   }
 }
 
+/**
+ * Re-gossip mempool transactions on a timer.  A one-shot broadcast at submit
+ * time misses peers that were offline, restarted, or joined afterwards — which
+ * leaves txs stranded on a single node forever.
+ */
+const TX_REBROADCAST_INTERVAL_MS = Math.max(
+  10_000,
+  Number(process.env.TX_REBROADCAST_INTERVAL_MS ?? "30000") || 30_000,
+);
+
+function startTxRebroadcastLoop(): void {
+  if (process.env.TX_GOSSIP_ENABLED === "false") {
+    logger.info("[tx-gossip] disabled (TX_GOSSIP_ENABLED=false)");
+    return;
+  }
+  setInterval(() => {
+    void (async () => {
+      try {
+        await chain.whenReady();
+        const pending = chain.getMempoolTransactions();
+        if (pending.length === 0) return;
+        logger.info({ count: pending.length }, "[tx-gossip] re-broadcasting mempool txs to peers");
+        for (const tx of pending) {
+          await broadcastTransaction(tx).catch(() => {});
+        }
+      } catch (err) {
+        logger.warn({ err }, "[tx-gossip] re-broadcast failed");
+      }
+    })();
+  }, TX_REBROADCAST_INTERVAL_MS);
+}
+
 export async function startServer(port: number): Promise<ServerHandle> {
   const server = http.createServer(app);
 
@@ -101,6 +134,7 @@ export async function startServer(port: number): Promise<ServerHandle> {
       startSyncLoop();
       startChainScanner();
       startBridgeAlertLoop();
+      startTxRebroadcastLoop();
       void maybeAutoStartMining();
       void chain.whenReady().then(() => reconcileAllPendingBridges()).catch((err) =>
         logger.warn({ err }, "[startup] bridge reconcile failed"),
