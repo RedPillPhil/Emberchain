@@ -16,6 +16,7 @@ import {
   type BridgeDirection,
 } from "../lib/bridge-store";
 import { fetchBaseBridgeOutByTxHash } from "../lib/base-bridge-scan";
+import { listAdminPendingBridges } from "../lib/bridge-admin-scan";
 
 const router: IRouter = Router();
 
@@ -236,6 +237,15 @@ router.get("/bridge/relayed-keys", async (_req: Request, res: Response): Promise
     res.json(listRelayedKeys());
   } catch (err) {
     console.error("[bridge] relayed-keys failed:", (err as Error).message);
+    res.json([]);
+  }
+});
+
+router.get("/bridge/admin-pending", async (_req: Request, res: Response): Promise<void> => {
+  try {
+    res.json(await listAdminPendingBridges());
+  } catch (err) {
+    console.error("[bridge] admin-pending failed:", (err as Error).message);
     res.json([]);
   }
 });

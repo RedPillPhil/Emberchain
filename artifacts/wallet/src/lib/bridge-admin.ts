@@ -67,6 +67,15 @@ export function markBridgeDismissedLocally(item: PendingBridge): void {
   localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify([...keys]));
 }
 
+function isBridgeDismissed(
+  direction: PendingBridge["direction"],
+  nonce: string,
+  txHash: string,
+  relayed: Set<string>,
+): boolean {
+  return relayed.has(relayedKey(direction, nonce)) || relayed.has(txRelayedKey(txHash));
+}
+
 async function fetchRelayedKeys(): Promise<Set<string>> {
   const merged = loadDismissedKeys();
   try {
@@ -76,8 +85,12 @@ async function fetchRelayedKeys(): Promise<Set<string>> {
     if (!res.ok) return merged;
     const ct = res.headers.get("content-type") ?? "";
     if (!ct.includes("application/json")) return merged;
-    const keys = (await res.json()) as string[];
-    for (const k of keys) merged.add(k);
+    const body = (await res.json()) as unknown;
+    if (!Array.isArray(body)) return merged;
+    for (const k of body) {
+      if (typeof k === "string") merged.add(k);
+    }
+    localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify([...merged]));
   } catch {
     /* local dismissals still apply */
   }
@@ -118,8 +131,8 @@ async function isBridgeCompleted(
   relayed: Set<string>,
   txHash?: string,
 ): Promise<boolean> {
-  if (relayed.has(relayedKey(direction, nonce))) return true;
-  if (txHash && relayed.has(txRelayedKey(txHash))) return true;
+  if (txHash && isBridgeDismissed(direction, nonce, txHash, relayed)) return true;
+  if (isBridgeDismissed(direction, nonce, txHash ?? "", relayed)) return true;
   // EMBR usedNonces is shared by lockEMBR + releaseEMBR — only Base nonce is reliable for EMBR→Base.
   if (direction === "embr_to_base") return isNonceUsedOnBase(nonce);
   return false;
@@ -195,7 +208,10 @@ async function fetchEmbrToBaseLocks(
     const parsed = parseLockEmbrTx(tx);
     if (!parsed) continue;
 
+    if (isBridgeDismissed("embr_to_base", parsed.nonce, summary.hash, relayed)) continue;
+
     const completed = await isBridgeCompleted("embr_to_base", parsed.nonce, relayed, summary.hash);
+    if (completed) continue;
     locks.push({
       direction: "embr_to_base",
       nonce: parsed.nonce,
@@ -452,17 +468,80 @@ async function fetchBaseToEmbrOuts(
   return pending;
 }
 
+type AdminPendingRow = {
+  direction: PendingBridge["direction"];
+  nonce: string;
+  sender: string;
+  baseRecipient?: string;
+  embrRecipient?: string;
+  amount: string;
+  txHash: string;
+  blockNumber: number;
+  submittedAt?: string;
+};
+
+function mapAdminPendingRow(row: AdminPendingRow, relayed: Set<string>): PendingBridge | null {
+  if (isBridgeDismissed(row.direction, row.nonce, row.txHash, relayed)) return null;
+  if (row.direction === "embr_to_base") {
+    return {
+      direction: "embr_to_base",
+      nonce: row.nonce,
+      sender: row.sender,
+      baseRecipient: row.baseRecipient ?? "",
+      amount: row.amount,
+      txHash: row.txHash,
+      blockNumber: row.blockNumber,
+      submittedAt: row.submittedAt,
+      completed: false,
+    };
+  }
+  const embrRecipient = row.embrRecipient ?? "";
+  return {
+    direction: "base_to_embr",
+    nonce: row.nonce,
+    sender: row.sender,
+    embrRecipient: embrRecipient.startsWith("0x") ? embrRecipient : `0x${embrRecipient.replace(/^0x/i, "")}`,
+    amount: row.amount,
+    txHash: row.txHash,
+    blockNumber: row.blockNumber,
+    submittedAt: row.submittedAt,
+    completed: false,
+  };
+}
+
 export async function fetchPendingBridges(lookbackBlocks = 1_000_000): Promise<PendingBridge[]> {
   const relayed = await fetchRelayedKeys();
+
+  try {
+    const res = await fetch(chainNodeApi("/api/bridge/admin-pending"), {
+      headers: { Accept: "application/json" },
+    });
+    if (res.ok) {
+      const ct = res.headers.get("content-type") ?? "";
+      if (ct.includes("application/json")) {
+        const rows = (await res.json()) as AdminPendingRow[];
+        if (Array.isArray(rows)) {
+          return rows
+            .map((r) => mapAdminPendingRow(r, relayed))
+            .filter((r): r is PendingBridge => r !== null);
+        }
+      }
+    }
+  } catch {
+    /* fall back to client scan */
+  }
+
   const [embrLocks, baseOuts] = await Promise.all([
     fetchEmbrToBaseLocks(relayed, 500),
     fetchBaseToEmbrOuts(relayed, lookbackBlocks).catch(() => [] as BaseToEmbrPending[]),
   ]);
-  return [...embrLocks, ...baseOuts].sort((a, b) => {
-    const ta = a.submittedAt ? Date.parse(a.submittedAt) : a.blockNumber;
-    const tb = b.submittedAt ? Date.parse(b.submittedAt) : b.blockNumber;
-    return tb - ta;
-  });
+  return [...embrLocks, ...baseOuts]
+    .filter((r) => !isBridgeDismissed(r.direction, r.nonce, r.txHash, relayed))
+    .sort((a, b) => {
+      const ta = a.submittedAt ? Date.parse(a.submittedAt) : a.blockNumber;
+      const tb = b.submittedAt ? Date.parse(b.submittedAt) : b.blockNumber;
+      return tb - ta;
+    });
 }
 
 export async function completeEmbrToBase(

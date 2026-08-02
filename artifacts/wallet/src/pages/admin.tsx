@@ -249,6 +249,7 @@ function BridgeTab({
       removeRow(row);
 
       if (hash === "already_completed") {
+        toast({ title: "Already completed", description: "Removed from admin queue." });
         return;
       }
       toast({ title: "Bridge completed", description: hash });
