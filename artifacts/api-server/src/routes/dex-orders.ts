@@ -9,7 +9,7 @@
 
 import { Router, type Request, type Response } from "express";
 import { ethers } from "ethers";
-import { insertOrder, listOrders, getOrder, updateOrderStatus, getOrdersETag, verifyTradeOnChain, type DexOrder } from "../lib/dex-orders-db";
+import { insertOrder, listOrders, getOrder, updateOrderStatus, getOrdersETag, verifyTradeOnChain, isOrderFullyFilledOnChain, type DexOrder } from "../lib/dex-orders-db";
 
 const router = Router();
 
@@ -74,6 +74,20 @@ router.post("/dex/orders/:hash/fill", async (req: Request<{ hash: string }>, res
     const proofErr = await verifyTradeOnChain(txHash, req.params.hash);
     if (proofErr !== null) {
       res.status(422).json({ error: `On-chain verification failed: ${proofErr}` });
+      return;
+    }
+
+    const order = await getOrder(req.params.hash);
+    if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+
+    const fullyFilled = await isOrderFullyFilledOnChain(order);
+    if (fullyFilled === false) {
+      res.json({ ok: true, partial: true });
+      return;
+    }
+
+    if (fullyFilled === null && process.env.NODE_ENV !== "development") {
+      res.json({ ok: true, partial: true, note: "Could not verify remaining volume — order kept open" });
       return;
     }
 

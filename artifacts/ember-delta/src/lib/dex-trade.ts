@@ -65,17 +65,26 @@ function assetLabel(order: ParsedOpenOrder, pairSymbol: string): string {
   return order.token_get.toLowerCase() === ETH_ADDR.toLowerCase() ? "ETH" : pairSymbol;
 }
 
-export async function prepareOrderFill(
+function capFillAmount(
+  available: bigint,
+  feeBps: bigint,
+  takerBalance: bigint,
+  requested: bigint,
+): bigint {
+  const maxByBalance = takerBalance * 10000n / (10000n + feeBps);
+  let amount = requested < available ? requested : available;
+  if (amount > maxByBalance) amount = maxByBalance;
+  return amount;
+}
+
+async function readFillContext(
   client: PublicClient,
   order: ParsedOpenOrder,
   taker: `0x${string}`,
-  pairSymbol: string,
-): Promise<PreparedFill> {
+) {
   const v = normalizeSignatureV(order.v);
   const r = asBytes32(order.r);
   const s = asBytes32(order.s);
-  const action: "buy" | "sell" = order.side === "sell" ? "buy" : "sell";
-  const asset = assetLabel(order, pairSymbol);
 
   const [available, feeBps, takerBalance] = await Promise.all([
     client.readContract({
@@ -108,17 +117,34 @@ export async function prepareOrderFill(
     }) as Promise<bigint>,
   ]);
 
+  return { available, feeBps, takerBalance, v, r, s };
+}
+
+export async function prepareOrderFillWithAmount(
+  client: PublicClient,
+  order: ParsedOpenOrder,
+  taker: `0x${string}`,
+  pairSymbol: string,
+  requestedAmountGet: bigint,
+): Promise<PreparedFill> {
+  if (requestedAmountGet <= 0n) {
+    throw new Error("Fill amount must be greater than zero.");
+  }
+
+  const { available, feeBps, takerBalance, v, r, s } = await readFillContext(client, order, taker);
+  const action: "buy" | "sell" = order.side === "sell" ? "buy" : "sell";
+  const asset = assetLabel(order, pairSymbol);
+
   if (available === 0n) {
     throw new Error(
       "This order can no longer be filled — it may be expired, cancelled, already filled, or the maker no longer has enough deposited.",
     );
   }
 
-  const requiredWithFee = available + (available * feeBps) / 10000n;
-  const maxByBalance = takerBalance * 10000n / (10000n + feeBps);
-  const amount = available < maxByBalance ? available : maxByBalance;
+  const amount = capFillAmount(available, feeBps, takerBalance, requestedAmountGet);
 
   if (amount === 0n) {
+    const requiredWithFee = requestedAmountGet + (requestedAmountGet * feeBps) / 10000n;
     throw new InsufficientDexDepositError({
       asset,
       deposited: formatEther(takerBalance),
@@ -141,6 +167,17 @@ export async function prepareOrderFill(
   });
 
   return { amount, summary };
+}
+
+export async function prepareOrderFill(
+  client: PublicClient,
+  order: ParsedOpenOrder,
+  taker: `0x${string}`,
+  pairSymbol: string,
+): Promise<PreparedFill> {
+  const { available, feeBps, takerBalance } = await readFillContext(client, order, taker);
+  const requested = capFillAmount(available, feeBps, takerBalance, available);
+  return prepareOrderFillWithAmount(client, order, taker, pairSymbol, requested);
 }
 
 export function isInsufficientDexDeposit(err: unknown): err is InsufficientDexDepositError {

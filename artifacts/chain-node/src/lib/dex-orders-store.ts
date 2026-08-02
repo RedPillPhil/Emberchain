@@ -131,6 +131,43 @@ export async function getOrdersETag(token?: string, status = "open"): Promise<st
   return `"${status}-${rows.length}-${ts}"`;
 }
 
+const AVAILABLE_VOLUME_ABI = [
+  "function availableVolume(address,uint256,address,uint256,uint256,uint256,address,uint8,bytes32,bytes32) view returns (uint256)",
+];
+
+function normalizeSignatureV(v: number): number {
+  if (v === 0 || v === 1) return v + 27;
+  return v;
+}
+
+/** Returns true when no volume remains, false when partially filled, null if RPC unavailable. */
+export async function isOrderFullyFilledOnChain(order: DexOrder): Promise<boolean | null> {
+  const provider = getBaseProvider();
+  if (!provider) {
+    return process.env.NODE_ENV === "development" ? null : null;
+  }
+
+  try {
+    const contract = new ethers.Contract(EMBER_DELTA_ADDRESS, AVAILABLE_VOLUME_ABI, provider);
+    const remaining = (await contract.availableVolume(
+      order.token_get,
+      order.amount_get,
+      order.token_give,
+      order.amount_give,
+      order.expires,
+      order.nonce,
+      order.maker,
+      normalizeSignatureV(order.v),
+      order.r,
+      order.s,
+    )) as bigint;
+    return remaining === 0n;
+  } catch (err) {
+    console.error("[dex-orders-store] availableVolume check failed:", (err as Error).message);
+    return null;
+  }
+}
+
 export async function verifyTradeOnChain(
   txHash: string,
   orderHash: string,

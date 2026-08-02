@@ -1,21 +1,16 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { formatNumber, cn } from '@/lib/utils';
-import { chainNodeApi } from '@/lib/config';
-import { useWriteContract, useAccount, useSignMessage, usePublicClient } from 'wagmi';
+import { useAccount, useSignMessage, usePublicClient } from 'wagmi';
 import { formatEther } from 'viem';
-import { Loader2, X } from 'lucide-react';
-import {
-  EMBER_DELTA_ADDRESS,
-  EMBER_DELTA_ABI,
-  ETH_ADDR,
-  BASE_CHAIN_ID,
-} from '@/lib/contracts';
+import { Loader2, X, RefreshCw } from 'lucide-react';
+import { chainNodeApi } from '@/lib/config';
+import { ETH_ADDR, BASE_CHAIN_ID } from '@/lib/contracts';
 import {
   parseOpenOrders,
   fetchRawOpenOrders,
+  enrichOrdersWithChainVolume,
   type ParsedOpenOrder,
 } from '@/lib/dex-orders';
-import { explainTradeError, isInsufficientDexDeposit, prepareOrderFill, tradeArgs, type InsufficientDexDepositError } from '@/lib/dex-trade';
 import type { TradeLogEntry } from '@/pages/Exchange';
 
 interface OrderBookProps {
@@ -25,79 +20,10 @@ interface OrderBookProps {
   tradeLogs: TradeLogEntry[];
   currentBlock: bigint;
   refreshKey?: number;
-  /** Parent opens the deposit modal when taker lacks DEX balance. */
-  onDepositRequired?: (token: 'ETH' | 'TOKEN') => void;
-}
-
-function DepositRequiredDialog({
-  error,
-  symbol,
-  onClose,
-  onDeposit,
-}: {
-  error: InsufficientDexDepositError;
-  symbol: string;
-  onClose: () => void;
-  onDeposit: () => void;
-}) {
-  const assetDisplay = error.asset === 'ETH' ? 'ETH' : symbol;
-  const dep = parseFloat(error.deposited);
-  const req = parseFloat(error.required);
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="bg-card border border-destructive/40 rounded-xl shadow-2xl max-w-md w-full p-5 space-y-4">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-full bg-destructive/15 flex items-center justify-center shrink-0 text-destructive text-lg">
-            !
-          </div>
-          <div>
-            <h3 className="font-bold text-white text-sm uppercase tracking-wide">
-              Deposit required
-            </h3>
-            <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
-              {error.action === 'buy'
-                ? `To buy from this sell order, you need ${assetDisplay} deposited in the DEX contract. Wallet balance cannot be used directly.`
-                : `To sell into this buy order, you need ${assetDisplay} deposited in the DEX contract. Wallet balance cannot be used directly.`}
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 text-sm font-mono">
-          <div className="bg-secondary/50 rounded-lg p-3 border border-border">
-            <div className="text-[10px] text-muted-foreground uppercase mb-1">In DEX now</div>
-            <div className="text-white font-bold">{dep.toFixed(4)} {assetDisplay}</div>
-          </div>
-          <div className="bg-destructive/10 rounded-lg p-3 border border-destructive/30">
-            <div className="text-[10px] text-muted-foreground uppercase mb-1">Need (incl. fee)</div>
-            <div className="text-destructive font-bold">~{req.toFixed(4)} {assetDisplay}</div>
-          </div>
-        </div>
-
-        <p className="text-xs text-muted-foreground">
-          Deposit at least {(req - dep).toFixed(4)} more {assetDisplay} via{' '}
-          <strong className="text-white">Deposit / Withdraw</strong> in the order panel, then try again.
-        </p>
-
-        <div className="flex gap-2 pt-1">
-          <button
-            type="button"
-            onClick={onDeposit}
-            className="flex-1 py-2.5 bg-primary text-primary-foreground font-bold uppercase text-xs rounded hover:bg-primary/90"
-          >
-            Open deposit
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 py-2.5 border border-border text-white font-bold uppercase text-xs rounded hover:bg-white/5"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  /** Highlight order selected for fill in the panel. */
+  selectedOrderHash?: string | null;
+  /** Clicking a row sends the order to the fill panel instead of MetaMask. */
+  onOrderSelect?: (order: ParsedOpenOrder) => void;
 }
 
 function LoadingOrdersPanel() {
@@ -116,23 +42,22 @@ export const OrderBook = React.memo(function OrderBook({
   tradeLogs,
   currentBlock,
   refreshKey = 0,
-  onDepositRequired,
+  selectedOrderHash,
+  onOrderSelect,
 }: OrderBookProps) {
-  const { address, chainId } = useAccount();
+  const { address } = useAccount();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
-  const { writeContractAsync } = useWriteContract();
   const { signMessageAsync } = useSignMessage();
 
   const [openOrders, setOpenOrders] = useState<ParsedOpenOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [fillingHash, setFillingHash] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [cancellingHash, setCancellingHash] = useState<string | null>(null);
-  const [fillToast, setFillToast] = useState<{ msg: string; err: boolean } | null>(null);
-  const [depositError, setDepositError] = useState<InsufficientDexDepositError | null>(null);
+  const [toast, setToast] = useState<{ msg: string; err: boolean } | null>(null);
 
-  const showFillToast = (msg: string, err = false) => {
-    setFillToast({ msg, err });
-    setTimeout(() => setFillToast(null), err ? 10000 : 5000);
+  const showToast = (msg: string, err = false) => {
+    setToast({ msg, err });
+    setTimeout(() => setToast(null), err ? 10000 : 5000);
   };
 
   const lastPrice = useMemo<number | null>(() => {
@@ -160,9 +85,15 @@ export const OrderBook = React.memo(function OrderBook({
       if (block === 0n && publicClient) {
         block = await publicClient.getBlockNumber();
       }
-      setOpenOrders(parseOpenOrders(raw, tokenAddress, block));
+      let parsed = parseOpenOrders(raw, tokenAddress, block);
+      if (publicClient) {
+        parsed = await enrichOrdersWithChainVolume(publicClient, parsed);
+      }
+      setOpenOrders(parsed);
+      setFetchError(null);
     } catch (e) {
       console.error('OrderBook fetch error', e);
+      setFetchError(e instanceof Error ? e.message : 'Failed to load orders');
     } finally {
       setLoading(false);
     }
@@ -170,6 +101,7 @@ export const OrderBook = React.memo(function OrderBook({
 
   useEffect(() => {
     setLoading(true);
+    setFetchError(null);
     setOpenOrders([]);
   }, [tokenAddress]);
 
@@ -199,60 +131,12 @@ export const OrderBook = React.memo(function OrderBook({
     };
   }, [fetchOrders]);
 
-  const fillOrder = async (order: ParsedOpenOrder) => {
-    if (!address) { showFillToast('Connect wallet to fill orders', true); return; }
-    if (chainId !== BASE_CHAIN_ID) { showFillToast('Switch to Base to fill orders', true); return; }
-    if (!publicClient) { showFillToast('RPC not ready — try again', true); return; }
-
-    setFillingHash(order.hash);
-    showFillToast('Checking order…');
-
-    try {
-      const { amount, summary } = await prepareOrderFill(
-        publicClient,
-        order,
-        address as `0x${string}`,
-        symbol,
-      );
-
-      showFillToast(`${summary} — confirm in MetaMask…`);
-
-      const txHash = await writeContractAsync({
-        address: EMBER_DELTA_ADDRESS,
-        abi: EMBER_DELTA_ABI,
-        functionName: 'trade',
-        args: tradeArgs(order, amount),
-      });
-
-      await fetch(chainNodeApi(`/api/dex/orders/${order.hash}/fill`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ txHash }),
-      }).catch(() => {});
-
-      showFillToast(`Order filled — tx: ${txHash.slice(0, 10)}…`);
-      if (amount >= BigInt(order.amount_get)) {
-        setOpenOrders(prev => prev.filter(o => o.hash !== order.hash));
-      } else {
-        void fetchOrders();
-      }
-    } catch (e: unknown) {
-      if (isInsufficientDexDeposit(e)) {
-        setDepositError(e);
-      } else {
-        showFillToast(explainTradeError(e), true);
-      }
-    } finally {
-      setFillingHash(null);
-    }
-  };
-
   const cancelOrder = async (order: ParsedOpenOrder, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!address) { showFillToast('Connect wallet to cancel orders', true); return; }
+    if (!address) { showToast('Connect wallet to cancel orders', true); return; }
 
     setCancellingHash(order.hash);
-    showFillToast('Check MetaMask — sign the cancel message…');
+    showToast('Check MetaMask — sign the cancel message…');
 
     try {
       const cancelMessage = `EmberDelta cancel order: ${order.hash}`;
@@ -269,43 +153,49 @@ export const OrderBook = React.memo(function OrderBook({
         throw new Error(err.error ?? 'Failed to cancel order');
       }
 
-      showFillToast('Order cancelled');
+      showToast('Order cancelled');
       setOpenOrders(prev => prev.filter(o => o.hash !== order.hash));
     } catch (e: unknown) {
       const err = e as { message?: string; shortMessage?: string; code?: number };
       if (err?.message?.includes('rejected') || err?.message?.includes('denied') || err?.code === 4001) {
-        showFillToast('Signature rejected', true);
+        showToast('Signature rejected', true);
       } else {
-        showFillToast(`Cancel failed: ${err?.shortMessage ?? err?.message ?? 'unknown error'}`, true);
+        showToast(`Cancel failed: ${err?.shortMessage ?? err?.message ?? 'unknown error'}`, true);
       }
     } finally {
       setCancellingHash(null);
     }
   };
 
+  const handleOrderClick = (order: ParsedOpenOrder) => {
+    if (!address) { showToast('Connect wallet to fill orders', true); return; }
+    onOrderSelect?.(order);
+  };
+
   const asks = openOrders.filter(o => o.side === 'sell').sort((a, b) => b.price - a.price).slice(0, 15);
   const bids = openOrders.filter(o => o.side === 'buy').sort((a, b) => b.price - a.price).slice(0, 15);
   const maxTotal = Math.max(...[...asks, ...bids].map(t => t.total), 0.0001) * 1.5;
-  const isEmpty = !loading && openOrders.length === 0;
+  const isEmpty = !loading && !fetchError && openOrders.length === 0;
 
   const renderOrderRow = (order: ParsedOpenOrder, side: 'ask' | 'bid') => {
     const depthPerc = Math.min(100, (order.total / maxTotal) * 100);
     const isMine = address && order.maker.toLowerCase() === address.toLowerCase();
-    const filling = fillingHash === order.hash;
     const cancelling = cancellingHash === order.hash;
     const isAsk = side === 'ask';
+    const isSelected = selectedOrderHash === order.hash;
 
     return (
       <div
         key={order.hash}
-        onClick={() => !isMine && !filling && !cancelling && fillOrder(order)}
+        onClick={() => !isMine && !cancelling && handleOrderClick(order)}
         className={cn(
           "flex px-2 py-0.5 relative h-6 items-center group",
           isAsk ? "hover-bg-ask" : "hover-bg-bid",
           isMine ? "opacity-80 cursor-default" : "cursor-pointer",
-          (filling || cancelling) && "animate-pulse",
+          cancelling && "animate-pulse",
+          isSelected && "ring-1 ring-inset ring-primary/60 bg-primary/5",
         )}
-        title={isMine ? "Your order — click × to cancel" : `Click to fill this ${isAsk ? 'sell' : 'buy'} order (requires ${isAsk ? 'ETH' : symbol} deposited in DEX)`}
+        title={isMine ? "Your order — click × to cancel" : `Click to fill from this ${isAsk ? 'sell' : 'buy'} order`}
       >
         <div
           className={cn(
@@ -334,8 +224,6 @@ export const OrderBook = React.memo(function OrderBook({
                 )}
               </button>
             </>
-          ) : filling ? (
-            <span className="text-[9px] text-primary">filling…</span>
           ) : (
             formatNumber(order.total, 4)
           )}
@@ -371,6 +259,18 @@ export const OrderBook = React.memo(function OrderBook({
               <LoadingOrdersPanel />
             </div>
           </>
+        ) : fetchError ? (
+          <div className="flex flex-col items-center justify-center h-full gap-3 px-4 text-center">
+            <p className="text-destructive text-[11px] font-sans font-semibold">Could not load orders</p>
+            <p className="text-muted-foreground text-[10px] leading-relaxed font-sans">{fetchError}</p>
+            <button
+              type="button"
+              onClick={() => { setLoading(true); void fetchOrders(); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] uppercase font-bold border border-border rounded hover:bg-white/5"
+            >
+              <RefreshCw className="w-3 h-3" /> Retry
+            </button>
+          </div>
         ) : isEmpty ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 px-4 text-center">
             <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center">
@@ -403,25 +303,12 @@ export const OrderBook = React.memo(function OrderBook({
         )}
       </div>
 
-      {depositError && (
-        <DepositRequiredDialog
-          error={depositError}
-          symbol={symbol}
-          onClose={() => setDepositError(null)}
-          onDeposit={() => {
-            const token = depositError.asset === 'ETH' ? 'ETH' : 'TOKEN';
-            setDepositError(null);
-            onDepositRequired?.(token);
-          }}
-        />
-      )}
-
-      {fillToast && (
+      {toast && (
         <div className={cn(
           "fixed bottom-4 left-4 border-l-4 p-3 shadow-2xl z-50 text-xs font-medium max-w-xs",
-          fillToast.err ? "bg-card border-destructive text-destructive" : "bg-card border-primary"
+          toast.err ? "bg-card border-destructive text-destructive" : "bg-card border-primary"
         )}>
-          {fillToast.msg}
+          {toast.msg}
         </div>
       )}
     </div>

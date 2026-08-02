@@ -6,6 +6,7 @@ import { PriceChart } from '@/components/exchange/PriceChart';
 import { TradeHistory } from '@/components/exchange/TradeHistory';
 import { OrderForm } from '@/components/exchange/OrderForm';
 import { BUILT_IN_PAIRS, getAllPairs, addCustomPair, type TradingPair } from '@/lib/custom-pairs';
+import type { ParsedOpenOrder } from '@/lib/dex-orders';
 import { usePublicClient } from 'wagmi';
 import { parseAbi } from 'viem';
 import { EMBER_DELTA_ADDRESS, BASE_CHAIN_ID, ERC20_ABI } from '@/lib/contracts';
@@ -165,10 +166,11 @@ export default function Exchange() {
   const [ordersRefreshKey, setOrdersRefreshKey] = useState(0);
   const bumpOrders = useCallback(() => setOrdersRefreshKey((k) => k + 1), []);
 
-  const [depositRequest, setDepositRequest] = useState<{ token: 'ETH' | 'TOKEN'; key: number } | null>(null);
-  const handleDepositRequired = useCallback((token: 'ETH' | 'TOKEN') => {
-    setDepositRequest({ token, key: Date.now() });
+  const [fillSelection, setFillSelection] = useState<{ order: ParsedOpenOrder; key: number } | null>(null);
+  const handleOrderSelect = useCallback((order: ParsedOpenOrder) => {
+    setFillSelection({ order, key: Date.now() });
   }, []);
+  const clearFillSelection = useCallback(() => setFillSelection(null), []);
 
   // Stable callback so OrderForm/TradeHistory don't re-render when price updates
   const handleLastPrice = useCallback((p: number) => setLastPrice(p), []);
@@ -186,7 +188,8 @@ export default function Exchange() {
             tradeLogs={tradeLogs}
             currentBlock={currentBlock}
             refreshKey={ordersRefreshKey}
-            onDepositRequired={handleDepositRequired}
+            selectedOrderHash={fillSelection?.order.hash ?? null}
+            onOrderSelect={handleOrderSelect}
           />
         </div>
 
@@ -215,7 +218,8 @@ export default function Exchange() {
           <OrderForm
             pair={selectedPair}
             onOrdersChanged={bumpOrders}
-            depositRequest={depositRequest}
+            fillSelection={fillSelection}
+            onClearFillSelection={clearFillSelection}
           />
         </div>
       </div>
@@ -239,7 +243,8 @@ export default function Exchange() {
             pair={selectedPair}
             className="h-auto border-l-0"
             onOrdersChanged={bumpOrders}
-            depositRequest={depositRequest}
+            fillSelection={fillSelection}
+            onClearFillSelection={clearFillSelection}
           />
         </div>
 
@@ -256,7 +261,8 @@ export default function Exchange() {
             tradeLogs={tradeLogs}
             currentBlock={currentBlock}
             refreshKey={ordersRefreshKey}
-            onDepositRequired={handleDepositRequired}
+            selectedOrderHash={fillSelection?.order.hash ?? null}
+            onOrderSelect={handleOrderSelect}
           />
         </CollapsibleSection>
 

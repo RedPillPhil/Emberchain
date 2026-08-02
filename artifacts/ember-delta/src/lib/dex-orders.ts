@@ -1,6 +1,7 @@
 import { chainNodeApi } from "@/lib/config";
-import { ETH_ADDR } from "@/lib/contracts";
+import { ETH_ADDR, EMBER_DELTA_ABI, EMBER_DELTA_ADDRESS } from "@/lib/contracts";
 import { formatEther } from "viem";
+import type { PublicClient } from "viem";
 
 export interface ParsedOpenOrder {
   hash: string;
@@ -18,6 +19,8 @@ export interface ParsedOpenOrder {
   price: number;
   amount: number;
   total: number;
+  /** Remaining fillable size in tokenGet units (from on-chain availableVolume). */
+  available_get?: string;
 }
 
 export function parseOpenOrders(
@@ -80,8 +83,79 @@ export async function fetchRawOpenOrders(tokenAddress: string): Promise<Record<s
   const res = await fetch(
     chainNodeApi(`/api/dex/orders?token=${tokenAddress}&status=open`),
   );
-  if (!res.ok) throw new Error("Failed to fetch orders");
+  if (!res.ok) throw new Error(`Failed to fetch orders (${res.status})`);
   return res.json();
+}
+
+function asBytes32(hex: string): `0x${string}` {
+  const h = hex.startsWith("0x") ? hex : `0x${hex}`;
+  return h as `0x${string}`;
+}
+
+function normalizeSignatureV(v: number): number {
+  if (v === 0 || v === 1) return v + 27;
+  return v;
+}
+
+/** Adjust display sizes from on-chain remaining volume; drop fully filled orders. */
+export async function enrichOrdersWithChainVolume(
+  client: PublicClient,
+  orders: ParsedOpenOrder[],
+): Promise<ParsedOpenOrder[]> {
+  const enriched = await Promise.all(
+    orders.map(async (order) => {
+      try {
+        const available = (await client.readContract({
+          address: EMBER_DELTA_ADDRESS,
+          abi: EMBER_DELTA_ABI,
+          functionName: "availableVolume",
+          args: [
+            order.token_get as `0x${string}`,
+            BigInt(order.amount_get),
+            order.token_give as `0x${string}`,
+            BigInt(order.amount_give),
+            BigInt(order.expires),
+            BigInt(order.nonce),
+            order.maker as `0x${string}`,
+            normalizeSignatureV(order.v),
+            asBytes32(order.r),
+            asBytes32(order.s),
+          ],
+        })) as bigint;
+
+        if (available === 0n) return null;
+
+        const amountGet = BigInt(order.amount_get);
+        const amountGive = BigInt(order.amount_give);
+
+        let amountFloat: number;
+        let totalFloat: number;
+
+        if (order.side === "sell") {
+          const tokenRemaining = (available * amountGive) / amountGet;
+          amountFloat = parseFloat(formatEther(tokenRemaining));
+          totalFloat = parseFloat(formatEther(available));
+        } else {
+          amountFloat = parseFloat(formatEther(available));
+          totalFloat = parseFloat(formatEther((available * amountGive) / amountGet));
+        }
+
+        const price = amountFloat > 0 ? totalFloat / amountFloat : order.price;
+
+        return {
+          ...order,
+          amount: amountFloat,
+          total: totalFloat,
+          price,
+          available_get: available.toString(),
+        };
+      } catch {
+        return order;
+      }
+    }),
+  );
+
+  return enriched.filter((o): o is ParsedOpenOrder => o !== null);
 }
 
 /** ETH and token amounts reserved by the maker's open orders (wei as floats). */
@@ -92,8 +166,19 @@ export function computeReservedBalances(orders: ParsedOpenOrder[], maker: string
 
   for (const o of orders) {
     if (o.maker.toLowerCase() !== lower) continue;
-    if (o.side === "buy") ethWei += BigInt(o.amount_give);
-    else tokenWei += BigInt(o.amount_give);
+
+    const amountGet = BigInt(o.amount_get);
+    const amountGive = BigInt(o.amount_give);
+
+    if (o.available_get) {
+      const available = BigInt(o.available_get);
+      if (o.side === "buy") ethWei += (available * amountGive) / amountGet;
+      else tokenWei += (available * amountGive) / amountGet;
+      continue;
+    }
+
+    if (o.side === "buy") ethWei += amountGive;
+    else tokenWei += amountGive;
   }
 
   return {

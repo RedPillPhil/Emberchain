@@ -18,8 +18,22 @@ import {
   computeReservedBalances,
   fetchRawOpenOrders,
   parseOpenOrders,
+  enrichOrdersWithChainVolume,
+  type ParsedOpenOrder,
 } from '@/lib/dex-orders';
 import { useDexDeposited, useDexDepositEvents, ETH_ADDR } from '@/lib/dex-balances';
+import {
+  explainTradeError,
+  isInsufficientDexDeposit,
+  prepareOrderFillWithAmount,
+  tradeArgs,
+  type InsufficientDexDepositError,
+} from '@/lib/dex-trade';
+import {
+  fillPlanSummary,
+  planFillsFromBook,
+  type FillStep,
+} from '@/lib/dex-fill-plan';
 
 interface OrderFormProps {
   pair: TradingPair;
@@ -27,11 +41,69 @@ interface OrderFormProps {
   onOrdersChanged?: () => void;
   /** Set from parent to open the deposit modal for a specific asset. */
   depositRequest?: { token: 'ETH' | 'TOKEN'; key: number } | null;
+  /** Order clicked in the book — opens fill panel with pre-filled values. */
+  fillSelection?: { order: ParsedOpenOrder; key: number } | null;
+  onClearFillSelection?: () => void;
 }
 
 const EXPIRES_BLOCKS = 43_200n;
 
-export const OrderForm = React.memo(function OrderForm({ pair, className, onOrdersChanged, depositRequest }: OrderFormProps) {
+function DepositRequiredDialog({
+  error,
+  symbol,
+  onClose,
+  onDeposit,
+}: {
+  error: InsufficientDexDepositError;
+  symbol: string;
+  onClose: () => void;
+  onDeposit: () => void;
+}) {
+  const assetDisplay = error.asset === 'ETH' ? 'ETH' : symbol;
+  const dep = parseFloat(error.deposited);
+  const req = parseFloat(error.required);
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="bg-card border border-destructive/40 rounded-xl shadow-2xl max-w-md w-full p-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-full bg-destructive/15 flex items-center justify-center shrink-0 text-destructive text-lg">!</div>
+          <div>
+            <h3 className="font-bold text-white text-sm uppercase tracking-wide">Deposit required</h3>
+            <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+              {error.action === 'buy'
+                ? `You need ${assetDisplay} deposited in the DEX to buy. Wallet balance cannot be used directly.`
+                : `You need ${assetDisplay} deposited in the DEX to sell. Wallet balance cannot be used directly.`}
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 text-sm font-mono">
+          <div className="bg-secondary/50 rounded-lg p-3 border border-border">
+            <div className="text-[10px] text-muted-foreground uppercase mb-1">In DEX now</div>
+            <div className="text-white font-bold">{dep.toFixed(4)} {assetDisplay}</div>
+          </div>
+          <div className="bg-destructive/10 rounded-lg p-3 border border-destructive/30">
+            <div className="text-[10px] text-muted-foreground uppercase mb-1">Need (incl. fee)</div>
+            <div className="text-destructive font-bold">~{req.toFixed(4)} {assetDisplay}</div>
+          </div>
+        </div>
+        <div className="flex gap-2 pt-1">
+          <button type="button" onClick={onDeposit} className="flex-1 py-2.5 bg-primary text-primary-foreground font-bold uppercase text-xs rounded hover:bg-primary/90">Open deposit</button>
+          <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-border text-white font-bold uppercase text-xs rounded hover:bg-white/5">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export const OrderForm = React.memo(function OrderForm({
+  pair,
+  className,
+  onOrdersChanged,
+  depositRequest,
+  fillSelection,
+  onClearFillSelection,
+}: OrderFormProps) {
   const {
     isConnected,
     isWrongNetwork,
@@ -54,6 +126,7 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
   } = useDexDeposited(pair.tokenAddress as `0x${string}`);
 
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
+  const [panelMode, setPanelMode] = useState<'place' | 'fill'>('place');
   const [price, setPrice] = useState('');
   const [amount, setAmount] = useState('');
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
@@ -64,6 +137,8 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
   const [txError, setTxError] = useState(false);
   const [reservedEth, setReservedEth] = useState(0);
   const [reservedToken, setReservedToken] = useState(0);
+  const [depositError, setDepositError] = useState<InsufficientDexDepositError | null>(null);
+  const [fillPlanPreview, setFillPlanPreview] = useState<FillStep[]>([]);
 
   const { writeContractAsync } = useWriteContract();
   const { signTypedDataAsync } = useSignTypedData();
@@ -100,6 +175,48 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
     setIsDepositModalOpen(true);
   }, [depositRequest?.key, depositRequest?.token, depositRequest]);
 
+  useEffect(() => {
+    if (!fillSelection) return;
+    const o = fillSelection.order;
+    setPanelMode('fill');
+    setSide(o.side === 'sell' ? 'buy' : 'sell');
+    setPrice(o.price > 0 ? o.price.toFixed(6) : '');
+    setAmount(o.amount > 0 ? o.amount.toFixed(4) : '');
+  }, [fillSelection?.key, fillSelection?.order]);
+
+  const loadOpenOrdersEnriched = useCallback(async () => {
+    const currentBlock = publicClient ? await publicClient.getBlockNumber() : 0n;
+    const raw = await fetchRawOpenOrders(pair.tokenAddress);
+    let orders = parseOpenOrders(raw, pair.tokenAddress, currentBlock);
+    if (publicClient) {
+      orders = await enrichOrdersWithChainVolume(publicClient, orders);
+    }
+    return orders;
+  }, [pair.tokenAddress, publicClient]);
+
+  const priceNum = parseFloat(price) || 0;
+  const amountNum = parseFloat(amount) || 0;
+  const total = priceNum * amountNum;
+
+  useEffect(() => {
+    if (panelMode !== 'fill' || amountNum <= 0 || priceNum <= 0) {
+      setFillPlanPreview([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const orders = await loadOpenOrdersEnriched();
+        if (cancelled) return;
+        const plan = planFillsFromBook(orders, side, amountNum, priceNum);
+        setFillPlanPreview(plan);
+      } catch {
+        if (!cancelled) setFillPlanPreview([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [panelMode, side, amountNum, priceNum, loadOpenOrdersEnriched, fillSelection?.key]);
+
   const loadReserved = useCallback(async () => {
     if (!address) {
       setReservedEth(0);
@@ -109,7 +226,10 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
     try {
       const currentBlock = publicClient ? await publicClient.getBlockNumber() : 0n;
       const raw = await fetchRawOpenOrders(pair.tokenAddress);
-      const orders = parseOpenOrders(raw, pair.tokenAddress, currentBlock);
+      let orders = parseOpenOrders(raw, pair.tokenAddress, currentBlock);
+      if (publicClient) {
+        orders = await enrichOrdersWithChainVolume(publicClient, orders);
+      }
       const { ethReserved, tokenReserved } = computeReservedBalances(orders, address);
       setReservedEth(ethReserved);
       setReservedToken(tokenReserved);
@@ -123,10 +243,6 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
     const id = setInterval(loadReserved, 15_000);
     return () => clearInterval(id);
   }, [loadReserved]);
-
-  const priceNum = parseFloat(price) || 0;
-  const amountNum = parseFloat(amount) || 0;
-  const total = priceNum * amountNum;
 
   const dexEthAvailable = Math.max(0, dexEthTotal - reservedEth);
   const dexTokenAvailable = Math.max(0, dexTokenTotal - reservedToken);
@@ -155,7 +271,86 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
     await loadReserved();
   };
 
+  const handleFillFromBook = async () => {
+    if (!isConnected) { connectWallet(); return; }
+    if (isWrongNetwork) { switchToBase(); return; }
+    if (!address || !publicClient) return;
+
+    if (priceNum <= 0) { toast('Enter a limit price', true); return; }
+    if (amountNum <= 0) { toast('Enter an amount to fill', true); return; }
+
+    setIsSubmitting(true);
+    toast('Building fill plan…');
+
+    try {
+      const orders = await loadOpenOrdersEnriched();
+      const plan = planFillsFromBook(orders, side, amountNum, priceNum);
+
+      if (plan.length === 0) {
+        toast('No open orders match your amount and limit price', true);
+        return;
+      }
+
+      const plannedTokens = plan.reduce((s, p) => s + p.tokenLeg, 0);
+      if (plannedTokens + 1e-9 < amountNum) {
+        toast(`Only ~${plannedTokens.toFixed(4)} ${pair.symbol} available at this limit — adjust amount or price`, true);
+        return;
+      }
+
+      toast(`${fillPlanSummary(plan, side, pair.symbol)} — confirm in MetaMask…`);
+
+      for (let i = 0; i < plan.length; i++) {
+        const step = plan[i];
+        toast(`Order ${i + 1}/${plan.length}: ${step.tokenLeg.toFixed(4)} ${pair.symbol} @ ${step.order.price.toFixed(6)} ETH…`);
+
+        const { amount: fillAmount } = await prepareOrderFillWithAmount(
+          publicClient,
+          step.order,
+          address as `0x${string}`,
+          pair.symbol,
+          step.tradeAmountGet,
+        );
+
+        const txHash = await writeContractAsync({
+          address: EMBER_DELTA_ADDRESS,
+          abi: EMBER_DELTA_ABI,
+          functionName: 'trade',
+          args: tradeArgs(step.order, fillAmount),
+        });
+
+        await fetch(chainNodeApi(`/api/dex/orders/${step.order.hash}/fill`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ txHash }),
+        }).catch(() => {});
+
+        if (publicClient) {
+          await publicClient.waitForTransactionReceipt({ hash: txHash }).catch(() => {});
+        }
+      }
+
+      await refreshAllBalances();
+      await loadReserved();
+      onOrdersChanged?.();
+      setAmount('');
+      onClearFillSelection?.();
+      toast(`Filled ${plan.length} order${plan.length === 1 ? '' : 's'} successfully`);
+    } catch (e: unknown) {
+      if (isInsufficientDexDeposit(e)) {
+        setDepositError(e);
+      } else {
+        toast(explainTradeError(e), true);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleAction = async () => {
+    if (panelMode === 'fill') {
+      await handleFillFromBook();
+      return;
+    }
     if (!isConnected) { connectWallet(); return; }
     if (isWrongNetwork) { switchToBase(); return; }
     if (!address) return;
@@ -331,7 +526,12 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
   const actionLabel = () => {
     if (!isConnected) return 'Connect Wallet to Trade';
     if (isWrongNetwork) return 'Switch to Base';
-    if (isSubmitting) return 'Check MetaMask — sign order…';
+    if (isSubmitting) return panelMode === 'fill' ? 'Filling orders…' : 'Check MetaMask — sign order…';
+    if (panelMode === 'fill') {
+      const n = fillPlanPreview.length;
+      if (n > 1) return `Fill ${amountNum > 0 ? amountNum.toFixed(2) : ''} ${pair.symbol} (${n} orders)`;
+      return `Fill from order book`;
+    }
     return `Place ${side === 'buy' ? 'Buy' : 'Sell'} Order`;
   };
 
@@ -400,6 +600,27 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
       <div className="flex border-b border-border shrink-0">
         <button
           className={cn(
+            "flex-1 py-2 text-[10px] font-bold uppercase transition-colors border-b-2",
+            panelMode === 'place' ? "text-white border-primary" : "text-muted-foreground border-transparent hover:text-white",
+          )}
+          onClick={() => setPanelMode('place')}
+        >
+          Place order
+        </button>
+        <button
+          className={cn(
+            "flex-1 py-2 text-[10px] font-bold uppercase transition-colors border-b-2",
+            panelMode === 'fill' ? "text-white border-primary" : "text-muted-foreground border-transparent hover:text-white",
+          )}
+          onClick={() => setPanelMode('fill')}
+        >
+          Fill from book
+        </button>
+      </div>
+
+      <div className="flex border-b border-border shrink-0">
+        <button
+          className={cn(
             "flex-1 py-3 text-sm font-bold uppercase transition-colors text-center border-b-2",
             side === 'buy'
               ? "text-bid border-bid bg-success/5"
@@ -424,7 +645,11 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
 
       <div className="p-4 flex flex-col gap-4 flex-1">
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs text-muted-foreground">Price (ETH per {pair.symbol})</label>
+          <label className="text-xs text-muted-foreground">
+            {panelMode === 'fill'
+              ? (side === 'buy' ? 'Max price (ETH per token)' : 'Min price (ETH per token)')
+              : `Price (ETH per ${pair.symbol})`}
+          </label>
           <input
             type="number"
             value={price}
@@ -464,7 +689,18 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
         </div>
 
         <div className="text-[10px] text-muted-foreground text-center leading-relaxed">
-          Orders are signed off-chain and matched on-chain by takers. No gas until filled.
+          {panelMode === 'fill' ? (
+            <>
+              Click an order in the book to pre-fill, then adjust amount. Fills walk the book from the best price up to your limit
+              {fillPlanPreview.length > 1 && (
+                <span className="block mt-1 text-primary/90">
+                  {fillPlanSummary(fillPlanPreview, side, pair.symbol)}
+                </span>
+              )}
+            </>
+          ) : (
+            'Orders are signed off-chain and matched on-chain by takers. No gas until filled.'
+          )}
         </div>
 
         <button
@@ -554,6 +790,19 @@ export const OrderForm = React.memo(function OrderForm({ pair, className, onOrde
             </div>
           </div>
         </div>
+      )}
+
+      {depositError && (
+        <DepositRequiredDialog
+          error={depositError}
+          symbol={pair.symbol}
+          onClose={() => setDepositError(null)}
+          onDeposit={() => {
+            setDepositToken(depositError.asset === 'ETH' ? 'ETH' : 'TOKEN');
+            setDepositError(null);
+            setIsDepositModalOpen(true);
+          }}
+        />
       )}
 
       {txStatus && (
