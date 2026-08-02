@@ -5,7 +5,7 @@
 #   cd /root/Emberchain/emberchain
 #   bash scripts/deploy-vm/deploy-static-from-git.sh
 #
-# Prerequisites: node 20+, pnpm, nginx, certbot, emberchain-node on :8082
+# Prerequisites: node 20+, pnpm, nginx, certbot, emberchain-node on :8080 (PORT in systemd)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
