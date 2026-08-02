@@ -19,28 +19,38 @@ declare global {
   }
 }
 
-// Default to Base Sepolia (testnet). Override with VITE_BASE_CHAIN_ID.
+// Default to Base Mainnet (8453). Override with VITE_BASE_CHAIN_ID for testnet.
 const TARGET_CHAIN_ID_INT: number = parseInt(
-  import.meta.env.VITE_BASE_CHAIN_ID ?? "84532",
+  import.meta.env.VITE_BASE_CHAIN_ID ?? "8453",
   10,
 );
 const TARGET_CHAIN_HEX = "0x" + TARGET_CHAIN_ID_INT.toString(16);
+
+const RPC_BY_CHAIN: Record<number, string> = {
+  8453: "https://mainnet.base.org",
+  84532: "https://sepolia.base.org",
+};
+
+const EXPLORER_BY_CHAIN: Record<number, string> = {
+  8453: "https://basescan.org",
+  84532: "https://sepolia.basescan.org",
+};
 
 const BASE_CHAIN_PARAMS =
   TARGET_CHAIN_ID_INT === 8453
     ? {
         chainId: TARGET_CHAIN_HEX,
         chainName: "Base",
-        rpcUrls: ["https://mainnet.base.org"],
+        rpcUrls: [RPC_BY_CHAIN[8453]],
         nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-        blockExplorerUrls: ["https://basescan.org"],
+        blockExplorerUrls: [EXPLORER_BY_CHAIN[8453]],
       }
     : {
         chainId: TARGET_CHAIN_HEX,
         chainName: "Base Sepolia",
-        rpcUrls: ["https://sepolia.base.org"],
+        rpcUrls: [RPC_BY_CHAIN[84532]],
         nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-        blockExplorerUrls: ["https://sepolia-explorer.base.org"],
+        blockExplorerUrls: [EXPLORER_BY_CHAIN[84532]],
       };
 
 export interface BaseWallet {
@@ -170,6 +180,40 @@ export function useBaseWallet() {
     [wallet],
   );
 
+  /**
+   * Poll until the tx receipt appears on the target Base network RPC.
+   */
+  const waitForTx = useCallback(
+    async (txHash: string, timeoutMs = 120_000): Promise<{ status: number; to: string | null }> => {
+      const rpc = RPC_BY_CHAIN[TARGET_CHAIN_ID_INT] ?? RPC_BY_CHAIN[8453];
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const res = await fetch(rpc, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "eth_getTransactionReceipt",
+            params: [txHash],
+          }),
+        });
+        const json = (await res.json()) as {
+          result?: { status?: string; to?: string | null };
+        };
+        if (json.result) {
+          return {
+            status: parseInt(json.result.status ?? "0x0", 16),
+            to: json.result.to ?? null,
+          };
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      throw new Error("Transaction not found on Base — check MetaMask network and try again");
+    },
+    [],
+  );
+
   return {
     wallet,
     isConnecting,
@@ -179,7 +223,10 @@ export function useBaseWallet() {
     switchToBase,
     ethCall,
     sendTx,
+    waitForTx,
     isOnBase: wallet?.chainId === TARGET_CHAIN_ID_INT,
     targetChainId: TARGET_CHAIN_ID_INT,
+    chainLabel: TARGET_CHAIN_ID_INT === 8453 ? "Base Mainnet" : "Base Sepolia",
+    explorerBase: EXPLORER_BY_CHAIN[TARGET_CHAIN_ID_INT] ?? EXPLORER_BY_CHAIN[8453],
   };
 }

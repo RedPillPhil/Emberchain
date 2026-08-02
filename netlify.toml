@@ -7,6 +7,7 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  VITE_BASE_CHAIN_ID = "8453"
 
 # Same-origin /api → chain-node on duckdns (exchange, bridge, community, etc.)
 [[redirects]]

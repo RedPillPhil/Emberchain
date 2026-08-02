@@ -3,6 +3,7 @@ import { chainNodeApi, chainNodeRpcUrl } from "@/lib/config";
 import { submitChainTransaction } from "@/lib/chain-node";
 import {
   BASE_BRIDGE_ABI,
+  BASE_BRIDGE_FROM_BLOCK,
   BASE_RPC_URL,
   EMBR_BRIDGE_ABI,
   EMBER_BRIDGE_ADDRESS,
@@ -384,7 +385,7 @@ async function fetchBaseOutEventsFromApi(
 
 async function fetchBaseToEmbrOuts(
   relayed: Set<string>,
-  lookbackBlocks = 10_000,
+  lookbackBlocks = 1_000_000,
 ): Promise<BaseToEmbrPending[]> {
   const events = await fetchBaseOutEventsFromApi(lookbackBlocks);
   if (events.length > 0) {
@@ -412,7 +413,7 @@ async function fetchBaseToEmbrOuts(
   const provider = await baseProvider();
   const baseBridge = new Contract(EMBERCHAIN_BRIDGE_ADDRESS, BASE_BRIDGE_ABI, provider);
   const baseHeight = await provider.getBlockNumber();
-  const baseFrom = Math.max(0, baseHeight - lookbackBlocks);
+  const baseFrom = Math.max(BASE_BRIDGE_FROM_BLOCK, baseHeight - lookbackBlocks);
 
   let baseLogs: Awaited<ReturnType<Contract["queryFilter"]>>;
   try {
@@ -451,7 +452,7 @@ async function fetchBaseToEmbrOuts(
   return pending;
 }
 
-export async function fetchPendingBridges(lookbackBlocks = 10_000): Promise<PendingBridge[]> {
+export async function fetchPendingBridges(lookbackBlocks = 1_000_000): Promise<PendingBridge[]> {
   const relayed = await fetchRelayedKeys();
   const [embrLocks, baseOuts] = await Promise.all([
     fetchEmbrToBaseLocks(relayed, 500),

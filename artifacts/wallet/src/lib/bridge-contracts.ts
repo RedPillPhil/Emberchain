@@ -14,6 +14,11 @@ export const EMBERCHAIN_BRIDGE_ADDRESS = envAddress(
 
 export const BASE_RPC_URL = import.meta.env.VITE_BASE_RPC_URL ?? "https://mainnet.base.org";
 
+/** First EmberchainBridge block on Base — scan Base→EMBR from here. */
+export const BASE_BRIDGE_FROM_BLOCK = Number(
+  import.meta.env.VITE_BASE_BRIDGE_FROM_BLOCK ?? "48803153",
+);
+
 export const EMBR_BRIDGE_ABI = [
   "event BridgeOut(address indexed sender, address indexed baseRecipient, uint256 amount, uint256 indexed nonce)",
   "function lockEMBR(address baseRecipient, uint256 nonce) payable",

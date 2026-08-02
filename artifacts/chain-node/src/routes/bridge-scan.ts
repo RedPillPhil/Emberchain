@@ -44,10 +44,10 @@ router.get("/bridge/base-outs", async (req: Request, res: Response): Promise<voi
   try {
     const provider = getBaseProvider();
     if (provider) {
-      const lookbackRaw = Number(req.query.lookback ?? 10_000);
+      const lookbackRaw = Number(req.query.lookback ?? 1_000_000);
       const lookback = Number.isFinite(lookbackRaw)
-        ? Math.min(Math.max(lookbackRaw, 1_000), 200_000)
-        : 10_000;
+        ? Math.min(Math.max(lookbackRaw, 1_000), 5_000_000)
+        : 1_000_000;
       const chainEvents = await scanBaseBridgeOuts(lookback);
       for (const ev of chainEvents) {
         chainMapped.push({

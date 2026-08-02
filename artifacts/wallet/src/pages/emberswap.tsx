@@ -1571,6 +1571,14 @@ function BridgeTab() {
       await baseWallet.switchToBase();
       return;
     }
+    if (baseWallet.targetChainId !== 8453) {
+      toast({
+        title: "Wrong Base network",
+        description: "EmberSwap bridge uses Base Mainnet (chain 8453), not testnet.",
+        variant: "destructive",
+      });
+      return;
+    }
     const amountWei = parseEther(amount);
     if (amountWei === 0n) {
       toast({ title: "Enter a valid amount", variant: "destructive" });
@@ -1628,6 +1636,16 @@ function BridgeTab() {
         data,
       });
 
+      const receipt = await baseWallet.waitForTx(txHash);
+      if (receipt.status !== 1) {
+        throw new Error("bridgeOut reverted on Base — wEMBR was not burned");
+      }
+      if (receipt.to?.toLowerCase() !== EMBERCHAIN_BRIDGE_ADDRESS.toLowerCase()) {
+        throw new Error(
+          "Transaction did not reach the Emberchain bridge on Base Mainnet. Switch MetaMask to Base (8453) and retry.",
+        );
+      }
+
       setBridgeStatus({
         nonce: nonce.toString(),
         status: "locked",
@@ -1639,7 +1657,7 @@ function BridgeTab() {
       setAmount("");
       toast({
         title: "wEMBR burned on Base",
-        description: "Your burn is confirmed. EMBR will arrive on Emberchain once the relayer releases it.",
+        description: `Confirmed on Base Mainnet. Tx ${txHash.slice(0, 10)}… — EMBR releases after relayer completes.`,
       });
       void tryRegisterBaseOut({
         txHash,
