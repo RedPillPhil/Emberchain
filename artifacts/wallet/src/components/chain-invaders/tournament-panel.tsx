@@ -8,7 +8,7 @@ export function TournamentPanel({
   inWindow,
   entryStatus,
   practiceMode,
-  windowLabel,
+  windowLines,
   busy,
   contractConfigured,
   onEnter,
@@ -18,7 +18,7 @@ export function TournamentPanel({
   inWindow: boolean;
   entryStatus: EntryStatus;
   practiceMode: boolean;
-  windowLabel: string;
+  windowLines: string[];
   busy: boolean;
   contractConfigured: boolean;
   onEnter: () => void;
@@ -34,14 +34,15 @@ export function TournamentPanel({
             Daily tournament
           </div>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            <strong className="text-foreground">Scoring window:</strong> noon–8pm Eastern every day.
-            {contractConfigured && (
-              <>
-                <br />
-                <span className="font-mono text-[11px] opacity-90">{windowLabel}</span>
-              </>
-            )}
+            <strong className="text-foreground">Scoring window:</strong> 16:00–24:00 UTC daily.
           </p>
+          {contractConfigured && windowLines.length > 0 && (
+            <div className="font-mono text-[11px] text-muted-foreground/90 leading-relaxed space-y-0.5 pt-0.5">
+              {windowLines.map((line) => (
+                <div key={line}>{line}</div>
+              ))}
+            </div>
+          )}
           <p className="text-xs text-muted-foreground leading-relaxed">
             Enter anytime after the last contest ends (500 EMBR). Play for fun anytime —
             practice scores don&apos;t count until you&apos;re entered and the window is live.
@@ -63,7 +64,7 @@ export function TournamentPanel({
           </span>
         ) : (
           <span className="inline-flex items-center gap-1.5 bg-secondary text-muted-foreground border border-border px-2 py-1 rounded-sm font-bold uppercase tracking-wide">
-            Between contests · opens noon ET
+            Between contests · opens 16:00 UTC
           </span>
         )}
 

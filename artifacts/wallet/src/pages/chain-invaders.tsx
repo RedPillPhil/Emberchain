@@ -39,7 +39,7 @@ export default function ChainInvadersPage() {
               Chain Invaders
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground font-sans uppercase tracking-widest font-bold mt-1">
-              Practice anytime · tournament noon–8pm ET
+              Practice anytime · tournament 16:00–24:00 UTC
             </p>
           </div>
           <Link
@@ -55,7 +55,7 @@ export default function ChainInvadersPage() {
           Jump in whenever you want for practice. When you&apos;re ready, pay{" "}
           <strong className="text-foreground">500 EMBR</strong> to enter the daily contest —
           available as soon as the previous day ends. During{" "}
-          <strong className="text-foreground">noon–8pm Eastern</strong>, entered players&apos;
+          <strong className="text-foreground">16:00–24:00 UTC</strong>, entered players&apos;
           scores count toward the jackpot (75% cumulative / 25% best single run). Practice scores
           never appear on leaderboards.
         </p>
@@ -66,7 +66,7 @@ export default function ChainInvadersPage() {
           inWindow={comp.inWindow}
           entryStatus={comp.entryStatus}
           practiceMode={comp.practiceMode}
-          windowLabel={comp.windowLabel}
+          windowLines={comp.windowLines}
           busy={comp.busy}
           contractConfigured={comp.contractConfigured}
           onEnter={() => void comp.enterCompetition()}

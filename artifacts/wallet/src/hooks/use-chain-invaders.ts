@@ -67,18 +67,48 @@ function decodeTwoUint(hex: string): [bigint, bigint] {
   return [BigInt("0x" + clean.slice(0, 64)), BigInt("0x" + clean.slice(64, 128))];
 }
 
-function formatEtRange(startSec: bigint, endSec: bigint): string {
-  const fmt = (sec: bigint) =>
-    new Date(Number(sec) * 1000).toLocaleString("en-US", {
-      timeZone: "America/New_York",
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      timeZoneName: "short",
-    });
-  return `${fmt(startSec)} → ${fmt(endSec)}`;
+/** Display zones — UTC first, then common local clocks (abbrev from Intl). */
+const WINDOW_TIME_ZONES = [
+  "UTC",
+  "America/New_York",
+  "America/Los_Angeles",
+  "Europe/London",
+  "Asia/Kolkata",
+  "Asia/Shanghai",
+  "Asia/Tokyo",
+] as const;
+
+function formatInTimeZone(sec: bigint, timeZone: string): string {
+  return new Date(Number(sec) * 1000).toLocaleString("en-US", {
+    timeZone,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+}
+
+/** One line per zone: `Mon, Aug 3, 12:00 PM EDT → Mon, Aug 3, 8:00 PM EDT` */
+function formatWindowLines(startSec: bigint, endSec: bigint): string[] {
+  return WINDOW_TIME_ZONES.map(
+    (tz) => `${formatInTimeZone(startSec, tz)} → ${formatInTimeZone(endSec, tz)}`,
+  );
+}
+
+/** Fallback window for today using on-chain defaults (16:00–24:00 UTC). */
+function defaultUtcWindowLines(now = new Date()): string[] {
+  const utcMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000;
+  const start = BigInt(utcMidnight + 16 * 3600);
+  const end = BigInt(utcMidnight + 24 * 3600);
+  return formatWindowLines(start, end);
+}
+
+/** True during 16:00–24:00 UTC — matches ChainInvaders window offsets. */
+function isUtcPlayWindowLocal(now = new Date()): boolean {
+  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
+  return mins >= 16 * 60 && mins < 24 * 60;
 }
 
 export type EntryStatus =
@@ -96,9 +126,11 @@ export function useChainInvadersCompetition() {
   const [currentDayId, setCurrentDayId] = useState(0n);
   const [entryDayId, setEntryDayId] = useState(0n);
   const [inWindow, setInWindow] = useState(false);
+  /** false until a successful chain read — avoids "outside window" toasts while RPC is down */
+  const [windowKnown, setWindowKnown] = useState(false);
   const [hasEnteredEntryDay, setHasEnteredEntryDay] = useState(false);
   const [hasEnteredLiveDay, setHasEnteredLiveDay] = useState(false);
-  const [windowLabel, setWindowLabel] = useState("Noon–8pm Eastern daily");
+  const [windowLines, setWindowLines] = useState<string[]>(() => defaultUtcWindowLines());
   const [busy, setBusy] = useState(false);
   const [lastResult, setLastResult] = useState<PlayResult | null>(null);
   const padRef = useRef<((button: PadButton, active: boolean) => void) | null>(null);
@@ -123,6 +155,7 @@ export function useChainInvadersCompetition() {
     if (!CHAIN_INVADERS_ADDRESS) {
       setJackpotWei(0n);
       setInWindow(false);
+      setWindowKnown(false);
       setHasEnteredEntryDay(false);
       setHasEnteredLiveDay(false);
       return;
@@ -141,13 +174,18 @@ export function useChainInvadersCompetition() {
       setCurrentDayId(cur);
       setEntryDayId(entry);
       setInWindow(live);
+      setWindowKnown(true);
 
       try {
         const winData = await embrEthCall(CHAIN_INVADERS_ADDRESS, encDayWindow(entry));
         const [start, end] = decodeTwoUint(winData);
-        setWindowLabel(formatEtRange(start, end));
+        if (start > 0n && end > start) {
+          setWindowLines(formatWindowLines(start, end));
+        } else {
+          setWindowLines(defaultUtcWindowLines());
+        }
       } catch {
-        setWindowLabel("Noon–8pm Eastern daily");
+        setWindowLines(defaultUtcWindowLines());
       }
 
       if (activeWallet?.address) {
@@ -163,6 +201,8 @@ export function useChainInvadersCompetition() {
       }
     } catch {
       setJackpotWei(0n);
+      setWindowKnown(false);
+      // Keep last known inWindow; local clock only used for toast copy below.
     }
   }, [activeWallet?.address]);
 
@@ -204,7 +244,7 @@ export function useChainInvadersCompetition() {
         title: "Entered!",
         description: inWindow
           ? "500 EMBR locked — scored runs count toward today's jackpot."
-          : "500 EMBR locked for the next contest. Practice freely until noon Eastern.",
+          : "500 EMBR locked for the next contest. Practice freely until 16:00 UTC.",
       });
       await refresh();
     } catch (err) {
@@ -224,11 +264,20 @@ export function useChainInvadersCompetition() {
       // Practice: always allowed to play; only submit when live + entered for today
       if (!CHAIN_INVADERS_ADDRESS || !activeWallet || !inWindow || !hasEnteredLiveDay) {
         if (result.score > 0 && (!inWindow || !hasEnteredLiveDay)) {
+          let description: string;
+          if (!windowKnown) {
+            description = isUtcPlayWindowLocal()
+              ? "Couldn't reach the chain to confirm the live window — hard refresh and enter (500 EMBR) if you want this run to count."
+              : "Couldn't reach the chain. Tournament scoring is 16:00–24:00 UTC — try again when the site is healthy.";
+          } else if (inWindow) {
+            description = "Enter the contest (500 EMBR) to submit scores for the jackpot.";
+          } else {
+            description =
+              "Tournament scores only count 16:00–24:00 UTC. Enter anytime for the next contest.";
+          }
           toast({
             title: "Practice run complete",
-            description: inWindow
-              ? "Enter the contest (500 EMBR) to submit scores for the jackpot."
-              : "Tournament scores only count noon–8pm Eastern. Enter anytime for the next contest.",
+            description,
           });
         }
         return;
@@ -319,6 +368,7 @@ export function useChainInvadersCompetition() {
       currentDayId,
       hasEnteredLiveDay,
       inWindow,
+      windowKnown,
       refresh,
       submitTx,
       toast,
@@ -367,7 +417,7 @@ export function useChainInvadersCompetition() {
     hasEnteredLiveDay,
     entryStatus,
     practiceMode,
-    windowLabel,
+    windowLines,
     busy,
     lastResult,
     contractConfigured: Boolean(CHAIN_INVADERS_ADDRESS),

@@ -64,7 +64,7 @@ export default function NiftyMonPage() {
           inWindow={comp.inWindow}
           entryStatus={comp.entryStatus}
           practiceMode={comp.practiceMode}
-          windowLabel={comp.windowLabel}
+          windowLines={comp.windowLines}
           busy={comp.busy}
           contractConfigured={comp.contractConfigured}
           onEnter={() => void comp.enterCompetition()}

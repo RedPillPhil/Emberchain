@@ -140,7 +140,7 @@ export default function WhitepaperPage() {
           </p>
           <p>
             <strong className="text-foreground">Chain Invaders</strong> is a live arcade mini-game
-            with a daily 500 EMBR jackpot (noon–8pm Eastern):{" "}
+            with a daily 500 EMBR jackpot (16:00–24:00 UTC):{" "}
             <strong className="text-foreground">75%</strong> to highest cumulative score,{" "}
             <strong className="text-foreground">25%</strong> to highest single run. Scores are
             secured with <strong className="text-foreground">commit–reveal</strong> plus{" "}
