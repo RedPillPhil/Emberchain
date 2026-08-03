@@ -7,7 +7,9 @@ dotenv.config();
 const DEPLOYER_PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY ?? "0x" + "a".repeat(64);
 const BASE_SEPOLIA_RPC = process.env.BASE_SEPOLIA_RPC ?? "https://sepolia.base.org";
 const BASE_MAINNET_RPC = process.env.BASE_MAINNET_RPC ?? "https://mainnet.base.org";
-const BASESCAN_API_KEY = process.env.BASESCAN_API_KEY ?? "";
+// Verification goes through Etherscan's unified V2 API, so this is an Etherscan
+// key, not a Basescan one. BASESCAN_API_KEY stays accepted for existing setups.
+const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY ?? process.env.BASESCAN_API_KEY ?? "";
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -42,26 +44,11 @@ const config: HardhatUserConfig = {
     },
   },
   etherscan: {
-    // Single key for Etherscan V2 API (used by Basescan)
-    apiKey: BASESCAN_API_KEY,
-    customChains: [
-      {
-        network: "base",
-        chainId: 8453,
-        urls: {
-          apiURL: "https://api.basescan.org/api",
-          browserURL: "https://basescan.org",
-        },
-      },
-      {
-        network: "base-sepolia",
-        chainId: 84532,
-        urls: {
-          apiURL: "https://api-sepolia.basescan.org/api",
-          browserURL: "https://sepolia.basescan.org",
-        },
-      },
-    ],
+    // One Etherscan key covers every chain under the V2 API.  There is
+    // deliberately no customChains block: the per-chain V1 endpoints this used to
+    // point at (api.basescan.org) were shut down on 2025-08-15, and hardhat-verify
+    // already knows how to reach Base through the unified V2 endpoint.
+    apiKey: ETHERSCAN_API_KEY,
   },
   paths: {
     sources: "./contracts",
