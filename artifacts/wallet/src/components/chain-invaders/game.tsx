@@ -17,7 +17,7 @@ export interface ChainInvadersGameProps {
   className?: string;
   /** Current tournament day for game-over leaderboard */
   leaderboardDayId?: bigint | number | null;
-  /** Show cumulative boards overlay on game over (desktop) */
+  /** Show cumulative boards overlay on game over + Esc pause (desktop) */
   showGameOverLeaderboard?: boolean;
   roundSeedProvider?: RoundSeedProvider | null;
   onPadRef?: (press: (button: PadButton, active: boolean) => void) => void;
@@ -41,6 +41,7 @@ export function ChainInvadersGame({
   const engineRef = useRef<ChainInvadersEngine | null>(null);
   const [score, setScore] = useState(0);
   const [phase, setPhase] = useState<GamePhase>("title");
+  const [escScoresOpen, setEscScoresOpen] = useState(false);
   const seedProviderRef = useRef(roundSeedProvider);
   seedProviderRef.current = roundSeedProvider;
 
@@ -50,7 +51,10 @@ export function ChainInvadersGame({
 
     const engine = new ChainInvadersEngine(canvas, {
       onScore: setScore,
-      onGameOver: (r) => onGameOver?.(r),
+      onGameOver: (r) => {
+        setEscScoresOpen(false);
+        onGameOver?.(r);
+      },
       onPhase: (p) => {
         setPhase(p);
         onPhase?.(p);
@@ -77,9 +81,46 @@ export function ChainInvadersGame({
     engineRef.current?.setJackpotLabel(label);
   }, [jackpotLabel, showJackpotOverlay]);
 
+  // Desktop: Esc toggles high-score pause menu
+  useEffect(() => {
+    if (!showGameOverLeaderboard) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      const engine = engineRef.current;
+      if (!engine) return;
+
+      // Game over already shows the board — Esc dismisses back to game-over canvas
+      if (engine.getPhase() === "gameover") {
+        setEscScoresOpen(false);
+        return;
+      }
+
+      setEscScoresOpen((open) => {
+        if (open) {
+          engine.resumeFromMenu();
+          return false;
+        }
+        engine.pauseForMenu();
+        return true;
+      });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showGameOverLeaderboard]);
+
   const start = useCallback(() => {
+    setEscScoresOpen(false);
     engineRef.current?.beginPlay();
   }, []);
+
+  const closeEscMenu = useCallback(() => {
+    setEscScoresOpen(false);
+    engineRef.current?.resumeFromMenu();
+  }, []);
+
+  const boardOpen = showGameOverLeaderboard && (phase === "gameover" || escScoresOpen);
+  const boardMode = escScoresOpen && phase !== "gameover" ? "pause" : "gameover";
 
   return (
     <div className={cn("relative w-full h-full bg-black", className)}>
@@ -99,9 +140,10 @@ export function ChainInvadersGame({
       )}
       {showGameOverLeaderboard && (
         <GameOverLeaderboardOverlay
-          open={phase === "gameover"}
+          open={boardOpen}
           dayId={leaderboardDayId}
-          onClose={start}
+          mode={boardMode === "pause" ? "pause" : "gameover"}
+          onClose={phase === "gameover" ? start : closeEscMenu}
         />
       )}
     </div>

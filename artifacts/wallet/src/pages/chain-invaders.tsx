@@ -102,7 +102,7 @@ export default function ChainInvadersPage() {
         <p className="text-xs text-muted-foreground px-1 text-center">
           {handheld
             ? "NiftyBoy · D-pad move · A/B fire · Start to begin / pause"
-            : "NiftyVision · ← → move · Z / X / Space fire · Enter start · P pause · leaderboard on game over"}
+            : "NiftyVision · ← → move · Z / X / Space fire · Enter start · P pause · Esc high scores"}
         </p>
       </div>
     </Shell>

@@ -144,6 +144,20 @@ export class ChainInvadersEngine {
     this.hooks.onPhase?.(phase);
   }
 
+  getPhase(): GamePhase {
+    return this.phase;
+  }
+
+  /** Pause for score menu / Esc — no-op if not playing. */
+  pauseForMenu() {
+    if (this.phase === "playing") this.setPhase("paused");
+  }
+
+  /** Resume after closing Esc high-score menu. */
+  resumeFromMenu() {
+    if (this.phase === "paused") this.setPhase("playing");
+  }
+
   startLoop() {
     if (this.running) return;
     this.running = true;
@@ -171,11 +185,17 @@ export class ChainInvadersEngine {
 
   private keyDown = (e: KeyboardEvent) => {
     const k = e.key.toLowerCase();
-    if (["arrowleft", "arrowright", "arrowup", "arrowdown", " ", "enter", "a", "z", "x", "p"].includes(k) || e.code === "Space") {
+    if (
+      ["arrowleft", "arrowright", "arrowup", "arrowdown", " ", "enter", "a", "z", "x", "p", "escape"].includes(k) ||
+      e.code === "Space" ||
+      e.key === "Escape"
+    ) {
       e.preventDefault();
     }
     this.keys.add(k);
     if (e.code === "Space") this.keys.add(" ");
+    // Escape is handled by the React score menu (pause + overlay) on desktop.
+    if (e.key === "Escape") return;
     if (this.phase === "title" && (k === "enter" || k === " ")) {
       this.beginPlay();
     } else if (this.phase === "gameover" && (k === "enter" || k === " ")) {

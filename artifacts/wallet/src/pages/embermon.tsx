@@ -106,7 +106,7 @@ export default function NiftyMonPage() {
             Chain Invaders ·{" "}
             {handheld
               ? "D-pad move · A fire · Start pause"
-              : "← → move · Z/X/Space fire · Enter start · P pause · leaderboard on game over"}
+              : "← → move · Z/X/Space fire · Enter start · P pause · Esc high scores"}
           </p>
         )}
 

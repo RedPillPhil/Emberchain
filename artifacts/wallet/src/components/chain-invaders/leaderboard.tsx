@@ -211,14 +211,16 @@ function BoardCard({
   );
 }
 
-/** Desktop game-over overlay */
+/** Desktop game-over / Esc pause high-score overlay */
 export function GameOverLeaderboardOverlay({
   open,
   dayId,
+  mode = "gameover",
   onClose,
 }: {
   open: boolean;
   dayId: bigint | number | null;
+  mode?: "gameover" | "pause";
   onClose?: () => void;
 }) {
   const lb = useInvadersLeaderboard(dayId);
@@ -227,7 +229,9 @@ export function GameOverLeaderboardOverlay({
   return (
     <div className="absolute inset-0 z-40 bg-black/85 text-foreground flex flex-col p-3 sm:p-4 overflow-auto">
       <div className="text-center mb-3 space-y-1">
-        <p className="text-xs uppercase tracking-[0.2em] text-primary font-bold">Game Over</p>
+        <p className="text-xs uppercase tracking-[0.2em] text-primary font-bold">
+          {mode === "pause" ? "High Scores · Paused" : "Game Over"}
+        </p>
         <div className="flex items-center justify-center gap-2">
           <Crown className="w-5 h-5 text-amber-400" />
           <div>
@@ -318,7 +322,9 @@ export function GameOverLeaderboardOverlay({
         onClick={onClose}
         className="mt-3 mx-auto text-xs uppercase tracking-widest font-bold text-primary border border-primary/40 px-3 py-1.5 rounded-sm"
       >
-        Press Start / Enter to play again
+        {mode === "pause"
+          ? "Esc / click to resume"
+          : "Press Start / Enter to play again"}
       </button>
     </div>
   );
