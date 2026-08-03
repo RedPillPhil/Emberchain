@@ -23,6 +23,7 @@ import { Link } from "wouter";
 import { resolveApiServer } from "@/lib/api-server";
 import { chainNodeBaseUrl } from "@/lib/config";
 import { triggerLocalBridgeMiner } from "@/lib/bridge-miner";
+import emberCoinIcon from "@assets/ember-coin.svg";
 import {
   maxSpendableEmbr,
   waitForChainTransaction,
@@ -731,8 +732,33 @@ function decodeUint256(hex: string): bigint {
 
 // ── Token icon ────────────────────────────────────────────────────────────────
 
+function isEmberSymbol(symbol: string): boolean {
+  const s = symbol.toUpperCase();
+  return s === "EMBR" || s === "WEMBR";
+}
+
+function EmberCoinImg({
+  symbol,
+  className,
+}: {
+  symbol: string;
+  className?: string;
+}) {
+  return (
+    <img
+      src={emberCoinIcon}
+      alt={symbol}
+      title={symbol}
+      className={cn("rounded-full object-cover shrink-0", className)}
+    />
+  );
+}
+
 function TokenIcon({ token, size = "md" }: { token: TokenInfo; size?: "sm" | "md" | "lg" }) {
   const sz = size === "sm" ? "w-5 h-5 text-[9px]" : size === "lg" ? "w-9 h-9 text-sm" : "w-7 h-7 text-xs";
+  if (isEmberSymbol(token.symbol)) {
+    return <EmberCoinImg symbol={token.symbol} className={sz} />;
+  }
   return (
     <div className={cn("rounded-full flex items-center justify-center font-bold text-white shrink-0", sz, token.color)}>
       {token.symbol.slice(0, 3)}
@@ -1255,9 +1281,13 @@ function BridgeTokenPicker({
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-2 border border-border rounded-sm px-3 py-2 bg-secondary/60 hover:bg-secondary transition-colors w-full text-left"
       >
-        <div className="w-7 h-7 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-          {label.slice(0, 2)}
-        </div>
+        {isEmberSymbol(label) ? (
+          <EmberCoinImg symbol={label} className="w-7 h-7" />
+        ) : (
+          <div className="w-7 h-7 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+            {label.slice(0, 2)}
+          </div>
+        )}
         <div className="flex-1 min-w-0">
           <div className="font-bold text-sm text-foreground leading-none">{label}</div>
           <div className="text-[10px] text-muted-foreground mt-0.5 truncate">{sub}</div>
@@ -1293,9 +1323,13 @@ function BridgeTokenPicker({
                 }}
                 className="w-full flex items-center gap-2 px-3 py-2 hover:bg-secondary/50 transition-colors text-left"
               >
-                <div className="w-6 h-6 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
-                  {l.symbol.slice(0, 2)}
-                </div>
+                {isEmberSymbol(l.symbol) ? (
+                  <EmberCoinImg symbol={l.symbol} className="w-6 h-6" />
+                ) : (
+                  <div className="w-6 h-6 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
+                    {l.symbol.slice(0, 2)}
+                  </div>
+                )}
                 <div className="min-w-0">
                   <div className="text-sm font-bold text-foreground">{l.symbol}</div>
                   <div className="text-[10px] text-muted-foreground truncate">{l.token_name}</div>
