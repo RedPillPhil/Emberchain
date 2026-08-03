@@ -63,24 +63,33 @@ function dtoToTradeLogEntry(d: DexTradeLogDto): TradeLogEntry {
 function useSharedTradeData(_tokenAddress: `0x${string}`) {
   const [currentBlock, setCurrentBlock] = useState<bigint>(0n);
   const [tradeLogs, setTradeLogs] = useState<TradeLogEntry[]>([]);
+  const [tradesLoading, setTradesLoading] = useState(true);
+  const [tradesError, setTradesError] = useState(false);
 
   const fetchLogs = useCallback(async () => {
     try {
       const res = await fetch(
         chainNodeApi(`/api/dex/trades?lookback=${DEX_TRADES_LOOKBACK || 0}`),
       );
-      if (!res.ok) return;
+      if (!res.ok) {
+        setTradesError(true);
+        return;
+      }
       const data = (await res.json()) as { headBlock?: number; logs?: DexTradeLogDto[] };
       setCurrentBlock(BigInt(data.headBlock ?? 0));
       setTradeLogs((data.logs ?? []).map(dtoToTradeLogEntry));
+      setTradesError(false);
     } catch {
-      /* silent — keep stale data */
+      setTradesError(true);
+      /* keep stale data if we already had some */
+    } finally {
+      setTradesLoading(false);
     }
   }, []);
 
   useSlowPoll(fetchLogs);
 
-  return { currentBlock, tradeLogs };
+  return { currentBlock, tradeLogs, tradesLoading, tradesError };
 }
 
 // ── Collapsible section (mobile layout) ──────────────────────────────────
@@ -160,7 +169,7 @@ export default function Exchange() {
 
   // Single shared RPC fetch for Trade events — distributed to both OrderBook
   // and TradeHistory so they don't independently call eth_getLogs every cycle.
-  const { currentBlock, tradeLogs } = useSharedTradeData(selectedPair.tokenAddress);
+  const { currentBlock, tradeLogs, tradesLoading, tradesError } = useSharedTradeData(selectedPair.tokenAddress);
 
   const [ordersRefreshKey, setOrdersRefreshKey] = useState(0);
   const bumpOrders = useCallback(() => setOrdersRefreshKey((k) => k + 1), []);
@@ -200,6 +209,8 @@ export default function Exchange() {
               tokenAddress={selectedPair.tokenAddress}
               tradeLogs={tradeLogs}
               currentPrice={lastPrice}
+              loading={tradesLoading}
+              error={tradesError}
             />
           </div>
           <div className="flex-1 min-h-0">
@@ -208,6 +219,8 @@ export default function Exchange() {
               symbol={selectedPair.symbol}
               onLastPrice={handleLastPrice}
               tradeLogs={tradeLogs}
+              loading={tradesLoading}
+              error={tradesError}
             />
           </div>
         </div>
@@ -233,6 +246,8 @@ export default function Exchange() {
             tokenAddress={selectedPair.tokenAddress}
             tradeLogs={tradeLogs}
             currentPrice={lastPrice}
+            loading={tradesLoading}
+            error={tradesError}
           />
         </div>
 
@@ -276,6 +291,8 @@ export default function Exchange() {
             symbol={selectedPair.symbol}
             onLastPrice={handleLastPrice}
             tradeLogs={tradeLogs}
+            loading={tradesLoading}
+            error={tradesError}
           />
         </CollapsibleSection>
 

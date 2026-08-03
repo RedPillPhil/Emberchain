@@ -24,6 +24,8 @@ interface TradeHistoryProps {
   symbol: string;
   onLastPrice?: (price: number) => void;
   tradeLogs: TradeLogEntry[];
+  loading?: boolean;
+  error?: boolean;
 }
 
 export const TradeHistory = React.memo(function TradeHistory({
@@ -31,6 +33,8 @@ export const TradeHistory = React.memo(function TradeHistory({
   symbol,
   onLastPrice,
   tradeLogs,
+  loading = false,
+  error = false,
 }: TradeHistoryProps) {
   const ethUsd = useEthUsdPrice();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
@@ -78,12 +82,10 @@ export const TradeHistory = React.memo(function TradeHistory({
     }
   }, [trades, onLastPrice]);
 
-  const loading = tradeLogs.length === 0 && trades.length === 0;
-
   return (
     <div className="flex flex-col h-full bg-card font-mono text-xs overflow-hidden">
       <div className="flex items-center justify-between p-2 border-b border-border font-sans font-semibold text-muted-foreground uppercase text-[10px] tracking-wider shrink-0 bg-card z-10">
-        <span>Trade History</span>
+        <span>Trade History · Public</span>
         <div className="flex items-center gap-2 normal-case tracking-normal">
           {ethUsd != null && (
             <span className="text-[9px] text-muted-foreground/80">
@@ -106,13 +108,31 @@ export const TradeHistory = React.memo(function TradeHistory({
       </div>
 
       <div className="flex-1 overflow-y-auto overflow-x-auto">
-        {!loading && trades.length === 0 ? (
+        {loading && trades.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
+            <p className="text-muted-foreground font-sans text-[11px] animate-pulse">
+              Loading public trade history…
+            </p>
+            <p className="text-muted-foreground/60 font-sans text-[10px]">
+              Scanning Base for {symbol}/ETH fills — usually a few seconds.
+            </p>
+          </div>
+        ) : error && trades.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
+            <p className="text-muted-foreground font-sans text-[11px]">
+              Couldn&apos;t load trade history
+            </p>
+            <p className="text-muted-foreground/60 font-sans text-[10px]">
+              Retrying automatically. All pair fills are public once the feed connects.
+            </p>
+          </div>
+        ) : trades.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
             <p className="text-muted-foreground font-sans text-[11px]">
               No {symbol}/ETH trades yet on-chain.
             </p>
             <p className="text-muted-foreground/60 font-sans text-[10px]">
-              Completed trades appear here in real time.
+              Every completed fill for this pair shows here for everyone — not just your wallet.
             </p>
           </div>
         ) : (

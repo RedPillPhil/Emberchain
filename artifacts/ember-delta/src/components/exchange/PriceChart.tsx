@@ -23,6 +23,8 @@ interface ChartProps {
   tradeLogs: TradeLogEntry[];
   /** Fallback header price when there are no trades yet. */
   currentPrice: number;
+  loading?: boolean;
+  error?: boolean;
 }
 
 function ChartToggle({
@@ -55,7 +57,14 @@ function ChartToggle({
   );
 }
 
-export function PriceChart({ symbol, tokenAddress, tradeLogs, currentPrice }: ChartProps) {
+export function PriceChart({
+  symbol,
+  tokenAddress,
+  tradeLogs,
+  currentPrice,
+  loading = false,
+  error = false,
+}: ChartProps) {
   const ethUsd = useEthUsdPrice();
   const [currency, setCurrency] = useState<PriceCurrency>('eth');
   const [chartStyle, setChartStyle] = useState<ChartStyle>('line');
@@ -165,9 +174,13 @@ export function PriceChart({ symbol, tokenAddress, tradeLogs, currentPrice }: Ch
               {displayPriceEth > 0 && currency === 'usd' && (
                 <>{formatNumber(displayPriceEth, 6)} ETH · </>
               )}
-              {hasTrades
-                ? `${trades.length} on-chain trade${trades.length === 1 ? '' : 's'}`
-                : 'No trades yet'}
+              {loading
+                ? "Loading trades…"
+                : error && !hasTrades
+                  ? "Trade feed unavailable"
+                  : hasTrades
+                    ? `${trades.length} on-chain trade${trades.length === 1 ? "" : "s"} · public`
+                    : "No trades yet"}
             </span>
           </div>
         </div>
@@ -193,11 +206,27 @@ export function PriceChart({ symbol, tokenAddress, tradeLogs, currentPrice }: Ch
       </div>
 
       <div className="flex-1 w-full relative min-h-[200px]">
-        {!hasTrades ? (
+        {loading && !hasTrades ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
+            <p className="text-muted-foreground text-sm font-sans animate-pulse">
+              Loading trade history…
+            </p>
+            <p className="text-muted-foreground/60 text-xs font-sans mt-1">
+              Scanning Base for public {symbol}/ETH fills — this can take a few seconds.
+            </p>
+          </div>
+        ) : error && !hasTrades ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
+            <p className="text-muted-foreground text-sm font-sans">Couldn&apos;t load trades</p>
+            <p className="text-muted-foreground/60 text-xs font-sans mt-1">
+              Retrying automatically — chart and history will fill in when the feed reconnects.
+            </p>
+          </div>
+        ) : !hasTrades ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
             <p className="text-muted-foreground text-sm font-sans">No trade history yet</p>
             <p className="text-muted-foreground/60 text-xs font-sans mt-1">
-              The chart plots real fill prices from on-chain Trade events.
+              Public on-chain fills for this pair will appear here once trades happen.
             </p>
           </div>
         ) : chartStyle === 'bar' ? (
