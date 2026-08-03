@@ -1304,6 +1304,27 @@ export class Blockchain {
   }
 
   /**
+   * Resolve which transaction hashes a mined header commits to.
+   *
+   * The proof-of-work covers transactionsRoot, so the root is authoritative and
+   * the client's `pendingTxHashes` is only a hint.  Tries that hint first, then
+   * progressively shorter prefixes of the current mempool (the mempool may have
+   * grown or drained since the template was issued).  Falls back to the hint if
+   * nothing reproduces the root, which keeps foreign or stale templates working.
+   */
+  private txHashesCommittedBy(transactionsRoot: string, hint?: string[]): string[] {
+    const candidates: string[][] = [];
+    if (hint && hint.length > 0) candidates.push(hint);
+    const slice = this.mempool.slice(0, MAX_TXS_PER_BLOCK).map((t) => t.hash);
+    for (let len = slice.length; len >= 0; len--) candidates.push(slice.slice(0, len));
+
+    for (const candidate of candidates) {
+      if (transactionsRootOf(candidate) === transactionsRoot) return candidate;
+    }
+    return hint ?? [];
+  }
+
+  /**
    * Difficulty a block stamped `timestampMs` must meet, after easing for how
    * long the chain has been silent.  Single source of truth for the template
    * and for every validation path, so they can never disagree.
@@ -1414,8 +1435,11 @@ export class Blockchain {
     if (params.blockHash && hashHex.toLowerCase() !== params.blockHash.toLowerCase()) {
       throw new Error("Block hash mismatch: submitted hash does not match computed hash");
     }
-    // Pull the specific txs from the mempool; silently drop any already removed.
-    const wantSet = new Set(params.pendingTxHashes ?? []);
+    // Recover the tx set this header commits to via transactionsRoot rather than
+    // trusting the client to echo pendingTxHashes back.  A miner that omits them
+    // would otherwise mine a template full of transactions into an empty block,
+    // stranding the mempool no matter how many blocks the network produces.
+    const wantSet = new Set(this.txHashesCommittedBy(params.header.transactionsRoot, params.pendingTxHashes));
     const included: PendingTx[] = [];
     this.mempool = this.mempool.filter((tx) => {
       if (wantSet.has(tx.hash)) { included.push(tx); return false; }
