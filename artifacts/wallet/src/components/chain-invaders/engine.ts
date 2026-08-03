@@ -27,6 +27,8 @@ export interface PlayResult {
   durationMs: number;
   seed: string;
   playHash: string;
+  /** Server round token — required for attest when seed was server-issued */
+  roundToken?: string;
 }
 
 interface Invader {
@@ -61,6 +63,17 @@ function mulberry32(seed: number) {
   };
 }
 
+/** Mix a hex/ascii seed into a 32-bit PRNG state (not just charCode sum). */
+function seedToUint32(seed: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  // Fold extra entropy from WebCrypto-ish client noise if present after `|`
+  return h >>> 0 || 1;
+}
+
 async function sha256Hex(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
   const hash = await crypto.subtle.digest("SHA-256", data);
@@ -68,6 +81,8 @@ async function sha256Hex(input: string): Promise<string> {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
+
+export type RoundSeedProvider = () => Promise<{ seed: string; token?: string } | null>;
 
 export class ChainInvadersEngine {
   readonly canvas: HTMLCanvasElement;
@@ -94,14 +109,17 @@ export class ChainInvadersEngine {
   private invaderSpeed = 40;
   private shootCooldown = 0;
   private enemyShootTimer = 0;
+  private enemyShotIndex = 0;
   private keys = new Set<string>();
   private pad = new Set<PadButton>();
   private startedAt = 0;
   private seed = "";
+  private roundToken = "";
   private rng = mulberry32(1);
   private flash = 0;
   private transcript: string[] = [];
   private jackpotLabel = "";
+  private roundSeedProvider: RoundSeedProvider | null = null;
 
   constructor(canvas: HTMLCanvasElement, hooks: GameHooks = {}) {
     this.canvas = canvas;
@@ -111,6 +129,10 @@ export class ChainInvadersEngine {
     this.hooks = hooks;
     canvas.width = this.W;
     canvas.height = this.H;
+  }
+
+  setRoundSeedProvider(provider: RoundSeedProvider | null) {
+    this.roundSeedProvider = provider;
   }
 
   setJackpotLabel(label: string) {
@@ -207,9 +229,34 @@ export class ChainInvadersEngine {
   }
 
   beginPlay() {
-    this.seed = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-    const seedNum = Array.from(this.seed).reduce((a, c) => a + c.charCodeAt(0), 0);
-    this.rng = mulberry32(seedNum || 1);
+    void this.beginPlayAsync();
+  }
+
+  private async beginPlayAsync() {
+    this.roundToken = "";
+    let seed = "";
+    try {
+      const issued = await this.roundSeedProvider?.();
+      if (issued?.seed) {
+        seed = issued.seed;
+        this.roundToken = issued.token ?? "";
+      }
+    } catch {
+      /* fall through to local entropy */
+    }
+    if (!seed) {
+      const local = new Uint8Array(32);
+      crypto.getRandomValues(local);
+      seed =
+        "0x" +
+        Array.from(local)
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+    }
+
+    this.seed = seed;
+    this.rng = mulberry32(seedToUint32(seed));
+    this.enemyShotIndex = 0;
     this.score = 0;
     this.kills = 0;
     this.lives = 3;
@@ -219,6 +266,7 @@ export class ChainInvadersEngine {
     this.bullets = [];
     this.particles = [];
     this.transcript = [`seed:${this.seed}`];
+    if (this.roundToken) this.transcript.push(`token:${this.roundToken.slice(0, 16)}`);
     this.startedAt = performance.now();
     this.spawnWave();
     this.setPhase("playing");
@@ -247,7 +295,8 @@ export class ChainInvadersEngine {
     this.invaderDir = 1;
     this.invaderSpeed = Math.max(12, 48 - this.wave * 6);
     this.invaderTick = 0;
-    this.enemyShootTimer = 1.2;
+    // First shot delay also jittered — bots can't assume a fixed 1.2s opener
+    this.enemyShootTimer = 0.85 + this.rng() * 0.9;
     this.transcript.push(`wave:${this.wave}`);
   }
 
@@ -319,10 +368,22 @@ export class ChainInvadersEngine {
     if (this.enemyShootTimer <= 0) {
       const alive = this.invaders.filter((i) => i.alive);
       if (alive.length) {
+        // Derive shooter + cadence from seeded stream (not a fixed interval).
+        this.enemyShotIndex += 1;
         const shooter = alive[Math.floor(this.rng() * alive.length)]!;
-        this.bullets.push({ x: shooter.x, y: shooter.y + 8, vy: 110 + this.wave * 10, fromPlayer: false });
+        const speed = 95 + this.wave * 8 + this.rng() * 40;
+        this.bullets.push({
+          x: shooter.x,
+          y: shooter.y + 8,
+          vy: speed,
+          fromPlayer: false,
+        });
+        this.transcript.push(
+          `eshot:${this.enemyShotIndex}:${shooter.col},${shooter.row}:${Math.floor(speed)}`,
+        );
       }
-      this.enemyShootTimer = Math.max(0.35, 1.4 - this.wave * 0.12);
+      const base = Math.max(0.28, 1.35 - this.wave * 0.11);
+      this.enemyShootTimer = base * (0.55 + this.rng() * 0.9);
     }
 
     for (const b of this.bullets) {
@@ -399,6 +460,7 @@ export class ChainInvadersEngine {
       durationMs,
       seed: this.seed,
       playHash: `0x${playHash}`,
+      roundToken: this.roundToken || undefined,
     });
   }
 

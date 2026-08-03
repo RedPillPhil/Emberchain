@@ -6,6 +6,7 @@ import { RetroTvShell } from "@/components/embermon/retro-tv-shell";
 import { NiftyBoyShell } from "@/components/embermon/cryptoboy-shell";
 import { NiftyComingSoonHost, DirectInvadersScreen } from "@/components/chain-invaders/screens";
 import { TournamentPanel } from "@/components/chain-invaders/tournament-panel";
+import { MobileLeaderboards } from "@/components/chain-invaders/leaderboard";
 import { useChainInvadersCompetition } from "@/hooks/use-chain-invaders";
 import "@/components/embermon/embermon.css";
 
@@ -27,6 +28,7 @@ export default function NiftyMonPage() {
   const handheld = useHandheldShell();
   const comp = useChainInvadersCompetition();
   const [playing, setPlaying] = useState(false);
+  const boardDay = comp.inWindow ? comp.currentDayId : comp.entryDayId;
 
   return (
     <Shell>
@@ -69,16 +71,20 @@ export default function NiftyMonPage() {
         />
 
         {handheld ? (
-          <NiftyBoyShell onPad={comp.pressPad}>
-            <NiftyComingSoonHost variant="handheld" onStartGame={() => setPlaying(true)}>
-              <DirectInvadersScreen
-                showJackpotOverlay={false}
-                jackpotLabel={comp.jackpotLabel}
-                onPadRef={comp.setPadHandler}
-                onGameOver={(r) => void comp.submitScore(r)}
-              />
-            </NiftyComingSoonHost>
-          </NiftyBoyShell>
+          <>
+            <NiftyBoyShell onPad={comp.pressPad}>
+              <NiftyComingSoonHost variant="handheld" onStartGame={() => setPlaying(true)}>
+                <DirectInvadersScreen
+                  showJackpotOverlay={false}
+                  jackpotLabel={comp.jackpotLabel}
+                  onPadRef={comp.setPadHandler}
+                  onGameOver={(r) => void comp.submitScore(r)}
+                  roundSeedProvider={comp.fetchRoundSeed}
+                />
+              </NiftyComingSoonHost>
+            </NiftyBoyShell>
+            {playing && <MobileLeaderboards dayId={boardDay > 0n ? boardDay : null} />}
+          </>
         ) : (
           <RetroTvShell>
             <NiftyComingSoonHost variant="tv" onStartGame={() => setPlaying(true)}>
@@ -87,6 +93,9 @@ export default function NiftyMonPage() {
                 jackpotLabel={comp.jackpotLabel}
                 onPadRef={comp.setPadHandler}
                 onGameOver={(r) => void comp.submitScore(r)}
+                leaderboardDayId={boardDay > 0n ? boardDay : null}
+                showGameOverLeaderboard
+                roundSeedProvider={comp.fetchRoundSeed}
               />
             </NiftyComingSoonHost>
           </RetroTvShell>
@@ -97,7 +106,7 @@ export default function NiftyMonPage() {
             Chain Invaders ·{" "}
             {handheld
               ? "D-pad move · A fire · Start pause"
-              : "← → move · Z/X/Space fire · Enter start · P pause"}
+              : "← → move · Z/X/Space fire · Enter start · P pause · leaderboard on game over"}
           </p>
         )}
 

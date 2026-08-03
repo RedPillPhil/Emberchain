@@ -88,12 +88,18 @@ export function DirectInvadersScreen({
   onPadRef,
   onGameOver,
   onPhase,
+  leaderboardDayId,
+  showGameOverLeaderboard,
+  roundSeedProvider,
 }: {
   showJackpotOverlay: boolean;
   jackpotLabel: string;
   onPadRef?: (press: (button: PadButton, active: boolean) => void) => void;
   onGameOver?: (result: PlayResult) => void;
   onPhase?: (phase: GamePhase) => void;
+  leaderboardDayId?: bigint | number | null;
+  showGameOverLeaderboard?: boolean;
+  roundSeedProvider?: import("./engine").RoundSeedProvider | null;
 }) {
   return (
     <ChainInvadersGame
@@ -102,6 +108,9 @@ export function DirectInvadersScreen({
       onPadRef={onPadRef}
       onGameOver={onGameOver}
       onPhase={onPhase}
+      leaderboardDayId={leaderboardDayId}
+      showGameOverLeaderboard={showGameOverLeaderboard}
+      roundSeedProvider={roundSeedProvider}
     />
   );
 }

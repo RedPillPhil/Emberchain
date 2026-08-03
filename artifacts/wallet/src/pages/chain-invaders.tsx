@@ -6,6 +6,7 @@ import { RetroTvShell } from "@/components/embermon/retro-tv-shell";
 import { NiftyBoyShell } from "@/components/embermon/cryptoboy-shell";
 import { DirectInvadersScreen } from "@/components/chain-invaders/screens";
 import { TournamentPanel } from "@/components/chain-invaders/tournament-panel";
+import { MobileLeaderboards } from "@/components/chain-invaders/leaderboard";
 import { useChainInvadersCompetition } from "@/hooks/use-chain-invaders";
 import "@/components/embermon/embermon.css";
 
@@ -26,6 +27,7 @@ function useHandheldShell() {
 export default function ChainInvadersPage() {
   const handheld = useHandheldShell();
   const comp = useChainInvadersCompetition();
+  const boardDay = comp.inWindow ? comp.currentDayId : comp.entryDayId;
 
   return (
     <Shell>
@@ -54,7 +56,8 @@ export default function ChainInvadersPage() {
           <strong className="text-foreground">500 EMBR</strong> to enter the daily contest —
           available as soon as the previous day ends. During{" "}
           <strong className="text-foreground">noon–8pm Eastern</strong>, entered players&apos;
-          scores count toward the jackpot (75% cumulative / 25% best single run).
+          scores count toward the jackpot (75% cumulative / 25% best single run). Practice scores
+          never appear on leaderboards.
         </p>
 
         <TournamentPanel
@@ -70,14 +73,18 @@ export default function ChainInvadersPage() {
         />
 
         {handheld ? (
-          <NiftyBoyShell onPad={comp.pressPad}>
-            <DirectInvadersScreen
-              showJackpotOverlay={false}
-              jackpotLabel={comp.jackpotLabel}
-              onPadRef={comp.setPadHandler}
-              onGameOver={(r) => void comp.submitScore(r)}
-            />
-          </NiftyBoyShell>
+          <>
+            <NiftyBoyShell onPad={comp.pressPad}>
+              <DirectInvadersScreen
+                showJackpotOverlay={false}
+                jackpotLabel={comp.jackpotLabel}
+                onPadRef={comp.setPadHandler}
+                onGameOver={(r) => void comp.submitScore(r)}
+                roundSeedProvider={comp.fetchRoundSeed}
+              />
+            </NiftyBoyShell>
+            <MobileLeaderboards dayId={boardDay > 0n ? boardDay : null} />
+          </>
         ) : (
           <RetroTvShell>
             <DirectInvadersScreen
@@ -85,6 +92,9 @@ export default function ChainInvadersPage() {
               jackpotLabel={comp.jackpotLabel}
               onPadRef={comp.setPadHandler}
               onGameOver={(r) => void comp.submitScore(r)}
+              leaderboardDayId={boardDay > 0n ? boardDay : null}
+              showGameOverLeaderboard
+              roundSeedProvider={comp.fetchRoundSeed}
             />
           </RetroTvShell>
         )}
@@ -92,7 +102,7 @@ export default function ChainInvadersPage() {
         <p className="text-xs text-muted-foreground px-1 text-center">
           {handheld
             ? "NiftyBoy · D-pad move · A/B fire · Start to begin / pause"
-            : "NiftyVision · ← → move · Z / X / Space fire · Enter start · P pause"}
+            : "NiftyVision · ← → move · Z / X / Space fire · Enter start · P pause · leaderboard on game over"}
         </p>
       </div>
     </Shell>

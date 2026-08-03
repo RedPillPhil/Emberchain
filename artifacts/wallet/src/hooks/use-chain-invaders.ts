@@ -270,6 +270,7 @@ export function useChainInvadersCompetition() {
               seed: result.seed,
               durationMs: result.durationMs,
               kills: result.kills,
+              roundToken: result.roundToken,
             }),
           });
           const json = await res.json();
@@ -324,6 +325,25 @@ export function useChainInvadersCompetition() {
     ],
   );
 
+  const fetchRoundSeed = useCallback(async () => {
+    try {
+      const api = resolveApiServer();
+      const res = await fetch(`${api}/api/chain-invaders/round-seed`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          player: activeWallet?.address,
+        }),
+      });
+      if (!res.ok) return null;
+      const json = (await res.json()) as { seed?: string; token?: string };
+      if (!json.seed) return null;
+      return { seed: json.seed, token: json.token };
+    } catch {
+      return null;
+    }
+  }, [activeWallet?.address]);
+
   const setPadHandler = useCallback((fn: (button: PadButton, active: boolean) => void) => {
     padRef.current = fn;
   }, []);
@@ -353,6 +373,7 @@ export function useChainInvadersCompetition() {
     contractConfigured: Boolean(CHAIN_INVADERS_ADDRESS),
     enterCompetition,
     submitScore,
+    fetchRoundSeed,
     refresh,
     setPadHandler,
     pressPad,

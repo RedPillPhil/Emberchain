@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { ChainInvadersEngine, type PadButton, type PlayResult, type GamePhase } from "./engine";
+import {
+  ChainInvadersEngine,
+  type PadButton,
+  type PlayResult,
+  type GamePhase,
+  type RoundSeedProvider,
+} from "./engine";
+import { GameOverLeaderboardOverlay } from "./leaderboard";
 import { cn } from "@/lib/utils";
 
 export interface ChainInvadersGameProps {
@@ -8,6 +15,11 @@ export interface ChainInvadersGameProps {
   jackpotLabel?: string;
   autoStart?: boolean;
   className?: string;
+  /** Current tournament day for game-over leaderboard */
+  leaderboardDayId?: bigint | number | null;
+  /** Show cumulative boards overlay on game over (desktop) */
+  showGameOverLeaderboard?: boolean;
+  roundSeedProvider?: RoundSeedProvider | null;
   onPadRef?: (press: (button: PadButton, active: boolean) => void) => void;
   onGameOver?: (result: PlayResult) => void;
   onPhase?: (phase: GamePhase) => void;
@@ -18,6 +30,9 @@ export function ChainInvadersGame({
   jackpotLabel = "",
   autoStart = false,
   className,
+  leaderboardDayId = null,
+  showGameOverLeaderboard = false,
+  roundSeedProvider = null,
   onPadRef,
   onGameOver,
   onPhase,
@@ -26,6 +41,8 @@ export function ChainInvadersGame({
   const engineRef = useRef<ChainInvadersEngine | null>(null);
   const [score, setScore] = useState(0);
   const [phase, setPhase] = useState<GamePhase>("title");
+  const seedProviderRef = useRef(roundSeedProvider);
+  seedProviderRef.current = roundSeedProvider;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -39,6 +56,7 @@ export function ChainInvadersGame({
         onPhase?.(p);
       },
     });
+    engine.setRoundSeedProvider(async () => seedProviderRef.current?.() ?? null);
     engineRef.current = engine;
     engine.attachKeyboard();
     engine.startLoop();
@@ -71,18 +89,20 @@ export function ChainInvadersGame({
         style={{ imageRendering: "pixelated" }}
         tabIndex={0}
       />
-      {/* Accessible score for screen readers / parent hooks */}
       <span className="sr-only">
         Score {score}, phase {phase}
       </span>
       {phase === "title" && (
-        <button
-          type="button"
-          className="sr-only"
-          onClick={start}
-        >
+        <button type="button" className="sr-only" onClick={start}>
           Start Chain Invaders
         </button>
+      )}
+      {showGameOverLeaderboard && (
+        <GameOverLeaderboardOverlay
+          open={phase === "gameover"}
+          dayId={leaderboardDayId}
+          onClose={start}
+        />
       )}
     </div>
   );
