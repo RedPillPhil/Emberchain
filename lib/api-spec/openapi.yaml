@@ -974,7 +974,7 @@ components:
           description: Amount of EMBR locked for sale (wei string)
         currency:
           type: string
-          enum: [ETH, USDT, BTC, SOL]
+          enum: [ETH, USDT, USDC, BTC, SOL]
         priceAmount:
           type: string
           description: Asking price in the currency's natural unit (e.g. "0.05" for 0.05 ETH)
@@ -1007,7 +1007,7 @@ components:
           description: Amount to lock and sell (wei string)
         currency:
           type: string
-          enum: [ETH, USDT, BTC, SOL]
+          enum: [ETH, USDT, USDC, BTC, SOL]
         priceAmount:
           type: string
           description: Asking price in the currency's natural unit (decimal string)

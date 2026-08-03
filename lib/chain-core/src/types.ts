@@ -109,11 +109,20 @@ export interface WalletRecord {
 
 // ---------- P2P Exchange ----------
 
-export type ExchangeCurrency = "ETH" | "USDT" | "BTC" | "SOL";
+export type ExchangeCurrency = "ETH" | "USDT" | "USDC" | "BTC" | "SOL";
 export type ListingStatus = "open" | "fulfilled" | "cancelled";
 
+/** Chains a seller can accept native ETH on. */
+export type EthNetwork = "Ethereum" | "Base" | "Arbitrum";
 /** USDT network names supported by the exchange. */
-export type UsdtNetwork = "ERC-20" | "TRC-20" | "BEP-20" | "Polygon";
+export type UsdtNetwork = "ERC-20" | "TRC-20" | "BEP-20" | "Polygon" | "Arbitrum";
+/**
+ * USDC network names supported by the exchange.  Base offers USDC rather than
+ * USDT because the only USDT on Base is a bridged token Tether disclaims.
+ */
+export type UsdcNetwork = "Base" | "Arbitrum" | "Ethereum";
+/** Any value that can appear in acceptedNetworks / selectedNetwork. */
+export type PaymentNetwork = EthNetwork | UsdtNetwork | UsdcNetwork;
 
 export interface ExchangeListing {
   id: string;
@@ -126,9 +135,9 @@ export interface ExchangeListing {
   /** Asking price in that currency's natural unit (e.g. "0.05" ETH) */
   priceAmount: string;
   /**
-   * Primary receive address (used for all non-USDT currencies, and for
-   * ERC-20 USDT for backward compat).  For multi-chain USDT, per-network
-   * addresses live in networkAddresses.
+   * Primary receive address, used for single-network currencies and as the
+   * fallback when a network has no explicit entry.  Per-network addresses live
+   * in networkAddresses.
    */
   receiveAddress: string;
   status: ListingStatus;
@@ -139,13 +148,16 @@ export interface ExchangeListing {
   createdAt: string;
   updatedAt: string;
 
-  // ── Multi-chain USDT ──────────────────────────────────────────────────────
-  /** For USDT listings: which networks the seller will accept payment on. */
+  // ── Multi-chain payment networks ──────────────────────────────────────────
+  /**
+   * Which networks the seller will accept payment on.  Null for currencies that
+   * settle on a single chain (BTC, SOL).  A buyer paying on a network absent
+   * from this list is rejected.
+   */
   acceptedNetworks: string[] | null;
   /**
    * Maps network name → seller receive address on that network.
-   * ERC-20/BEP-20/Polygon share the same 0x address; TRC-20 uses a T… address.
-   * Null for non-USDT currencies.
+   * All EVM networks can share one 0x address; TRC-20 needs a T… address.
    */
   networkAddresses: Record<string, string> | null;
 
@@ -158,6 +170,6 @@ export interface ExchangeListing {
   reservedUntil: number | null;
 
   // ── Fulfillment metadata ─────────────────────────────────────────────────
-  /** For USDT: which network the buyer used (recorded at fulfillment). */
+  /** Which network the buyer paid on (recorded at fulfillment). */
   selectedNetwork: string | null;
 }

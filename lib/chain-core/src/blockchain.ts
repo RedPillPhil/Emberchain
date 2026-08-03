@@ -847,7 +847,7 @@ export class Blockchain {
     }
 
     const to = normalizeHexAddress(input.to) as PrefixedHexString | null;
-    const data = (input.data && input.data !== "" ? input.data : "0x") as PrefixedHexString;
+    const data = (input.data || "0x") as PrefixedHexString;
 
     this.transactions.set(hash, {
       ...input,
@@ -2712,6 +2712,17 @@ export class Blockchain {
     if (changed) this.persist();
   }
 
+  /**
+   * Currencies that can settle on more than one chain, mapped to the network
+   * assumed when a seller names none.  The defaults match how listings behaved
+   * before each currency became multi-chain, so old clients keep working.
+   */
+  private static readonly DEFAULT_NETWORK: Partial<Record<ExchangeCurrency, string>> = {
+    ETH: "Ethereum",
+    USDT: "ERC-20",
+    USDC: "Base",
+  };
+
   async createListing(input: {
     /** 0x-prefixed hex private key. Address is derived server-side — never trusted from the client. */
     sellerPrivateKey: string;
@@ -2719,9 +2730,9 @@ export class Blockchain {
     currency: ExchangeCurrency;
     priceAmount: string;
     receiveAddress: string;
-    /** For USDT: which networks the seller will accept payment on. */
+    /** Which networks the seller will accept payment on. */
     acceptedNetworks?: string[];
-    /** For USDT multi-chain: maps network name → receive address. */
+    /** Maps network name → receive address on that network. */
     networkAddresses?: Record<string, string>;
   }): Promise<ExchangeListing> {
     await this.whenReady();
@@ -2735,7 +2746,8 @@ export class Blockchain {
     const price = parseFloat(input.priceAmount);
     if (!isFinite(price) || price <= 0) throw new Error("Price must be a positive number");
     if (!input.receiveAddress.trim()) throw new Error("Receive address is required");
-    if (!(["ETH", "USDT", "BTC", "SOL"] as string[]).includes(input.currency)) throw new Error("Unsupported currency");
+    if (!(["ETH", "USDT", "USDC", "BTC", "SOL"] as string[]).includes(input.currency)) throw new Error("Unsupported currency");
+    const defaultNetwork = Blockchain.DEFAULT_NETWORK[input.currency];
 
     // Debit from seller's public balance — this is the escrow lock
     await debit(this.stateManager, sellerAddress as PrefixedHexString, amount);
@@ -2754,12 +2766,12 @@ export class Blockchain {
       paymentTxHash: null,
       createdAt: now,
       updatedAt: now,
-      // Multi-chain USDT
-      acceptedNetworks: input.currency === "USDT"
-        ? (input.acceptedNetworks && input.acceptedNetworks.length > 0 ? input.acceptedNetworks : ["ERC-20"])
+      // Multi-chain payment networks (ETH, USDT, USDC)
+      acceptedNetworks: defaultNetwork
+        ? (input.acceptedNetworks && input.acceptedNetworks.length > 0 ? input.acceptedNetworks : [defaultNetwork])
         : null,
-      networkAddresses: input.currency === "USDT"
-        ? (input.networkAddresses ?? { "ERC-20": input.receiveAddress })
+      networkAddresses: defaultNetwork
+        ? (input.networkAddresses ?? { [defaultNetwork]: input.receiveAddress })
         : null,
       // Reservation
       reservedBy: null,

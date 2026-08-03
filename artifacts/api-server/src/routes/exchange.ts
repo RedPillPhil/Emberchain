@@ -22,7 +22,8 @@ interface ListingView {
   currency: string;
   receiveAddress: string;
   priceAmount: string;
-  networkAddresses?: Record<string, string>;
+  networkAddresses?: Record<string, string> | null;
+  acceptedNetworks?: string[] | null;
   [key: string]: unknown;
 }
 
@@ -117,11 +118,25 @@ router.post("/exchange/listings/:id/buy", async (req: Request<IdParams>, res: Re
     return;
   }
 
-  // Determine which receive address to verify against
   const selectedNetwork = body.selectedNetwork;
+
+  // selectedNetwork comes from the buyer, so it has to be checked against what the
+  // seller actually opted into — otherwise a buyer could settle on any chain they
+  // like and still have the payment verified.
+  const accepted = listing.acceptedNetworks;
+  if (accepted && accepted.length > 0 && (!selectedNetwork || !accepted.includes(selectedNetwork))) {
+    await chainClient.unlockListing(id);
+    res.status(400).json({
+      error: `This listing only accepts ${listing.currency} on: ${accepted.join(", ")}.`,
+      code: "NETWORK_NOT_ACCEPTED",
+    });
+    return;
+  }
+
+  // Determine which receive address to verify against
   let receiveAddress = listing.receiveAddress;
-  if (listing.currency === "USDT" && selectedNetwork && listing.networkAddresses) {
-    const networkAddr = listing.networkAddresses[selectedNetwork];
+  if (selectedNetwork) {
+    const networkAddr = listing.networkAddresses?.[selectedNetwork];
     if (networkAddr) receiveAddress = networkAddr;
   }
 

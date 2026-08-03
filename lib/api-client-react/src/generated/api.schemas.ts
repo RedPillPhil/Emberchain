@@ -271,9 +271,12 @@ export interface ShieldedTxRecord {
 
 // ── P2P Exchange ─────────────────────────────────────────────────────────────
 
-export type ExchangeCurrency = 'ETH' | 'USDT' | 'BTC' | 'SOL';
+export type ExchangeCurrency = 'ETH' | 'USDT' | 'USDC' | 'BTC' | 'SOL';
 export type ListingStatus = 'open' | 'fulfilled' | 'cancelled';
-export type UsdtNetwork = 'ERC-20' | 'TRC-20' | 'BEP-20' | 'Polygon';
+export type EthNetwork = 'Ethereum' | 'Base' | 'Arbitrum';
+export type UsdtNetwork = 'ERC-20' | 'TRC-20' | 'BEP-20' | 'Polygon' | 'Arbitrum';
+export type UsdcNetwork = 'Base' | 'Arbitrum' | 'Ethereum';
+export type PaymentNetwork = EthNetwork | UsdtNetwork | UsdcNetwork;
 
 export interface ExchangeListing {
   id: string;
@@ -284,7 +287,7 @@ export interface ExchangeListing {
   currency: ExchangeCurrency;
   /** Asking price in currency natural unit, e.g. "0.05" for 0.05 ETH */
   priceAmount: string;
-  /** Seller's primary off-chain receive address (used for non-USDT and ERC-20 USDT) */
+  /** Seller's primary off-chain receive address; per-network overrides live in networkAddresses */
   receiveAddress: string;
   status: ListingStatus;
   /** @nullable */
@@ -293,9 +296,9 @@ export interface ExchangeListing {
   paymentTxHash: string | null;
   createdAt: string;
   updatedAt: string;
-  /** For USDT: which networks seller accepts, e.g. ["ERC-20", "TRC-20"]. Null for other currencies. @nullable */
+  /** Which networks the seller accepts, e.g. ["Base", "Arbitrum"]. Null for single-network currencies. @nullable */
   acceptedNetworks: string[] | null;
-  /** For USDT multi-chain: maps network name to seller receive address. Null for other currencies. @nullable */
+  /** Maps network name to seller receive address. Null for single-network currencies. @nullable */
   networkAddresses: Record<string, string> | null;
   /** EMBR address of the buyer who reserved this listing. Null if unreserved. @nullable */
   reservedBy: string | null;
@@ -303,7 +306,7 @@ export interface ExchangeListing {
   reservedAt: number | null;
   /** Unix ms timestamp when reservation expires. @nullable */
   reservedUntil: number | null;
-  /** For USDT: which network the buyer paid on (recorded at fulfillment). @nullable */
+  /** Which network the buyer paid on (recorded at fulfillment). @nullable */
   selectedNetwork: string | null;
 }
 

@@ -1,22 +1,27 @@
 /**
  * Off-chain payment verification for the P2P Exchange.
  *
- * Each currency uses a different public block explorer API:
- *   ETH  — Etherscan (requires ETHERSCAN_API_KEY env var)
- *   USDT — Routed by selectedNetwork:
- *            ERC-20   → Etherscan (same key, parses ERC-20 Transfer logs)
- *            TRC-20   → Tronscan public API (no key needed)
- *            BEP-20   → BSCScan (requires BSCSCAN_API_KEY env var)
- *            Polygon  → Polygonscan (requires POLYGONSCAN_API_KEY env var)
- *   BTC  — Blockstream.info REST API (no key needed)
- *   SOL  — Solana public JSON-RPC (no key needed)
+ * EVM chains (ETH, USDT, USDC) are read over JSON-RPC via the registry in
+ * ./evm-chains — see that file for why RPC replaced the block explorer APIs.
+ * Non-EVM currencies still use public REST APIs:
+ *   USDT TRC-20 — Tronscan public API (no key)
+ *   BTC         — Blockstream.info REST API (no key)
+ *   SOL         — Solana public JSON-RPC (no key)
  *
- * The verifier never touches funds or executes any transactions.
- * It only reads public blockchain data to confirm that a payment
- * from the buyer already occurred.
+ * The verifier never touches funds or executes transactions.  It only reads
+ * public chain data to confirm a payment from the buyer already occurred.
  */
 
 import type { ExchangeCurrency } from "@workspace/chain-core";
+import {
+  evmRpc,
+  ETH_NETWORKS,
+  USDT_NETWORKS,
+  USDC_NETWORKS,
+  ETHEREUM,
+  type EvmChainConfig,
+  type Erc20TokenConfig,
+} from "./evm-chains";
 
 export interface VerifyResult {
   valid: boolean;
@@ -24,72 +29,14 @@ export interface VerifyResult {
   confirmations?: number;
 }
 
-const ETH_CONFIRMATIONS_REQUIRED = 12;
-const BSC_CONFIRMATIONS_REQUIRED = 15;
-const POLYGON_CONFIRMATIONS_REQUIRED = 128;
 const BTC_CONFIRMATIONS_REQUIRED = 2;
 
-// USDT (Tether) contract addresses
-const USDT_ERC20_CONTRACT  = "0xdac17f958d2ee523a2206206994597c13d831ec7"; // Ethereum mainnet
-const USDT_BEP20_CONTRACT  = "0x55d398326f99059ff775485246999027b3197955"; // BSC mainnet
-const USDT_POLYGON_CONTRACT = "0xc2132d05d31c914a87c6611c10748aeb04b58e8f"; // Polygon mainnet
-const USDT_TRC20_CONTRACT  = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";         // Tron mainnet
+const USDT_TRC20_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"; // Tron mainnet
 
 // keccak256("Transfer(address,address,uint256)")
 const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-function etherscanKey(): string {
-  const key = process.env.ETHERSCAN_API_KEY;
-  if (!key) throw new Error("ETHERSCAN_API_KEY is not configured on this server. Ask the server operator to add it.");
-  return key;
-}
-
-async function etherscanGet(params: Record<string, string>): Promise<unknown> {
-  const key = etherscanKey();
-  // V2 API — requires chainid; chainid=1 is Ethereum mainnet
-  const qs = new URLSearchParams({ chainid: "1", ...params, apikey: key }).toString();
-  const res = await fetch(`https://api.etherscan.io/v2/api?${qs}`, {
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) throw new Error(`Etherscan HTTP ${res.status}`);
-  const json = (await res.json()) as { status: string; message: string; result: unknown };
-  if (json.status === "0" && json.message !== "No transactions found") {
-    throw new Error(`Etherscan error: ${json.message}`);
-  }
-  return json.result;
-}
-
-async function bscscanGet(params: Record<string, string>): Promise<unknown> {
-  const key = process.env.BSCSCAN_API_KEY;
-  if (!key) throw new Error("BSCSCAN_API_KEY is not configured on this server. Ask the server operator to add it.");
-  const qs = new URLSearchParams({ ...params, apikey: key }).toString();
-  const res = await fetch(`https://api.bscscan.com/api?${qs}`, {
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) throw new Error(`BSCScan HTTP ${res.status}`);
-  const json = (await res.json()) as { status: string; message: string; result: unknown };
-  if (json.status === "0" && json.message !== "No transactions found") {
-    throw new Error(`BSCScan error: ${json.message}`);
-  }
-  return json.result;
-}
-
-async function polygonscanGet(params: Record<string, string>): Promise<unknown> {
-  const key = process.env.POLYGONSCAN_API_KEY;
-  if (!key) throw new Error("POLYGONSCAN_API_KEY is not configured on this server. Ask the server operator to add it.");
-  const qs = new URLSearchParams({ ...params, apikey: key }).toString();
-  const res = await fetch(`https://api.polygonscan.com/api?${qs}`, {
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) throw new Error(`Polygonscan HTTP ${res.status}`);
-  const json = (await res.json()) as { status: string; message: string; result: unknown };
-  if (json.status === "0" && json.message !== "No transactions found") {
-    throw new Error(`Polygonscan error: ${json.message}`);
-  }
-  return json.result;
-}
 
 /** Parse a human-readable decimal string into the smallest unit bigint. */
 function parseDecimal(value: string, decimals: number): bigint {
@@ -98,58 +45,119 @@ function parseDecimal(value: string, decimals: number): bigint {
   return BigInt(whole || "0") * 10n ** BigInt(decimals) + BigInt(fracPadded || "0");
 }
 
-/** Shared logic for verifying an ERC-20 USDT-style Transfer log on any EVM chain. */
-async function verifyErc20Transfer(
-  params: {
-    txHash: string;
-    receiveAddress: string;
-    priceAmount: string;
-    contractAddress: string;
-    confirmationsRequired: number;
-    getScanReceipt: (txHash: string) => Promise<unknown>;
-    getScanBlockNumber: () => Promise<string>;
-    chainLabel: string;
-  }
+function networkNames(registry: Record<string, unknown>): string {
+  return Object.keys(registry).join(", ");
+}
+
+interface EvmReceipt {
+  status: string | null;
+  blockNumber: string | null;
+  logs: Array<{ address: string; topics: string[]; data: string }>;
+}
+
+async function confirmationsFor(chain: EvmChainConfig, blockNumberHex: string): Promise<number> {
+  const tipHex = await evmRpc<string>(chain, "eth_blockNumber", []);
+  return parseInt(tipHex, 16) - parseInt(blockNumberHex, 16) + 1;
+}
+
+// ── native coin on an EVM chain ───────────────────────────────────────────────
+
+async function verifyNativeEvm(
+  chain: EvmChainConfig,
+  txHash: string,
+  receiveAddress: string,
+  priceAmount: string,
 ): Promise<VerifyResult> {
-  type Receipt = {
-    blockNumber: string | null;
-    logs: Array<{ address: string; topics: string[]; data: string }>;
-  } | null;
+  const tx = await evmRpc<{ to: string | null; value: string; blockNumber: string | null } | null>(
+    chain,
+    "eth_getTransactionByHash",
+    [txHash],
+  );
+  if (!tx) return { valid: false, reason: `Transaction not found on ${chain.label}` };
+  if (!tx.blockNumber) return { valid: false, reason: "Transaction not yet mined" };
 
-  const receipt = (await params.getScanReceipt(params.txHash)) as Receipt;
-  if (!receipt) return { valid: false, reason: `Transaction not found on ${params.chainLabel}` };
+  if (tx.to?.toLowerCase() !== receiveAddress.toLowerCase()) {
+    return {
+      valid: false,
+      reason: `Wrong recipient — tx sends to ${tx.to}, listing expects ${receiveAddress}`,
+    };
+  }
+
+  // A transfer to a contract can revert while still reporting `to` and `value`,
+  // so the receipt status is what actually proves the funds moved.
+  const receipt = await evmRpc<EvmReceipt | null>(chain, "eth_getTransactionReceipt", [txHash]);
+  if (!receipt) return { valid: false, reason: "Transaction receipt not available yet" };
+  if (receipt.status !== null && receipt.status !== "0x1") {
+    return { valid: false, reason: `Transaction reverted on ${chain.label} — no funds were transferred` };
+  }
+
+  const sent = BigInt(tx.value);
+  const required = parseDecimal(priceAmount, 18);
+  if (sent < required) {
+    return {
+      valid: false,
+      reason: `Insufficient payment — sent ${sent} wei, required ${required} wei (${priceAmount})`,
+    };
+  }
+
+  const confirmations = await confirmationsFor(chain, tx.blockNumber);
+  if (confirmations < chain.confirmations) {
+    return {
+      valid: false,
+      reason: `Only ${confirmations} confirmation(s) on ${chain.label} — need ${chain.confirmations} for safety`,
+      confirmations,
+    };
+  }
+
+  return { valid: true, confirmations };
+}
+
+// ── ERC-20 token on an EVM chain ──────────────────────────────────────────────
+
+async function verifyErc20(
+  token: Erc20TokenConfig,
+  txHash: string,
+  receiveAddress: string,
+  priceAmount: string,
+): Promise<VerifyResult> {
+  const { chain } = token;
+  const receipt = await evmRpc<EvmReceipt | null>(chain, "eth_getTransactionReceipt", [txHash]);
+  if (!receipt) return { valid: false, reason: `Transaction not found on ${chain.label}` };
   if (!receipt.blockNumber) return { valid: false, reason: "Transaction not yet mined" };
+  if (receipt.status !== null && receipt.status !== "0x1") {
+    return { valid: false, reason: `Transaction reverted on ${chain.label} — no funds were transferred` };
+  }
 
-  const transferLog = receipt.logs.find((log) => {
-    if (log.address.toLowerCase() !== params.contractAddress.toLowerCase()) return false;
-    if (log.topics[0] !== ERC20_TRANSFER_TOPIC) return false;
-    const toAddr = "0x" + (log.topics[2] ?? "").slice(26);
-    return toAddr.toLowerCase() === params.receiveAddress.toLowerCase();
-  });
+  // Sum every matching Transfer, since a payment may be split across logs.
+  let received = 0n;
+  for (const log of receipt.logs ?? []) {
+    if (log.address.toLowerCase() !== token.address.toLowerCase()) continue;
+    if (log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC) continue;
+    const to = "0x" + (log.topics[2] ?? "").slice(26);
+    if (to.toLowerCase() !== receiveAddress.toLowerCase()) continue;
+    received += BigInt(log.data);
+  }
 
-  if (!transferLog) {
+  if (received === 0n) {
     return {
       valid: false,
-      reason: `No USDT Transfer to ${params.receiveAddress} found in transaction logs (${params.chainLabel})`,
+      reason: `No ${token.symbol} transfer to ${receiveAddress} found in this ${chain.label} transaction`,
     };
   }
 
-  // USDT has 6 decimals on all EVM chains
-  const amountSent = BigInt(transferLog.data);
-  const amountRequired = parseDecimal(params.priceAmount, 6);
-  if (amountSent < amountRequired) {
+  const required = parseDecimal(priceAmount, token.decimals);
+  if (received < required) {
     return {
       valid: false,
-      reason: `Insufficient USDT — sent ${amountSent} (6-dec units), required ${amountRequired} (${params.priceAmount} USDT)`,
+      reason: `Insufficient ${token.symbol} — received ${received}, required ${required} (${priceAmount} ${token.symbol})`,
     };
   }
 
-  const currentBlockHex = await params.getScanBlockNumber();
-  const confirmations = parseInt(currentBlockHex, 16) - parseInt(receipt.blockNumber, 16);
-  if (confirmations < params.confirmationsRequired) {
+  const confirmations = await confirmationsFor(chain, receipt.blockNumber);
+  if (confirmations < chain.confirmations) {
     return {
       valid: false,
-      reason: `Only ${confirmations} confirmation(s) — need ${params.confirmationsRequired} for safety`,
+      reason: `Only ${confirmations} confirmation(s) on ${chain.label} — need ${chain.confirmations} for safety`,
       confirmations,
     };
   }
@@ -168,49 +176,36 @@ export async function verifyPayment(
 ): Promise<VerifyResult> {
   try {
     switch (currency) {
-      case "ETH":  return await verifyEth(txHash, receiveAddress, priceAmount);
+      case "ETH":  return await verifyEth(txHash, receiveAddress, priceAmount, selectedNetwork);
       case "USDT": return await verifyUsdt(txHash, receiveAddress, priceAmount, selectedNetwork);
+      case "USDC": return await verifyUsdc(txHash, receiveAddress, priceAmount, selectedNetwork);
       case "BTC":  return await verifyBtc(txHash, receiveAddress, priceAmount);
       case "SOL":  return await verifySol(txHash, receiveAddress, priceAmount);
     }
+    return { valid: false, reason: `Unsupported currency: ${String(currency)}` };
   } catch (err) {
     return { valid: false, reason: err instanceof Error ? err.message : "Verification failed" };
   }
 }
 
-// ── ETH ──────────────────────────────────────────────────────────────────────
+// ── ETH (Ethereum / Base / Arbitrum) ──────────────────────────────────────────
 
-async function verifyEth(txHash: string, receiveAddress: string, priceAmount: string): Promise<VerifyResult> {
-  type EthTx = { to: string | null; value: string; blockNumber: string | null } | null;
-  const tx = (await etherscanGet({ module: "proxy", action: "eth_getTransactionByHash", txhash: txHash })) as EthTx;
-
-  if (!tx) return { valid: false, reason: "Transaction not found on Ethereum mainnet" };
-  if (tx.to?.toLowerCase() !== receiveAddress.toLowerCase()) {
-    return { valid: false, reason: `Wrong recipient — tx sends to ${tx.to}, listing expects ${receiveAddress}` };
-  }
-
-  const weiSent = BigInt(tx.value);
-  const weiRequired = parseDecimal(priceAmount, 18);
-  if (weiSent < weiRequired) {
+async function verifyEth(
+  txHash: string,
+  receiveAddress: string,
+  priceAmount: string,
+  selectedNetwork?: string,
+): Promise<VerifyResult> {
+  // Listings created before ETH became multi-chain carry no network — those were
+  // all Ethereum mainnet.
+  const chain = ETH_NETWORKS[selectedNetwork ?? ETHEREUM.key];
+  if (!chain) {
     return {
       valid: false,
-      reason: `Insufficient ETH — sent ${weiSent} wei, required ${weiRequired} wei (${priceAmount} ETH)`,
+      reason: `Unknown ETH network: ${selectedNetwork}. Supported: ${networkNames(ETH_NETWORKS)}.`,
     };
   }
-
-  if (!tx.blockNumber) return { valid: false, reason: "Transaction not yet mined" };
-
-  const currentBlockHex = (await etherscanGet({ module: "proxy", action: "eth_blockNumber" })) as string;
-  const confirmations = parseInt(currentBlockHex, 16) - parseInt(tx.blockNumber, 16);
-  if (confirmations < ETH_CONFIRMATIONS_REQUIRED) {
-    return {
-      valid: false,
-      reason: `Only ${confirmations} confirmation(s) — need ${ETH_CONFIRMATIONS_REQUIRED} for safety`,
-      confirmations,
-    };
-  }
-
-  return { valid: true, confirmations };
+  return verifyNativeEvm(chain, txHash, receiveAddress, priceAmount);
 }
 
 // ── USDT (multi-chain router) ─────────────────────────────────────────────────
@@ -222,27 +217,35 @@ async function verifyUsdt(
   selectedNetwork?: string,
 ): Promise<VerifyResult> {
   const network = selectedNetwork ?? "ERC-20";
-  switch (network) {
-    case "ERC-20":  return await verifyUsdtErc20(txHash, receiveAddress, priceAmount);
-    case "TRC-20":  return await verifyUsdtTrc20(txHash, receiveAddress, priceAmount);
-    case "BEP-20":  return await verifyUsdtBep20(txHash, receiveAddress, priceAmount);
-    case "Polygon": return await verifyUsdtPolygon(txHash, receiveAddress, priceAmount);
-    default:
-      return { valid: false, reason: `Unknown USDT network: ${network}. Supported: ERC-20, TRC-20, BEP-20, Polygon.` };
+  if (network === "TRC-20") {
+    return verifyUsdtTrc20(txHash, receiveAddress, priceAmount);
   }
+  const token = USDT_NETWORKS[network];
+  if (!token) {
+    return {
+      valid: false,
+      reason: `Unknown USDT network: ${network}. Supported: ${networkNames(USDT_NETWORKS)}, TRC-20.`,
+    };
+  }
+  return verifyErc20(token, txHash, receiveAddress, priceAmount);
 }
 
-// ── USDT ERC-20 (Ethereum) ────────────────────────────────────────────────────
+// ── USDC (Base / Arbitrum / Ethereum) ─────────────────────────────────────────
 
-async function verifyUsdtErc20(txHash: string, receiveAddress: string, priceAmount: string): Promise<VerifyResult> {
-  return verifyErc20Transfer({
-    txHash, receiveAddress, priceAmount,
-    contractAddress: USDT_ERC20_CONTRACT,
-    confirmationsRequired: ETH_CONFIRMATIONS_REQUIRED,
-    chainLabel: "Ethereum mainnet",
-    getScanReceipt: (h) => etherscanGet({ module: "proxy", action: "eth_getTransactionReceipt", txhash: h }),
-    getScanBlockNumber: () => etherscanGet({ module: "proxy", action: "eth_blockNumber" }) as Promise<string>,
-  });
+async function verifyUsdc(
+  txHash: string,
+  receiveAddress: string,
+  priceAmount: string,
+  selectedNetwork?: string,
+): Promise<VerifyResult> {
+  const token = USDC_NETWORKS[selectedNetwork ?? "Base"];
+  if (!token) {
+    return {
+      valid: false,
+      reason: `Unknown USDC network: ${selectedNetwork}. Supported: ${networkNames(USDC_NETWORKS)}.`,
+    };
+  }
+  return verifyErc20(token, txHash, receiveAddress, priceAmount);
 }
 
 // ── USDT TRC-20 (Tron) ───────────────────────────────────────────────────────
@@ -273,11 +276,8 @@ async function verifyUsdtTrc20(txHash: string, receiveAddress: string, priceAmou
     return { valid: false, reason: `Tron transaction failed on-chain: ${tx.contractRet}` };
   }
 
-  // Find a USDT TRC-20 transfer to the receive address
   const transfer = (tx.trc20TransferInfo ?? []).find(
-    (t) =>
-      t.contract_address === USDT_TRC20_CONTRACT &&
-      t.to_address === receiveAddress,
+    (t) => t.contract_address === USDT_TRC20_CONTRACT && t.to_address === receiveAddress,
   );
   if (!transfer) {
     return {
@@ -298,32 +298,6 @@ async function verifyUsdtTrc20(txHash: string, receiveAddress: string, priceAmou
 
   // Tron finalizes quickly; if confirmed = true that's sufficient
   return { valid: true, confirmations: tx.confirmations ?? 1 };
-}
-
-// ── USDT BEP-20 (BSC) ────────────────────────────────────────────────────────
-
-async function verifyUsdtBep20(txHash: string, receiveAddress: string, priceAmount: string): Promise<VerifyResult> {
-  return verifyErc20Transfer({
-    txHash, receiveAddress, priceAmount,
-    contractAddress: USDT_BEP20_CONTRACT,
-    confirmationsRequired: BSC_CONFIRMATIONS_REQUIRED,
-    chainLabel: "BSC mainnet",
-    getScanReceipt: (h) => bscscanGet({ module: "proxy", action: "eth_getTransactionReceipt", txhash: h }),
-    getScanBlockNumber: () => bscscanGet({ module: "proxy", action: "eth_blockNumber" }) as Promise<string>,
-  });
-}
-
-// ── USDT Polygon ──────────────────────────────────────────────────────────────
-
-async function verifyUsdtPolygon(txHash: string, receiveAddress: string, priceAmount: string): Promise<VerifyResult> {
-  return verifyErc20Transfer({
-    txHash, receiveAddress, priceAmount,
-    contractAddress: USDT_POLYGON_CONTRACT,
-    confirmationsRequired: POLYGON_CONFIRMATIONS_REQUIRED,
-    chainLabel: "Polygon mainnet",
-    getScanReceipt: (h) => polygonscanGet({ module: "proxy", action: "eth_getTransactionReceipt", txhash: h }),
-    getScanBlockNumber: () => polygonscanGet({ module: "proxy", action: "eth_blockNumber" }) as Promise<string>,
-  });
 }
 
 // ── BTC ──────────────────────────────────────────────────────────────────────

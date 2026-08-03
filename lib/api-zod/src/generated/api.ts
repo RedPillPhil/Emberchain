@@ -341,7 +341,7 @@ export const SubmitBlockBody = zod.object({
 
 // ── P2P Exchange ────────────────────────────────────────────────────────────
 
-export const ExchangeCurrencyEnum = zod.enum(["ETH", "USDT", "BTC", "SOL"]);
+export const ExchangeCurrencyEnum = zod.enum(["ETH", "USDT", "USDC", "BTC", "SOL"]);
 export const ListingStatusEnum = zod.enum(["open", "fulfilled", "cancelled"]);
 
 export const ExchangeListing = zod.object({
@@ -356,7 +356,7 @@ export const ExchangeListing = zod.object({
   "paymentTxHash": zod.string().nullable(),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
-  // Multi-chain USDT
+  // Multi-chain payment networks (ETH, USDT, USDC)
   "acceptedNetworks": zod.array(zod.string()).nullable(),
   "networkAddresses": zod.record(zod.string()).nullable(),
   // Buy reservation
@@ -373,9 +373,9 @@ export const CreateListingBody = zod.object({
   "currency": ExchangeCurrencyEnum,
   "priceAmount": zod.string(),
   "receiveAddress": zod.string(),
-  /** For USDT: which networks seller accepts, e.g. ["ERC-20", "TRC-20"] */
+  /** Which networks the seller accepts, e.g. ["Base", "Arbitrum"] */
   "acceptedNetworks": zod.array(zod.string()).optional(),
-  /** For USDT multi-chain: receive address per network */
+  /** Receive address per network */
   "networkAddresses": zod.record(zod.string()).optional(),
 })
 
@@ -390,7 +390,7 @@ export const ReserveListingBody = zod.object({
 export const BuyListingBody = zod.object({
   "buyerAddress": zod.string(),
   "paymentTxHash": zod.string(),
-  /** For USDT multi-chain: which network the buyer paid on (e.g. "ERC-20", "TRC-20"). */
+  /** Which network the buyer paid on (e.g. "Base", "Arbitrum", "ERC-20"). */
   "selectedNetwork": zod.string().optional(),
 })
 

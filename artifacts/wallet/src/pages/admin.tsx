@@ -692,12 +692,12 @@ function ExchangeTab() {
             />
           </div>
           <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="ex-net">USDT network (optional)</Label>
+            <Label htmlFor="ex-net">Payment network (optional)</Label>
             <Input
               id="ex-net"
               value={selectedNetwork}
               onChange={(e) => setSelectedNetwork(e.target.value)}
-              placeholder="ERC-20, BEP-20, Polygon, TRC-20…"
+              placeholder="Ethereum, Base, Arbitrum, ERC-20, BEP-20, Polygon, TRC-20…"
             />
           </div>
         </CardContent>

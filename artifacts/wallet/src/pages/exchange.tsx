@@ -54,80 +54,135 @@ import {
 const CURRENCY_COLORS: Record<ExchangeCurrency, string> = {
   ETH:  "bg-indigo-500/20 text-indigo-400 border-indigo-500/40",
   USDT: "bg-green-500/20 text-green-400 border-green-500/40",
+  USDC: "bg-sky-500/20 text-sky-400 border-sky-500/40",
   BTC:  "bg-orange-500/20 text-orange-400 border-orange-500/40",
   SOL:  "bg-purple-500/20 text-purple-400 border-purple-500/40",
 };
 
 const CURRENCY_DECIMALS: Record<ExchangeCurrency, number> = {
-  ETH: 18, USDT: 6, BTC: 8, SOL: 9,
+  ETH: 18, USDT: 6, USDC: 6, BTC: 8, SOL: 9,
 };
 
 const CURRENCY_SYMBOLS: Record<ExchangeCurrency, string> = {
-  ETH: "Ξ", USDT: "$", BTC: "₿", SOL: "◎",
+  ETH: "Ξ", USDT: "$", USDC: "$", BTC: "₿", SOL: "◎",
 };
 
 const CONFIRMATION_LABELS: Record<ExchangeCurrency, string> = {
   ETH:  "12 confirmations (~3 min)",
   USDT: "12 confirmations (~3 min)",
+  USDC: "30 confirmations (~1 min)",
   BTC:  "2 confirmations (~20 min)",
   SOL:  "Finalized (~30 s)",
 };
 
+// ── payment networks ─────────────────────────────────────────────────────────
+
+interface NetworkInfo {
+  label: string;
+  confirmations: string;
+  addressPlaceholder: string;
+  explorerTx: (hash: string) => string;
+  /** Every EVM network takes the same 0x address, so one entry covers them all. */
+  evm: boolean;
+}
+
+/**
+ * Keyed by the network name stored on the listing.  "ERC-20" and "Ethereum" are
+ * the same chain under two names — USDT has always called it ERC-20 and existing
+ * listings depend on that spelling.
+ */
+const NETWORKS: Record<string, NetworkInfo> = {
+  Ethereum: {
+    label: "Ethereum mainnet",
+    confirmations: "12 confirmations (~3 min)",
+    addressPlaceholder: "0x... (Ethereum address)",
+    explorerTx: (h) => `https://etherscan.io/tx/${h}`,
+    evm: true,
+  },
+  Base: {
+    label: "Base",
+    confirmations: "30 confirmations (~1 min)",
+    addressPlaceholder: "0x... (Base address)",
+    explorerTx: (h) => `https://basescan.org/tx/${h}`,
+    evm: true,
+  },
+  Arbitrum: {
+    label: "Arbitrum One",
+    confirmations: "120 confirmations (~30 s)",
+    addressPlaceholder: "0x... (Arbitrum address)",
+    explorerTx: (h) => `https://arbiscan.io/tx/${h}`,
+    evm: true,
+  },
+  "ERC-20": {
+    label: "ERC-20 · Ethereum mainnet",
+    confirmations: "12 confirmations (~3 min)",
+    addressPlaceholder: "0x... (Ethereum address)",
+    explorerTx: (h) => `https://etherscan.io/tx/${h}`,
+    evm: true,
+  },
+  "TRC-20": {
+    label: "TRC-20 · Tron",
+    confirmations: "Confirmed on-chain (~1 min)",
+    addressPlaceholder: "T... (Tron address)",
+    explorerTx: (h) => `https://tronscan.org/#/transaction/${h}`,
+    evm: false,
+  },
+  "BEP-20": {
+    label: "BEP-20 · BNB Smart Chain",
+    confirmations: "15 confirmations (~45 s)",
+    addressPlaceholder: "0x... (BSC address)",
+    explorerTx: (h) => `https://bscscan.com/tx/${h}`,
+    evm: true,
+  },
+  Polygon: {
+    label: "Polygon",
+    confirmations: "128 confirmations (~7 min)",
+    addressPlaceholder: "0x... (Polygon address)",
+    explorerTx: (h) => `https://polygonscan.com/tx/${h}`,
+    evm: true,
+  },
+};
+
+/**
+ * Networks each currency can settle on, in the order they're offered.  The first
+ * entry is the default.  Currencies absent from this map settle on one chain only.
+ *
+ * Base offers USDC rather than USDT deliberately: the only USDT on Base is a
+ * bridged token that Tether disclaims, while USDC there is issued by Circle.
+ */
+const CURRENCY_NETWORKS: Partial<Record<ExchangeCurrency, string[]>> = {
+  ETH:  ["Ethereum", "Base", "Arbitrum"],
+  USDT: ["ERC-20", "TRC-20", "BEP-20", "Polygon", "Arbitrum"],
+  USDC: ["Base", "Arbitrum", "Ethereum"],
+};
+
+/** Fixed network label for currencies that only settle on one chain. */
 const CURRENCY_NETWORK: Record<ExchangeCurrency, string> = {
-  ETH:  "Ethereum mainnet",
-  USDT: "Ethereum mainnet (ERC-20 only — see network selection when buying)",
+  ETH:  "Ethereum, Base or Arbitrum",
+  USDT: "Ethereum, Tron, BNB Chain, Polygon or Arbitrum",
+  USDC: "Base, Arbitrum or Ethereum",
   BTC:  "Bitcoin mainnet",
   SOL:  "Solana mainnet",
 };
 
-// ── USDT multi-chain ─────────────────────────────────────────────────────────
+function networksFor(currency: ExchangeCurrency): string[] {
+  return CURRENCY_NETWORKS[currency] ?? [];
+}
 
-const USDT_NETWORKS = ["ERC-20", "TRC-20", "BEP-20", "Polygon"] as const;
-type UsdtNetwork = typeof USDT_NETWORKS[number];
-
-const USDT_NETWORK_LABELS: Record<UsdtNetwork, string> = {
-  "ERC-20":  "ERC-20 · Ethereum mainnet",
-  "TRC-20":  "TRC-20 · Tron",
-  "BEP-20":  "BEP-20 · BNB Smart Chain",
-  "Polygon": "Polygon",
-};
-
-const USDT_NETWORK_CONFIRMATIONS: Record<UsdtNetwork, string> = {
-  "ERC-20":  "12 confirmations (~3 min)",
-  "TRC-20":  "Confirmed on-chain (~1 min)",
-  "BEP-20":  "15 confirmations (~45 s)",
-  "Polygon": "128 confirmations (~7 min)",
-};
-
-const USDT_ADDRESS_PLACEHOLDER: Record<UsdtNetwork, string> = {
-  "ERC-20":  "0x... (Ethereum address)",
-  "TRC-20":  "T... (Tron address)",
-  "BEP-20":  "0x... (BSC address)",
-  "Polygon": "0x... (Polygon address)",
-};
-
-// EVM networks share address format (0x)
-const USDT_EVM_NETS: UsdtNetwork[] = ["ERC-20", "BEP-20", "Polygon"];
-
-function usdtExplorerLink(network: string, txHash: string): string {
-  switch (network) {
-    case "TRC-20":  return `https://tronscan.org/#/transaction/${txHash}`;
-    case "BEP-20":  return `https://bscscan.com/tx/${txHash}`;
-    case "Polygon": return `https://polygonscan.com/tx/${txHash}`;
-    default:        return `https://etherscan.io/tx/${txHash}`;
-  }
+function networkInfo(network: string | null | undefined): NetworkInfo | undefined {
+  return network ? NETWORKS[network] : undefined;
 }
 
 const EXPLORER_LINKS: Record<ExchangeCurrency, (hash: string) => string> = {
   ETH:  (h) => `https://etherscan.io/tx/${h}`,
   USDT: (h) => `https://etherscan.io/tx/${h}`,
+  USDC: (h) => `https://basescan.org/tx/${h}`,
   BTC:  (h) => `https://blockstream.info/tx/${h}`,
   SOL:  (h) => `https://solscan.io/tx/${h}`,
 };
 
 function getExplorerLink(currency: ExchangeCurrency, txHash: string, network?: string | null): string {
-  if (currency === "USDT" && network) return usdtExplorerLink(network, txHash);
-  return EXPLORER_LINKS[currency](txHash);
+  return networkInfo(network)?.explorerTx(txHash) ?? EXPLORER_LINKS[currency](txHash);
 }
 
 function formatEmbr(wei: string): string {
@@ -331,9 +386,14 @@ function BuyPanel({
   const [phase, setPhase] = useState<BuyPhase>(alreadyReserved ? "reserved" : "idle");
   const [reservedUntil, setReservedUntil] = useState<number | null>(alreadyReserved ? listing.reservedUntil : null);
 
-  // For USDT: which networks does the seller accept?
-  const acceptedNets = listing.acceptedNetworks ?? ["ERC-20"];
-  const [selectedNetwork, setSelectedNetwork] = useState<string>(acceptedNets[0] ?? "ERC-20");
+  // Which networks does the seller accept?  Listings created before a currency
+  // went multi-chain carry no list, and those were all on its first network.
+  const defaultNet = networksFor(listing.currency)[0];
+  const acceptedNets = listing.acceptedNetworks?.length
+    ? listing.acceptedNetworks
+    : (defaultNet ? [defaultNet] : []);
+  const isMultiNetwork = acceptedNets.length > 0;
+  const [selectedNetwork, setSelectedNetwork] = useState<string>(acceptedNets[0] ?? "");
 
   const [buyerAddress, setBuyerAddress] = useState(myAddress);
   const [paymentTxHash, setPaymentTxHash] = useState("");
@@ -348,21 +408,14 @@ function BuyPanel({
     }
   }, [msLeft, phase, reservedUntil]);
 
-  // Determine receive address based on currency and selected network
-  const receiveAddress = (() => {
-    if (listing.currency === "USDT" && listing.networkAddresses) {
-      return listing.networkAddresses[selectedNetwork] ?? listing.receiveAddress;
-    }
-    return listing.receiveAddress;
-  })();
+  // Sellers may give a different address per network; fall back to the primary one.
+  const receiveAddress =
+    (selectedNetwork && listing.networkAddresses?.[selectedNetwork]) || listing.receiveAddress;
 
-  const confirmLabel = listing.currency === "USDT"
-    ? USDT_NETWORK_CONFIRMATIONS[selectedNetwork as UsdtNetwork] ?? "12 confirmations"
-    : CONFIRMATION_LABELS[listing.currency];
-
-  const explorerFn = listing.currency === "USDT"
-    ? (h: string) => usdtExplorerLink(selectedNetwork, h)
-    : EXPLORER_LINKS[listing.currency];
+  const selectedNetInfo = networkInfo(selectedNetwork);
+  const confirmLabel = selectedNetInfo?.confirmations ?? CONFIRMATION_LABELS[listing.currency];
+  const networkLabel = selectedNetInfo?.label ?? CURRENCY_NETWORK[listing.currency];
+  const explorerFn = (h: string) => getExplorerLink(listing.currency, h, selectedNetwork);
 
   // Reserve mutation
   const reserve = useExchangeReserve();
@@ -395,7 +448,7 @@ function BuyPanel({
         data: {
           buyerAddress: buyerAddress.trim(),
           paymentTxHash: paymentTxHash.trim(),
-          selectedNetwork: listing.currency === "USDT" ? selectedNetwork : undefined,
+          selectedNetwork: isMultiNetwork ? selectedNetwork : undefined,
         },
       },
       {
@@ -436,9 +489,9 @@ function BuyPanel({
         <p className="text-sm text-muted-foreground mb-4">
           Reserving this listing gives you <strong className="text-foreground">15 minutes</strong> to complete payment before it becomes available to others again.
         </p>
-        {listing.currency === "USDT" && acceptedNets.length > 1 && (
+        {acceptedNets.length > 1 && (
           <div className="mb-4 p-3 bg-secondary/60 border border-border rounded-sm text-xs text-muted-foreground">
-            <p className="font-bold text-foreground mb-1">Seller accepts USDT on:</p>
+            <p className="font-bold text-foreground mb-1">Seller accepts {listing.currency} on:</p>
             <div className="flex flex-wrap gap-2 mt-1.5">
               {acceptedNets.map(net => (
                 <span key={net} className="px-2 py-0.5 rounded border border-green-500/40 bg-green-500/10 text-green-400 font-bold">
@@ -482,8 +535,8 @@ function BuyPanel({
         </div>
       </div>
 
-      {/* USDT network picker */}
-      {listing.currency === "USDT" && acceptedNets.length > 1 && (
+      {/* payment network picker */}
+      {acceptedNets.length > 1 && (
         <div className="mb-4">
           <p className="text-xs font-bold uppercase text-muted-foreground mb-2">Select your payment network</p>
           <div className="flex flex-wrap gap-2">
@@ -519,12 +572,7 @@ function BuyPanel({
         </div>
         <div className="flex items-center gap-1 mt-1">
           <span className="text-muted-foreground text-xs">Network:</span>
-          <span className="text-xs font-bold text-foreground ml-1">
-            {listing.currency === "USDT"
-              ? USDT_NETWORK_LABELS[selectedNetwork as UsdtNetwork] ?? selectedNetwork
-              : CURRENCY_NETWORK[listing.currency]
-            }
-          </span>
+          <span className="text-xs font-bold text-foreground ml-1">{networkLabel}</span>
         </div>
         <p className="text-muted-foreground text-xs mt-1">
           Wait for {confirmLabel} before submitting.
@@ -621,9 +669,11 @@ async function fetchSpotPrices(): Promise<Partial<Record<ExchangeCurrency, numbe
     spotPriceCache.BTC  = json.bitcoin?.usd  ?? spotPriceCache.BTC  ?? 0;
     spotPriceCache.SOL  = json.solana?.usd   ?? spotPriceCache.SOL  ?? 0;
     spotPriceCache.USDT = 1;
+    spotPriceCache.USDC = 1;
     spotPriceFetchedAt  = Date.now();
   } catch {
     spotPriceCache.USDT = 1;
+    spotPriceCache.USDC = 1;
   }
   return spotPriceCache;
 }
@@ -754,7 +804,7 @@ function MarketplaceTab() {
                       <span className="text-muted-foreground/50">· {fmtDate(listing.createdAt)}</span>
                     )}
                   </div>
-                  {listing.currency === "USDT" && listing.acceptedNetworks && listing.acceptedNetworks.length > 1 && (
+                  {listing.acceptedNetworks && listing.acceptedNetworks.length > 1 && (
                     <div className="flex gap-1 mt-0.5 flex-wrap">
                       {listing.acceptedNetworks.map((n) => (
                         <span key={n} className="text-[10px] px-1.5 py-0 rounded border border-green-500/30 text-green-400/80">
@@ -836,7 +886,7 @@ function MarketplaceTab() {
 
 // ── create listing tab ────────────────────────────────────────────────────────
 
-const CURRENCIES: ExchangeCurrency[] = ["ETH", "USDT", "BTC", "SOL"];
+const CURRENCIES: ExchangeCurrency[] = ["ETH", "USDT", "USDC", "BTC", "SOL"];
 
 function CreateListingTab() {
   const { activeWallet } = useActiveWallet();
@@ -846,18 +896,27 @@ function CreateListingTab() {
   const [currency, setCurrency] = useState<ExchangeCurrency>("ETH");
   const [priceAmount, setPriceAmount] = useState("");
 
-  // For non-USDT currencies — single receive address
+  // Single receive address for currencies that settle on one chain (BTC, SOL)
   const [receiveAddress, setReceiveAddress] = useState("");
 
-  // For USDT multi-chain
-  const [acceptedNets, setAcceptedNets] = useState<UsdtNetwork[]>(["ERC-20"]);
-  const [evmAddress, setEvmAddress] = useState("");  // used for ERC-20 / BEP-20 / Polygon
-  const [tronAddress, setTronAddress] = useState(""); // used for TRC-20
+  // Multi-chain currencies: one 0x address covers every EVM network they pick,
+  // and Tron is the only non-EVM option so it needs a second field.
+  const currencyNets = networksFor(currency);
+  const isMultiNetwork = currencyNets.length > 0;
+  const [acceptedNets, setAcceptedNets] = useState<string[]>(networksFor("ETH").slice(0, 1));
+  const [evmAddress, setEvmAddress] = useState("");
+  const [tronAddress, setTronAddress] = useState("");
 
-  const hasEvmNets = acceptedNets.some((n) => USDT_EVM_NETS.includes(n));
-  const hasTronNet = acceptedNets.includes("TRC-20");
+  const hasEvmNets = acceptedNets.some((n) => NETWORKS[n]?.evm);
+  const hasTronNet = acceptedNets.some((n) => NETWORKS[n]?.evm === false);
 
-  const toggleNet = (net: UsdtNetwork) => {
+  const changeCurrency = (c: ExchangeCurrency) => {
+    setCurrency(c);
+    setReceiveAddress("");
+    setAcceptedNets(networksFor(c).slice(0, 1));
+  };
+
+  const toggleNet = (net: string) => {
     setAcceptedNets((prev) => {
       const next = prev.includes(net) ? prev.filter((n) => n !== net) : [...prev, net];
       return next.length === 0 ? [net] : next; // always keep at least one
@@ -883,7 +942,7 @@ function CreateListingTab() {
     setReceiveAddress("");
     setEvmAddress("");
     setTronAddress("");
-    setAcceptedNets(["ERC-20"]);
+    setAcceptedNets(networksFor(currency).slice(0, 1));
   };
 
   const createError = (err: unknown) => {
@@ -905,9 +964,7 @@ function CreateListingTab() {
     })();
     if (!amountWei) return;
 
-    if (currency === "USDT") {
-      // Build networkAddresses map
-      const networkAddresses: Record<string, string> = {};
+    if (isMultiNetwork) {
       if (hasEvmNets && !evmAddress.trim()) {
         toast({ variant: "destructive", title: "Missing address", description: "Enter your EVM receive address." });
         return;
@@ -916,8 +973,9 @@ function CreateListingTab() {
         toast({ variant: "destructive", title: "Missing address", description: "Enter your Tron receive address for TRC-20." });
         return;
       }
+      const networkAddresses: Record<string, string> = {};
       for (const net of acceptedNets) {
-        networkAddresses[net] = USDT_EVM_NETS.includes(net) ? evmAddress.trim() : tronAddress.trim();
+        networkAddresses[net] = NETWORKS[net]?.evm ? evmAddress.trim() : tronAddress.trim();
       }
       // Primary receiveAddress = EVM address if any, otherwise Tron
       const primaryAddress = hasEvmNets ? evmAddress.trim() : tronAddress.trim();
@@ -954,8 +1012,13 @@ function CreateListingTab() {
   const CURRENCY_PLACEHOLDERS: Record<ExchangeCurrency, string> = {
     ETH:  "0x... (Ethereum address)",
     USDT: "0x... (EVM address)",
+    USDC: "0x... (EVM address)",
     BTC:  "bc1... (Bitcoin address)",
     SOL:  "... (Solana public key)",
+  };
+
+  const PRICE_PLACEHOLDERS: Record<ExchangeCurrency, string> = {
+    ETH: "0.05", USDT: "100", USDC: "100", BTC: "0.001", SOL: "1.5",
   };
 
   return (
@@ -991,7 +1054,7 @@ function CreateListingTab() {
             <button
               key={c}
               type="button"
-              onClick={() => { setCurrency(c); setReceiveAddress(""); }}
+              onClick={() => changeCurrency(c)}
               className={`px-4 py-2 rounded-sm border text-sm font-bold uppercase transition-all ${
                 currency === c
                   ? `${CURRENCY_COLORS[c]} border-current`
@@ -1009,7 +1072,7 @@ function CreateListingTab() {
         <Input
           value={priceAmount}
           onChange={(e) => setPriceAmount(e.target.value)}
-          placeholder={`e.g. ${currency === "ETH" ? "0.05" : currency === "USDT" ? "100" : currency === "BTC" ? "0.001" : "1.5"}`}
+          placeholder={`e.g. ${PRICE_PLACEHOLDERS[currency]}`}
           type="number"
           min="0"
           step="any"
@@ -1017,13 +1080,16 @@ function CreateListingTab() {
         />
       </div>
 
-      {/* USDT multi-chain network selection */}
-      {currency === "USDT" && (
-        <div className="space-y-3 p-3 border border-green-500/20 rounded-sm bg-green-500/5">
-          <Label className="text-xs uppercase text-muted-foreground font-bold">Accepted USDT networks</Label>
-          <p className="text-xs text-muted-foreground">Select which networks you'll accept payment on. Buyers can choose from these.</p>
+      {/* Multi-chain network selection */}
+      {isMultiNetwork && (
+        <div className="space-y-3 p-3 border border-primary/20 rounded-sm bg-primary/5">
+          <Label className="text-xs uppercase text-muted-foreground font-bold">Accepted {currency} networks</Label>
+          <p className="text-xs text-muted-foreground">
+            Select which networks you'll accept payment on. Buyers choose one of these, and payments
+            on any other network are rejected.
+          </p>
           <div className="space-y-2">
-            {USDT_NETWORKS.map((net) => (
+            {currencyNets.map((net) => (
               <div key={net} className="flex items-center gap-2">
                 <Checkbox
                   id={`net-${net}`}
@@ -1031,35 +1097,40 @@ function CreateListingTab() {
                   onCheckedChange={() => toggleNet(net)}
                 />
                 <label htmlFor={`net-${net}`} className="text-sm cursor-pointer select-none">
-                  {USDT_NETWORK_LABELS[net]}
+                  {NETWORKS[net]?.label ?? net}
                 </label>
               </div>
             ))}
           </div>
 
-          {/* EVM address (ERC-20 / BEP-20 / Polygon) */}
+          {currency === "USDC" && (
+            <p className="text-xs text-muted-foreground border-l-2 border-sky-500/40 pl-2">
+              USDC is offered on Base rather than USDT because the only USDT on Base is a bridged
+              token that Tether disclaims. This is Circle-issued native USDC.
+            </p>
+          )}
+
           {hasEvmNets && (
             <div className="space-y-1">
               <Label className="text-xs uppercase text-muted-foreground">
                 Your EVM receive address
                 <span className="ml-1 font-normal normal-case opacity-60">
-                  ({acceptedNets.filter(n => USDT_EVM_NETS.includes(n)).join(" / ")})
+                  ({acceptedNets.filter((n) => NETWORKS[n]?.evm).join(" / ")})
                 </span>
               </Label>
               <Input
                 value={evmAddress}
                 onChange={(e) => setEvmAddress(e.target.value)}
-                placeholder="0x... (Ethereum/BSC/Polygon address)"
+                placeholder="0x... (EVM address)"
                 className="font-mono text-sm"
                 required
               />
               <p className="text-xs text-muted-foreground">
-                This same address is used for all EVM-compatible networks you selected.
+                The same address works on every EVM network you selected.
               </p>
             </div>
           )}
 
-          {/* Tron address (TRC-20 only) */}
           {hasTronNet && (
             <div className="space-y-1">
               <Label className="text-xs uppercase text-muted-foreground">Your Tron receive address (TRC-20)</Label>
@@ -1076,8 +1147,8 @@ function CreateListingTab() {
         </div>
       )}
 
-      {/* Single receive address for non-USDT currencies */}
-      {currency !== "USDT" && (
+      {/* Single receive address for currencies that settle on one chain */}
+      {!isMultiNetwork && (
         <div className="space-y-1">
           <Label className="text-xs uppercase text-muted-foreground">Your {currency} receive address</Label>
           <Input
@@ -1223,15 +1294,19 @@ function MyListingsTab() {
 
 const priceCache = new Map<string, number>();
 
+/** USD-pegged currencies need no historical price lookup. */
+const STABLECOINS: ExchangeCurrency[] = ["USDT", "USDC"];
+
 const COINGECKO_ID: Record<ExchangeCurrency, string | null> = {
   ETH:  "ethereum",
   SOL:  "solana",
   BTC:  "bitcoin",
   USDT: null,
+  USDC: null,
 };
 
 async function fetchUsdPrice(currency: ExchangeCurrency, isoDate: string): Promise<number> {
-  if (currency === "USDT") return 1;
+  if (STABLECOINS.includes(currency)) return 1;
   const coinId = COINGECKO_ID[currency];
   if (!coinId) return 0;
   const d = new Date(isoDate);
@@ -1280,7 +1355,7 @@ function PriceHistoryTab() {
         for (const l of listingsArray) {
           const date = l.updatedAt ?? l.createdAt ?? "";
           const coinUsd = await fetchUsdPrice(l.currency, date);
-          if (coinUsd === 0 && l.currency !== "USDT") continue;
+          if (coinUsd === 0 && !STABLECOINS.includes(l.currency)) continue;
           const embrAmount = Number(BigInt(l.amountEmbr)) / 1e18;
           const paidInCoin = parseFloat(l.priceAmount);
           if (embrAmount <= 0 || paidInCoin <= 0) continue;
@@ -1406,7 +1481,7 @@ function PriceHistoryTab() {
       )}
       <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-sans">
         <Info className="w-3 h-3" />
-        Historical ETH, SOL, and BTC prices sourced from CoinGecko. USDT trades use $1.00.
+        Historical ETH, SOL, and BTC prices sourced from CoinGecko. USDT and USDC trades use $1.00.
         Price = (amount paid × coin USD price) ÷ EMBR received.
       </div>
     </div>
@@ -1434,7 +1509,7 @@ function ExchangeEscrowDown() {
                 Exchange
               </h1>
               <p className="text-sm text-muted-foreground">
-                Peer-to-peer marketplace — swap EMBR for ETH, USDT, BTC, or SOL
+                Peer-to-peer marketplace — swap EMBR for ETH, USDT, USDC, BTC, or SOL
               </p>
             </div>
           </div>
@@ -1511,14 +1586,14 @@ function ExchangeContent() {
               Exchange
             </h1>
             <p className="text-sm text-muted-foreground">
-              Peer-to-peer marketplace — swap EMBR for ETH, USDT (multi-chain), BTC, or SOL
+              Peer-to-peer marketplace — swap EMBR for ETH, USDT, or USDC across Ethereum, Base and Arbitrum, plus BTC and SOL
             </p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
           {[
-            { n: "1", title: "Seller lists EMBR", desc: "Locks EMBR in escrow and sets an asking price. USDT sellers pick which networks they'll accept." },
+            { n: "1", title: "Seller lists EMBR", desc: "Locks EMBR in escrow and sets an asking price, picking which networks they'll accept payment on." },
             { n: "2", title: "Reserve & pay externally", desc: "Buyer reserves the listing for 15 min, picks a network, then sends payment on the chosen chain." },
             { n: "3", title: "Submit tx hash → done", desc: "The server verifies the payment on-chain and auto-releases the EMBR to the buyer." },
           ].map(({ n, title, desc }) => (
