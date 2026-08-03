@@ -1,0 +1,416 @@
+.embermon-stage {
+  position: relative;
+  width: 100%;
+  min-height: min(78dvh, 720px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem 0 2rem;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 60, 0, 0.08), transparent 60%),
+    #050505;
+}
+
+/* ── TV shell ─────────────────────────────────────────────────────────────── */
+
+.embermon-tv-set {
+  width: min(92vw, 860px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.embermon-tv-bezel {
+  width: 100%;
+  padding: 1.4rem 1.4rem 1rem;
+  border-radius: 1.25rem;
+  background:
+    linear-gradient(145deg, #3a3a3a 0%, #1a1a1a 45%, #0d0d0d 100%);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.75),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -8px 20px rgba(0, 0, 0, 0.5);
+  border: 1px solid #2a2a2a;
+}
+
+.embermon-tv-screen-well {
+  padding: 0.85rem;
+  border-radius: 0.85rem;
+  background: linear-gradient(180deg, #111 0%, #000 100%);
+  box-shadow:
+    inset 0 0 0 2px #222,
+    inset 0 8px 24px rgba(0, 0, 0, 0.9);
+}
+
+.embermon-tv-glass {
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  border-radius: 6% / 8%;
+  overflow: hidden;
+  background: #000;
+  box-shadow:
+    inset 0 0 40px rgba(0, 0, 0, 0.95),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.embermon-tv-brand {
+  margin-top: 0.75rem;
+  text-align: center;
+  font-family: "Courier New", monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.35em;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.embermon-tv-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  margin-top: 0.65rem;
+}
+
+.embermon-tv-knob {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #666, #222);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.15);
+}
+
+.embermon-tv-led {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #ff3c00;
+  box-shadow: 0 0 8px #ff3c00;
+  animation: embermon-led-pulse 2s ease-in-out infinite;
+}
+
+.embermon-tv-stand {
+  width: 38%;
+  height: 1.1rem;
+  margin-top: -0.15rem;
+  background: linear-gradient(180deg, #222, #111);
+  clip-path: polygon(8% 0, 92% 0, 100% 100%, 0 100%);
+}
+
+/* ── Handheld shell ───────────────────────────────────────────────────────── */
+
+.embermon-handheld-stage {
+  min-height: min(88dvh, 780px);
+}
+
+.embermon-handheld {
+  --handheld-w: min(92vw, 380px);
+  width: var(--handheld-w);
+  min-height: 625px;
+  background: #d7d2d8;
+  border-radius: 12px 12px 75px 12px;
+  box-shadow:
+    0 0 10px rgba(0, 0, 0, 0.45),
+    1px 0 10px 3px rgba(0, 0, 0, 0.5) inset;
+  position: relative;
+  padding-bottom: 1.5rem;
+}
+
+.embermon-handheld-top {
+  height: 26px;
+  margin: 0 0 1px;
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(180deg, #eee 0%, #ccc 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #444;
+  box-shadow: 0 18px 5px -10px #fff inset;
+}
+
+.embermon-handheld-screen-block {
+  padding: 0 1.25rem;
+}
+
+.embermon-handheld-crystal {
+  background: #737488;
+  border-radius: 10px 10px 35px 10px;
+  padding: 0.65rem 0.75rem 0.85rem;
+  box-shadow:
+    0 0 2px #514c65,
+    0 -1px 1px #161118,
+    inset 0 0 2px 2px rgba(156, 153, 172, 0.35);
+}
+
+.embermon-handheld-crystal-label {
+  font-size: 8px;
+  color: #eee;
+  text-align: right;
+  padding-right: 2.5rem;
+  margin-bottom: 0.35rem;
+  opacity: 0.85;
+}
+
+.embermon-handheld-lcd {
+  width: 210px;
+  height: 180px;
+  margin: 0 auto;
+  background: #0b0f08;
+  box-shadow:
+    5px 5px 10px rgba(0, 0, 0, 0.5) inset,
+    -2px -1px 10px rgba(0, 0, 0, 0.3) inset,
+    0 0 4px 3px rgba(170, 170, 164, 0.25);
+  overflow: hidden;
+}
+
+.embermon-handheld-battery {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 8px;
+  color: #eee;
+  margin-top: 0.35rem;
+  padding-left: 0.25rem;
+}
+
+.embermon-handheld-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e11e0a;
+  box-shadow: 0 0 2px 1.5px #d87473;
+}
+
+.embermon-handheld-brand {
+  margin-top: 0.5rem;
+  color: #332c60;
+  line-height: 1.1;
+}
+
+.embermon-handheld-brand .company {
+  display: block;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.embermon-handheld-brand .product {
+  display: block;
+  font-size: 22px;
+  font-weight: 800;
+  font-style: italic;
+}
+
+.embermon-handheld-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.25rem 0;
+}
+
+.embermon-dpad {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: linear-gradient(50deg, #e1deea 10%, #d9d2d5 90%);
+  position: relative;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.embermon-dpad::before,
+.embermon-dpad::after {
+  content: "";
+  position: absolute;
+  background: #060206;
+  border-radius: 2px;
+  box-shadow: 0 0 1px 4px #000, 0 5px 2px 1px rgba(0, 0, 0, 0.5);
+}
+
+.embermon-dpad::before {
+  width: 68px;
+  height: 18px;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.embermon-dpad::after {
+  width: 18px;
+  height: 68px;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.embermon-dpad-center {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: #060206;
+  border-radius: 2px;
+  z-index: 1;
+}
+
+.embermon-ab {
+  display: flex;
+  gap: 0.65rem;
+  padding: 0.65rem 0.85rem;
+  background: linear-gradient(10deg, rgba(239, 242, 240, 0.6), rgba(174, 159, 166, 0.6));
+  border-radius: 40px;
+  transform: rotate(-25deg) translateY(12px);
+  box-shadow: 0 0 4px 2px #ccc, inset 0 20px 4px -2px rgba(102, 102, 102, 0.4);
+}
+
+.embermon-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #302058;
+}
+
+.embermon-btn.b {
+  background: radial-gradient(26px 26px at 24px 27px, #6f0119 75%, #ef94b2);
+}
+
+.embermon-btn.a {
+  background: radial-gradient(26px 26px at 24px 27px, #6f0119 75%, #ef94b2);
+}
+
+.embermon-handheld-start-row {
+  display: flex;
+  justify-content: center;
+  gap: 2.5rem;
+  margin-top: 1.5rem;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: #302058;
+  transform: rotate(-28deg);
+}
+
+.embermon-handheld-speaker {
+  position: absolute;
+  right: 14px;
+  bottom: 38px;
+  display: flex;
+  gap: 5px;
+  transform: rotate(-30deg);
+}
+
+.embermon-handheld-speaker span {
+  width: 7px;
+  height: 52px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: 3px 6px 1px rgba(0, 0, 0, 0.6) inset;
+}
+
+/* ── Screen effects ───────────────────────────────────────────────────────── */
+
+.embermon-screen-on {
+  animation: embermon-screen-power 0.55s ease-out forwards;
+}
+
+.embermon-handheld-screen .embermon-coming-soon {
+  font-size: clamp(1.35rem, 6vw, 1.75rem);
+}
+
+.embermon-static-noise {
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.04) 0,
+      rgba(255, 255, 255, 0.04) 1px,
+      transparent 1px,
+      transparent 3px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.03) 0,
+      rgba(255, 255, 255, 0.03) 1px,
+      transparent 1px,
+      transparent 4px
+    );
+  animation: embermon-static-shift 0.12s steps(4) infinite;
+}
+
+.embermon-scanlines {
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0.28) 1px,
+    rgba(0, 0, 0, 0) 2px
+  );
+}
+
+.embermon-coming-soon {
+  font-size: clamp(2rem, 8vw, 3.75rem);
+  color: #fff;
+  text-shadow:
+    0 0 8px rgba(255, 60, 0, 0.95),
+    0 0 24px rgba(255, 60, 0, 0.75),
+    0 0 48px rgba(255, 100, 0, 0.45),
+    2px 2px 0 #ff3c00;
+  animation: embermon-glitch-text 2.8s steps(2, end) infinite;
+}
+
+@keyframes embermon-power-line {
+  0% { transform: translateY(-50%) scaleX(0.05); opacity: 1; }
+  40% { transform: translateY(-50%) scaleX(1); opacity: 1; }
+  100% { transform: translateY(-50%) scaleY(120); opacity: 0; }
+}
+
+@keyframes embermon-screen-power {
+  0% { filter: brightness(3) contrast(1.2); transform: scaleY(0.02); }
+  35% { filter: brightness(2.2) contrast(1.1); transform: scaleY(1); }
+  100% { filter: brightness(1) contrast(1.05); transform: scaleY(1); }
+}
+
+@keyframes embermon-static-shift {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-2px, 1px); }
+  50% { transform: translate(2px, -1px); }
+  75% { transform: translate(-1px, -2px); }
+  100% { transform: translate(1px, 2px); }
+}
+
+@keyframes embermon-glitch-text {
+  0%, 92%, 100% { transform: translate(0); }
+  93% { transform: translate(-2px, 1px) skewX(-2deg); }
+  94% { transform: translate(2px, -1px) skewX(2deg); }
+  95% { transform: translate(-1px, 0); }
+  96% { transform: translate(1px, 1px); }
+}
+
+@keyframes embermon-flicker {
+  0%, 97%, 100% { opacity: 1; }
+  98% { opacity: 0.35; }
+  99% { opacity: 0.85; }
+}
+
+@keyframes embermon-pulse-sub {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+
+@keyframes embermon-led-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px #ff3c00; }
+  50% { opacity: 0.55; box-shadow: 0 0 4px #ff3c00; }
+}
+
+.animate-embermon-flicker {
+  animation: embermon-flicker 3.5s linear infinite;
+}
+
+.animate-embermon-pulse-sub {
+  animation: embermon-pulse-sub 2.2s ease-in-out infinite;
+}
+
+.animate-embermon-power-line {
+  animation: embermon-power-line 0.55s ease-out forwards;
+}

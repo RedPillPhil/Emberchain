@@ -19,6 +19,8 @@ import {
   Zap,
   Coins,
   Download,
+  Gamepad2,
+  FileText,
 } from "lucide-react";
 
 export const navItems: Array<{ href: string; label: string; icon: React.ComponentType<{ className?: string }>; highlight?: boolean; external?: boolean }> = [
@@ -37,6 +39,7 @@ export const navItems: Array<{ href: string; label: string; icon: React.Componen
   { href: "/blocks", label: "BLOCKS", icon: Blocks },
   { href: "/transactions", label: "TRANSACTIONS", icon: ArrowLeftRight },
   { href: "/contracts", label: "CONTRACTS", icon: Terminal },
+  { href: "/embermon", label: "EMBERMON", icon: Gamepad2, highlight: true },
   { href: "/downloads", label: "DOWNLOADS", icon: Download },
 ];
 
@@ -149,6 +152,15 @@ export function Sidebar() {
 
       <div className="p-4 flex-1 flex flex-col gap-1 overflow-y-auto">
         <SidebarNav />
+        <div className="mt-auto pt-4 border-t border-border/60">
+          <Link
+            href="/whitepaper"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-sm font-sans text-sm uppercase font-bold transition-all border border-transparent text-muted-foreground hover:bg-secondary hover:text-foreground hover:border-border"
+          >
+            <FileText className="w-4 h-4" />
+            Whitepaper
+          </Link>
+        </div>
       </div>
 
       <WalletFooter />
@@ -185,8 +197,18 @@ export function MobileNav({ open, onOpenChange }: { open: boolean; onOpenChange:
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            <div className="p-4 flex-1 overflow-y-auto">
+            <div className="p-4 flex-1 overflow-y-auto flex flex-col">
               <SidebarNav onNavigate={() => onOpenChange(false)} />
+              <div className="mt-auto pt-4 border-t border-border/60">
+                <Link
+                  href="/whitepaper"
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-sm font-sans text-sm uppercase font-bold transition-all border border-transparent text-muted-foreground hover:bg-secondary hover:text-foreground hover:border-border"
+                  onClick={() => onOpenChange(false)}
+                >
+                  <FileText className="w-4 h-4" />
+                  Whitepaper
+                </Link>
+              </div>
             </div>
             <WalletFooter />
           </aside>

@@ -31,6 +31,8 @@ const EmberSwap         = React.lazy(() => import('@/pages/emberswap'));
 const Tokens            = React.lazy(() => import('@/pages/tokens'));
 const TokenDetail       = React.lazy(() => import('@/pages/token-detail'));
 const Downloads         = React.lazy(() => import('@/pages/downloads'));
+const Whitepaper        = React.lazy(() => import('@/pages/whitepaper'));
+const Embermon          = React.lazy(() => import('@/pages/embermon'));
 const Admin             = React.lazy(() => import('@/pages/admin'));
 const NotFound          = React.lazy(() => import('@/pages/not-found'));
 
@@ -68,6 +70,8 @@ function Router() {
         <Route path="/tokens" component={Tokens} />
         <Route path="/tokens/:address" component={TokenDetail} />
         <Route path="/downloads" component={Downloads} />
+        <Route path="/whitepaper" component={Whitepaper} />
+        <Route path="/embermon" component={Embermon} />
         <Route path="/admin" component={Admin} />
         <Route component={NotFound} />
       </Switch>
