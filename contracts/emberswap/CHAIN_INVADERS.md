@@ -1,5 +1,12 @@
 # Chain Invaders — deploy & launch (EMBR chain)
 
+## Entry & practice
+
+- **Practice:** play anytime — no entry required; scores stay local.
+- **Enter:** 500 EMBR anytime after the previous contest ends, until this
+  contest's noon–8pm Eastern window closes (overnight pre-registration allowed).
+- **Scored runs:** only during noon–8pm Eastern, and only if you've entered.
+
 ## Payout model
 
 Winners do **not** claim. After 8pm Eastern the competition window closes and

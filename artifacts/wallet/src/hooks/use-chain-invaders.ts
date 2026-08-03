@@ -4,18 +4,19 @@ import { useSubmitChainTransaction } from "@/hooks/use-submit-chain-transaction"
 import { chainNodeApi } from "@/lib/config";
 import { resolveApiServer } from "@/lib/api-server";
 import { useToast } from "@/hooks/use-toast";
-import type { PlayResult } from "@/components/chain-invaders/engine";
-import type { PadButton } from "@/components/chain-invaders/engine";
+import type { PlayResult, PadButton } from "@/components/chain-invaders/engine";
 import {
   CHAIN_INVADERS_ADDRESS,
   ENTRY_FEE_WEI,
   encEnter,
   encCommitScore,
   encRevealScore,
-  encTodayJackpot,
+  encEntryJackpot,
   encCurrentDayId,
+  encEntryDayId,
   encInWindow,
   encEntered,
+  encDayWindow,
   makeCommitment,
   randomSalt,
   formatEmbrJackpot,
@@ -46,51 +47,107 @@ function decodeBool(hex: string): boolean {
   return decodeUint(hex) !== 0n;
 }
 
+/** ABI decode (uint256,uint256) from eth_call */
+function decodeTwoUint(hex: string): [bigint, bigint] {
+  const clean = hex.replace(/^0x/, "").padStart(128, "0");
+  return [BigInt("0x" + clean.slice(0, 64)), BigInt("0x" + clean.slice(64, 128))];
+}
+
+function formatEtRange(startSec: bigint, endSec: bigint): string {
+  const fmt = (sec: bigint) =>
+    new Date(Number(sec) * 1000).toLocaleString("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    });
+  return `${fmt(startSec)} → ${fmt(endSec)}`;
+}
+
+export type EntryStatus =
+  | "not_entered"
+  | "entered_live"
+  | "entered_next"
+  | "unknown";
+
 export function useChainInvadersCompetition() {
   const { activeWallet } = useActiveWallet();
   const submitTx = useSubmitChainTransaction();
   const { toast } = useToast();
 
   const [jackpotWei, setJackpotWei] = useState(0n);
-  const [dayId, setDayId] = useState(0n);
+  const [currentDayId, setCurrentDayId] = useState(0n);
+  const [entryDayId, setEntryDayId] = useState(0n);
   const [inWindow, setInWindow] = useState(false);
-  const [hasEntered, setHasEntered] = useState(false);
+  const [hasEnteredEntryDay, setHasEnteredEntryDay] = useState(false);
+  const [hasEnteredLiveDay, setHasEnteredLiveDay] = useState(false);
+  const [windowLabel, setWindowLabel] = useState("Noon–8pm Eastern daily");
   const [busy, setBusy] = useState(false);
   const [lastResult, setLastResult] = useState<PlayResult | null>(null);
   const padRef = useRef<((button: PadButton, active: boolean) => void) | null>(null);
 
-  const jackpotLabel = jackpotWei > 0n
-    ? `POT ${formatEmbrJackpot(jackpotWei)}`
-    : "POT —";
+  const isPreRegistered = hasEnteredEntryDay && !inWindow;
+  const isLiveEntered = inWindow && hasEnteredLiveDay;
+
+  const entryStatus: EntryStatus = !CHAIN_INVADERS_ADDRESS
+    ? "unknown"
+    : isLiveEntered
+      ? "entered_live"
+      : isPreRegistered
+        ? "entered_next"
+        : "not_entered";
+
+  const jackpotLabel =
+    jackpotWei > 0n ? `POT ${formatEmbrJackpot(jackpotWei)}` : "POT —";
+
+  const practiceMode = !inWindow || !hasEnteredLiveDay;
 
   const refresh = useCallback(async () => {
     if (!CHAIN_INVADERS_ADDRESS) {
       setJackpotWei(0n);
       setInWindow(false);
+      setHasEnteredEntryDay(false);
+      setHasEnteredLiveDay(false);
       return;
     }
     try {
-      const [potHex, dayHex, winHex] = await Promise.all([
-        embrEthCall(CHAIN_INVADERS_ADDRESS, encTodayJackpot()),
+      const [potHex, curHex, entryHex, winHex] = await Promise.all([
+        embrEthCall(CHAIN_INVADERS_ADDRESS, encEntryJackpot()),
         embrEthCall(CHAIN_INVADERS_ADDRESS, encCurrentDayId()),
+        embrEthCall(CHAIN_INVADERS_ADDRESS, encEntryDayId()),
         embrEthCall(CHAIN_INVADERS_ADDRESS, encInWindow()),
       ]);
-      const day = decodeUint(dayHex);
+      const cur = decodeUint(curHex);
+      const entry = decodeUint(entryHex);
+      const live = decodeBool(winHex);
       setJackpotWei(decodeUint(potHex));
-      setDayId(day);
-      setInWindow(decodeBool(winHex));
+      setCurrentDayId(cur);
+      setEntryDayId(entry);
+      setInWindow(live);
+
+      try {
+        const winData = await embrEthCall(CHAIN_INVADERS_ADDRESS, encDayWindow(entry));
+        const [start, end] = decodeTwoUint(winData);
+        setWindowLabel(formatEtRange(start, end));
+      } catch {
+        setWindowLabel("Noon–8pm Eastern daily");
+      }
 
       if (activeWallet?.address) {
-        const enteredHex = await embrEthCall(
-          CHAIN_INVADERS_ADDRESS,
-          encEntered(day, activeWallet.address),
-        );
-        setHasEntered(decodeBool(enteredHex));
+        const [enteredEntry, enteredLive] = await Promise.all([
+          embrEthCall(CHAIN_INVADERS_ADDRESS, encEntered(entry, activeWallet.address)),
+          embrEthCall(CHAIN_INVADERS_ADDRESS, encEntered(cur, activeWallet.address)),
+        ]);
+        setHasEnteredEntryDay(decodeBool(enteredEntry));
+        setHasEnteredLiveDay(decodeBool(enteredLive));
       } else {
-        setHasEntered(false);
+        setHasEnteredEntryDay(false);
+        setHasEnteredLiveDay(false);
       }
     } catch {
-      // Contract may not be deployed yet
       setJackpotWei(0n);
     }
   }, [activeWallet?.address]);
@@ -114,12 +171,8 @@ export function useChainInvadersCompetition() {
       toast({ title: "Connect a wallet first", variant: "destructive" });
       return;
     }
-    if (!inWindow) {
-      toast({
-        title: "Competition closed",
-        description: "Daily window is noon–8pm Eastern (16:00–24:00 UTC).",
-        variant: "destructive",
-      });
+    if (hasEnteredEntryDay) {
+      toast({ title: "Already entered", description: "You're registered for this contest." });
       return;
     }
     setBusy(true);
@@ -133,7 +186,12 @@ export function useChainInvadersCompetition() {
           gasLimit: "200000",
         },
       });
-      toast({ title: "Entered!", description: "500 EMBR locked into today's jackpot." });
+      toast({
+        title: "Entered!",
+        description: inWindow
+          ? "500 EMBR locked — scored runs count toward today's jackpot."
+          : "500 EMBR locked for the next contest. Practice freely until noon Eastern.",
+      });
       await refresh();
     } catch (err) {
       toast({
@@ -144,18 +202,28 @@ export function useChainInvadersCompetition() {
     } finally {
       setBusy(false);
     }
-  }, [activeWallet, inWindow, refresh, submitTx, toast]);
+  }, [activeWallet, hasEnteredEntryDay, inWindow, refresh, submitTx, toast]);
 
   const submitScore = useCallback(
     async (result: PlayResult) => {
       setLastResult(result);
-      if (!CHAIN_INVADERS_ADDRESS || !activeWallet || !hasEntered) {
+      // Practice: always allowed to play; only submit when live + entered for today
+      if (!CHAIN_INVADERS_ADDRESS || !activeWallet || !inWindow || !hasEnteredLiveDay) {
+        if (result.score > 0 && (!inWindow || !hasEnteredLiveDay)) {
+          toast({
+            title: "Practice run complete",
+            description: inWindow
+              ? "Enter the contest (500 EMBR) to submit scores for the jackpot."
+              : "Tournament scores only count noon–8pm Eastern. Enter anytime for the next contest.",
+          });
+        }
         return;
       }
       setBusy(true);
       try {
         const salt = randomSalt();
         const score = BigInt(result.score);
+        const dayId = currentDayId;
         const commitment = makeCommitment(
           activeWallet.address,
           dayId,
@@ -164,7 +232,6 @@ export function useChainInvadersCompetition() {
           result.playHash,
         );
 
-        // Commit–reveal step 1
         await submitTx.mutateAsync({
           data: {
             fromPrivateKey: activeWallet.privateKey,
@@ -175,7 +242,6 @@ export function useChainInvadersCompetition() {
           },
         });
 
-        // ECDSA signature from game server (api-server private key)
         let signature = "0x";
         try {
           const api = resolveApiServer();
@@ -208,7 +274,6 @@ export function useChainInvadersCompetition() {
           return;
         }
 
-        // Commit–reveal step 2 (contract verifies ECDSA)
         await submitTx.mutateAsync({
           data: {
             fromPrivateKey: activeWallet.privateKey,
@@ -234,7 +299,15 @@ export function useChainInvadersCompetition() {
         setBusy(false);
       }
     },
-    [activeWallet, dayId, hasEntered, refresh, submitTx, toast],
+    [
+      activeWallet,
+      currentDayId,
+      hasEnteredLiveDay,
+      inWindow,
+      refresh,
+      submitTx,
+      toast,
+    ],
   );
 
   const setPadHandler = useCallback((fn: (button: PadButton, active: boolean) => void) => {
@@ -243,10 +316,8 @@ export function useChainInvadersCompetition() {
 
   const pressPad = useCallback((button: PadButton, active: boolean) => {
     padRef.current?.(button, active);
-    // Also click the NiftyMon "start chain invaders" overlay if present
     if (active && button === "start") {
-      const el = document.querySelector<HTMLButtonElement>("[data-nifty-start]");
-      el?.click();
+      document.querySelector<HTMLButtonElement>("[data-nifty-start]")?.click();
     }
   }, []);
 
@@ -254,9 +325,15 @@ export function useChainInvadersCompetition() {
     jackpotWei,
     jackpotLabel,
     formatJackpot: formatEmbrJackpot(jackpotWei),
-    dayId,
+    currentDayId,
+    entryDayId,
+    dayId: currentDayId,
     inWindow,
-    hasEntered,
+    hasEntered: hasEnteredEntryDay,
+    hasEnteredLiveDay,
+    entryStatus,
+    practiceMode,
+    windowLabel,
     busy,
     lastResult,
     contractConfigured: Boolean(CHAIN_INVADERS_ADDRESS),

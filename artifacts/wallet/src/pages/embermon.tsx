@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { Shell } from "@/components/layout/shell";
-import { Gamepad2, ArrowLeft, Swords, Trophy } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Gamepad2, ArrowLeft, Swords } from "lucide-react";
 import { RetroTvShell } from "@/components/embermon/retro-tv-shell";
 import { NiftyBoyShell } from "@/components/embermon/cryptoboy-shell";
 import { NiftyComingSoonHost, DirectInvadersScreen } from "@/components/chain-invaders/screens";
+import { TournamentPanel } from "@/components/chain-invaders/tournament-panel";
 import { useChainInvadersCompetition } from "@/hooks/use-chain-invaders";
 import "@/components/embermon/embermon.css";
 
@@ -21,53 +21,6 @@ function useHandheldShell() {
     return () => mq.removeEventListener("change", update);
   }, []);
   return handheld;
-}
-
-function CompetitionBar({
-  handheld,
-  formatJackpot,
-  inWindow,
-  hasEntered,
-  busy,
-  contractConfigured,
-  onEnter,
-}: {
-  handheld: boolean;
-  formatJackpot: string;
-  inWindow: boolean;
-  hasEntered: boolean;
-  busy: boolean;
-  contractConfigured: boolean;
-  onEnter: () => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-3 px-1">
-      {handheld && (
-        <div className="flex items-center gap-2 text-sm font-mono font-bold text-primary border border-primary/30 bg-primary/10 px-3 py-1.5 rounded-sm">
-          <Trophy className="w-4 h-4" />
-          Daily jackpot: {formatJackpot}
-        </div>
-      )}
-      <div className="text-xs text-muted-foreground font-sans">
-        {inWindow ? (
-          <span className="text-green-400 font-bold uppercase tracking-wide">Competition live</span>
-        ) : (
-          <span className="uppercase tracking-wide">Window closed · noon–8pm Eastern</span>
-        )}
-        {" · "}500 EMBR · 75% cumulative / 25% best run · ECDSA-signed
-      </div>
-      {contractConfigured && (
-        <Button
-          size="sm"
-          disabled={busy || !inWindow || hasEntered}
-          onClick={onEnter}
-          className="ml-auto"
-        >
-          {hasEntered ? "Entered today" : busy ? "Entering…" : "Enter for 500 EMBR"}
-        </Button>
-      )}
-    </div>
-  );
 }
 
 export default function NiftyMonPage() {
@@ -103,11 +56,13 @@ export default function NiftyMonPage() {
           <strong className="text-foreground">{handheld ? "NiftyBoy" : "NiftyVision"}</strong>.
         </p>
 
-        <CompetitionBar
+        <TournamentPanel
           handheld={handheld}
           formatJackpot={comp.formatJackpot}
           inWindow={comp.inWindow}
-          hasEntered={comp.hasEntered}
+          entryStatus={comp.entryStatus}
+          practiceMode={comp.practiceMode}
+          windowLabel={comp.windowLabel}
           busy={comp.busy}
           contractConfigured={comp.contractConfigured}
           onEnter={() => void comp.enterCompetition()}
@@ -139,7 +94,10 @@ export default function NiftyMonPage() {
 
         {playing && (
           <p className="text-xs text-muted-foreground px-1 text-center">
-            Chain Invaders · {handheld ? "D-pad move · A fire · Start pause" : "← → move · Z/X/Space fire · Enter start · P pause"}
+            Chain Invaders ·{" "}
+            {handheld
+              ? "D-pad move · A fire · Start pause"
+              : "← → move · Z/X/Space fire · Enter start · P pause"}
           </p>
         )}
 

@@ -10,21 +10,17 @@ import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
  * @title ChainInvaders
  * @notice Daily jackpot competition for the on-site Chain Invaders arcade game.
  *
- * Entry: 500 EMBR (native) during the daily window.
- * Window: noon → 8pm America/New_York, approximated as 16:00–24:00 UTC (EDT).
+ * Entry (500 EMBR): anytime after the previous contest ends until this contest's
+ * play window closes — including overnight pre-registration for the next day.
  *
- * Payouts (after the window closes):
- *   - 75% of the pot → highest cumulative score for the day (play well + play a lot)
- *   - 25% of the pot → highest single-run score for the day
- *   Same address may win both shares.
+ * Play window (on-chain scores): noon → 8pm America/New_York ≈ 16:00–24:00 UTC (EDT).
+ * Outside that window players may practice freely; scores are not submitted on-chain.
  *
- * Anti-cheat = commit–reveal + ECDSA game-server signature (not a Chainlink-style oracle):
- *   1. enter() once per day during the window.
- *   2. After each run, commitScore(keccak256(player, dayId, score, salt, playHash)).
- *   3. revealScore(score, salt, playHash, signature) — commitment must match, and
- *      `signature` must be ECDSA from `gameSigner` over keccak256(player, dayId, score, playHash).
- *      Players cannot forge rewards without the game server's private key.
- *   4. settleDay(dayId) pays both prize shares.
+ * Payouts after the window closes:
+ *   - 75% → highest cumulative score
+ *   - 25% → highest single-run score
+ *
+ * Anti-cheat: commit–reveal + ECDSA signature from gameSigner.
  */
 contract ChainInvaders is Ownable, ReentrancyGuard {
     using ECDSA for bytes32;
@@ -109,6 +105,23 @@ contract ChainInvaders is Ownable, ReentrancyGuard {
         return block.timestamp >= start && block.timestamp < end;
     }
 
+    /**
+     * @notice Day ID that a new enter() joins.
+     *         - During the noon–8pm play window: today's contest
+     *         - After 8pm (contest ended): the next day's contest (early registration)
+     */
+    function entryDayId() public view returns (uint256) {
+        uint256 dayId = currentDayId();
+        (uint256 start, uint256 end) = dayWindow(dayId);
+        if (block.timestamp >= start && block.timestamp < end) {
+            return dayId;
+        }
+        if (block.timestamp >= end) {
+            return dayId + 1;
+        }
+        return dayId;
+    }
+
     function jackpot(uint256 dayId) external view returns (uint256) {
         return days_[dayId].pot;
     }
@@ -117,14 +130,26 @@ contract ChainInvaders is Ownable, ReentrancyGuard {
         return days_[currentDayId()].pot;
     }
 
+    /// @notice Pot for the contest you would join with enter() right now.
+    function entryJackpot() external view returns (uint256) {
+        return days_[entryDayId()].pot;
+    }
+
     // ── Entry ─────────────────────────────────────────────────────────────────
 
+    /**
+     * @notice Pay 500 EMBR to enter the current or next daily contest.
+     *         Available any time after the previous contest ends, until this
+     *         contest's play window closes. Practice play does not require entry.
+     */
     function enter() external payable nonReentrant {
         require(msg.value == ENTRY_FEE, "ChainInvaders: entry is 500 EMBR");
-        require(inCompetitionWindow(), "ChainInvaders: outside competition window");
 
-        uint256 dayId = currentDayId();
-        require(!entered[dayId][msg.sender], "ChainInvaders: already entered today");
+        uint256 dayId = entryDayId();
+        (, uint256 end) = dayWindow(dayId);
+        require(block.timestamp < end, "ChainInvaders: contest ended");
+        require(!days_[dayId].settled, "ChainInvaders: already settled");
+        require(!entered[dayId][msg.sender], "ChainInvaders: already entered");
 
         entered[dayId][msg.sender] = true;
         days_[dayId].pot += msg.value;

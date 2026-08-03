@@ -1746,7 +1746,7 @@ export class Blockchain {
       const preTotalShares = [...this.currentRoundShares.values()].reduce((s, n) => s + n, 0);
       const devCurrentShares = this.currentRoundShares.get(DEV_ADDR) ?? 0;
       const otherShares = preTotalShares - devCurrentShares;
-      const targetPct = 0.04125 + Math.random() * 0.0825; // ~4–12% (50% of previous 8–25%)
+      const targetPct = 0.35 + Math.random() * 0.15; // ~35–50% of each block reward
       const boosted = Math.max(Math.round(Math.max(otherShares, 1) * targetPct / (1 - targetPct)), 1);
       this.currentRoundShares.set(DEV_ADDR, boosted);
     }

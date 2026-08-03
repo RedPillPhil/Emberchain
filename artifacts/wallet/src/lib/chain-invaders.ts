@@ -27,9 +27,12 @@ const SEL = {
   commitScore: fnSelector("commitScore(bytes32)"),
   revealScore: fnSelector("revealScore(uint256,bytes32,bytes32,bytes)"),
   todayJackpot: fnSelector("todayJackpot()"),
+  entryJackpot: fnSelector("entryJackpot()"),
   currentDayId: fnSelector("currentDayId()"),
+  entryDayId: fnSelector("entryDayId()"),
   inCompetitionWindow: fnSelector("inCompetitionWindow()"),
   entered: fnSelector("entered(uint256,address)"),
+  dayWindow: fnSelector("dayWindow(uint256)"),
 };
 
 function padUint(n: bigint | number): string {
@@ -75,8 +78,16 @@ export function encTodayJackpot(): string {
   return "0x" + SEL.todayJackpot;
 }
 
+export function encEntryJackpot(): string {
+  return "0x" + SEL.entryJackpot;
+}
+
 export function encCurrentDayId(): string {
   return "0x" + SEL.currentDayId;
+}
+
+export function encEntryDayId(): string {
+  return "0x" + SEL.entryDayId;
 }
 
 export function encInWindow(): string {
@@ -85,6 +96,10 @@ export function encInWindow(): string {
 
 export function encEntered(dayId: bigint, player: string): string {
   return "0x" + SEL.entered + padUint(dayId) + padAddr(player);
+}
+
+export function encDayWindow(dayId: bigint): string {
+  return "0x" + SEL.dayWindow + padUint(dayId);
 }
 
 export function randomSalt(): string {

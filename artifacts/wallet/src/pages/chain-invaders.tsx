@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { Shell } from "@/components/layout/shell";
-import { Swords, ArrowLeft, Trophy } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Swords, ArrowLeft } from "lucide-react";
 import { RetroTvShell } from "@/components/embermon/retro-tv-shell";
 import { NiftyBoyShell } from "@/components/embermon/cryptoboy-shell";
 import { DirectInvadersScreen } from "@/components/chain-invaders/screens";
+import { TournamentPanel } from "@/components/chain-invaders/tournament-panel";
 import { useChainInvadersCompetition } from "@/hooks/use-chain-invaders";
 import "@/components/embermon/embermon.css";
 
@@ -37,7 +37,7 @@ export default function ChainInvadersPage() {
               Chain Invaders
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground font-sans uppercase tracking-widest font-bold mt-1">
-              Daily jackpot arcade · 75% cumulative · 25% best run
+              Practice anytime · tournament noon–8pm ET
             </p>
           </div>
           <Link
@@ -50,48 +50,24 @@ export default function ChainInvadersPage() {
         </div>
 
         <p className="text-sm text-muted-foreground max-w-2xl px-1 leading-relaxed">
-          Pay <strong className="text-foreground">500 EMBR</strong> to enter the daily competition
-          (noon–8pm Eastern). <strong className="text-foreground">75%</strong> of the pot goes to
-          highest cumulative score, <strong className="text-foreground">25%</strong> to highest
-          single-run score (same wallet can win both). Each run is locked with{" "}
-          <strong className="text-foreground">commit–reveal</strong> plus an{" "}
-          <strong className="text-foreground">ECDSA signature</strong> from the game server — players
-          cannot forge scores.
+          Jump in whenever you want for practice. When you&apos;re ready, pay{" "}
+          <strong className="text-foreground">500 EMBR</strong> to enter the daily contest —
+          available as soon as the previous day ends. During{" "}
+          <strong className="text-foreground">noon–8pm Eastern</strong>, entered players&apos;
+          scores count toward the jackpot (75% cumulative / 25% best single run).
         </p>
 
-        <div className="flex flex-wrap items-center gap-3 px-1">
-          {handheld && (
-            <div className="flex items-center gap-2 text-sm font-mono font-bold text-primary border border-primary/30 bg-primary/10 px-3 py-1.5 rounded-sm">
-              <Trophy className="w-4 h-4" />
-              Daily jackpot: {comp.formatJackpot}
-            </div>
-          )}
-          <div className="text-xs text-muted-foreground">
-            {comp.inWindow ? (
-              <span className="text-green-400 font-bold uppercase">Live now</span>
-            ) : (
-              <span className="uppercase">Closed · opens noon Eastern</span>
-            )}
-            {comp.hasEntered && (
-              <span className="ml-2 text-primary font-bold">· You&apos;re in</span>
-            )}
-          </div>
-          {comp.contractConfigured && (
-            <Button
-              size="sm"
-              disabled={comp.busy || !comp.inWindow || comp.hasEntered}
-              onClick={() => void comp.enterCompetition()}
-              className="ml-auto"
-            >
-              {comp.hasEntered ? "Entered today" : comp.busy ? "Entering…" : "Enter for 500 EMBR"}
-            </Button>
-          )}
-          {!comp.contractConfigured && (
-            <span className="text-xs text-amber-400 ml-auto">
-              Contract pending deploy · play locally meanwhile
-            </span>
-          )}
-        </div>
+        <TournamentPanel
+          handheld={handheld}
+          formatJackpot={comp.formatJackpot}
+          inWindow={comp.inWindow}
+          entryStatus={comp.entryStatus}
+          practiceMode={comp.practiceMode}
+          windowLabel={comp.windowLabel}
+          busy={comp.busy}
+          contractConfigured={comp.contractConfigured}
+          onEnter={() => void comp.enterCompetition()}
+        />
 
         {handheld ? (
           <NiftyBoyShell onPad={comp.pressPad}>
