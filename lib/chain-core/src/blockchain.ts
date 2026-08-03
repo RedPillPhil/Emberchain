@@ -80,6 +80,14 @@ interface MiningState {
   loop: Promise<void> | null;
 }
 
+/**
+ * Kill switch for the peer-block difficulty floor.  Set IMPORT_DIFFICULTY_FLOOR=false
+ * to fall back to accepting whatever difficulty a peer declares — only useful if the
+ * floor ever starts rejecting honest blocks on a live network.
+ */
+const ENFORCE_IMPORT_DIFFICULTY_FLOOR =
+  typeof process === "undefined" || process.env?.IMPORT_DIFFICULTY_FLOOR !== "false";
+
 function transactionsRootOf(hashes: string[]): PrefixedHexString {
   return bytesToHex(keccak256(new TextEncoder().encode(hashes.join(","))));
 }
@@ -1849,6 +1857,28 @@ export class Blockchain {
     const parentBlock =
       this.blocksByHash.get(block.parentHash) ??
       this.orphanPool.get(block.parentHash)?.block;
+
+    // The proof-of-work above is checked against the block's OWN declared
+    // difficulty, so without a floor a peer can declare difficulty 1, mine it on a
+    // laptop, and have it applied — transactions and all.  Anchor to the parent
+    // rather than our local difficulty, which may legitimately differ from the
+    // sender's, and leave generous headroom so honest blocks always pass:
+    // retarget can drop 10 % per block, historical blocks predate the
+    // double-retarget fix (0.81×), and easing lowers it further during a stall.
+    if (ENFORCE_IMPORT_DIFFICULTY_FLOOR && parentBlock) {
+      const secondsSinceParent =
+        (new Date(block.timestamp).getTime() - new Date(parentBlock.timestamp).getTime()) / 1000;
+      const floor = easedDifficulty(
+        (BigInt(parentBlock.difficulty) * 7n) / 10n,
+        secondsSinceParent,
+        EMBERCHAIN_CONFIG.targetBlockTimeSeconds,
+      );
+      if (BigInt(block.difficulty) < floor) {
+        throw new Error(
+          `Block difficulty ${block.difficulty} is below the floor ${floor} implied by parent #${parentBlock.number}`,
+        );
+      }
+    }
 
     // Compute totalDifficulty for the incoming block
     const parentTD = parentBlock
