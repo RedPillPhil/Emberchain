@@ -108,6 +108,7 @@ export class ChainInvadersEngine {
   private invaderTick = 0;
   private invaderSpeed = 40;
   private shootCooldown = 0;
+  private fireHeld = false;
   private enemyShootTimer = 0;
   private enemyShotIndex = 0;
   private keys = new Set<string>();
@@ -350,7 +351,7 @@ export class ChainInvadersEngine {
 
     const left = this.keys.has("arrowleft") || this.keys.has("a") || this.pad.has("left");
     const right = this.keys.has("arrowright") || this.keys.has("d") || this.pad.has("right");
-    const shoot =
+    const shootWanted =
       this.keys.has(" ") ||
       this.keys.has("z") ||
       this.keys.has("x") ||
@@ -360,7 +361,9 @@ export class ChainInvadersEngine {
     if (left) this.playerX -= 140 * dt;
     if (right) this.playerX += 140 * dt;
     this.playerX = Math.max(16, Math.min(this.W - 16, this.playerX));
-    if (shoot) this.tryShoot();
+    // One shot per press — holding Space / fire buttons does not auto-fire.
+    if (shootWanted && !this.fireHeld) this.tryShoot();
+    this.fireHeld = shootWanted;
 
     // Invaders march
     this.invaderTick += dt * 60;

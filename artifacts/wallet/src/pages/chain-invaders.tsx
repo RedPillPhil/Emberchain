@@ -74,6 +74,9 @@ export default function ChainInvadersPage() {
 
         {handheld ? (
           <>
+            <p className="text-xs text-muted-foreground px-2 text-center leading-relaxed">
+              Tip: slide your finger back and forth on the directional pad rather than lifting!
+            </p>
             <NiftyBoyShell onPad={comp.pressPad}>
               <DirectInvadersScreen
                 showJackpotOverlay={false}
