@@ -1,38 +1,10 @@
-import type { ReactNode } from "react";
+import { useCallback, useRef, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import type { PadButton } from "@/components/chain-invaders/engine";
 
-function bindPress(
-  el: HTMLElement,
-  button: PadButton,
-  onPad?: (button: PadButton, active: boolean) => void,
-) {
-  let pressed = false;
-  const down = (event: PointerEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (pressed) return;
-    pressed = true;
-    el.setPointerCapture?.(event.pointerId);
-    el.classList.add("is-pressed");
-    onPad?.(button, true);
-  };
-  const up = (event: PointerEvent) => {
-    event.preventDefault();
-    if (!pressed) return;
-    pressed = false;
-    try {
-      el.releasePointerCapture?.(event.pointerId);
-    } catch {
-      /* ignore */
-    }
-    el.classList.remove("is-pressed");
-    onPad?.(button, false);
-  };
-  el.addEventListener("pointerdown", down);
-  el.addEventListener("pointerup", up);
-  el.addEventListener("pointercancel", up);
-}
-
+/**
+ * NiftyBoy handheld shell with oversized touch targets.
+ * D-pad uses a single hit surface + zone detection (more reliable than 4 tiny buttons).
+ */
 export function NiftyBoyShell({
   children,
   onPad,
@@ -40,6 +12,106 @@ export function NiftyBoyShell({
   children: ReactNode;
   onPad?: (button: PadButton, active: boolean) => void;
 }) {
+  const activeDirs = useRef(new Set<PadButton>());
+  const held = useRef(new Set<PadButton>());
+
+  const setDir = useCallback(
+    (next: Set<PadButton>) => {
+      const prev = activeDirs.current;
+      for (const d of ["up", "down", "left", "right"] as const) {
+        const was = prev.has(d);
+        const now = next.has(d);
+        if (was !== now) onPad?.(d, now);
+      }
+      activeDirs.current = next;
+    },
+    [onPad],
+  );
+
+  const dirsFromPoint = (el: HTMLElement, clientX: number, clientY: number) => {
+    const rect = el.getBoundingClientRect();
+    const x = (clientX - rect.left) / rect.width - 0.5;
+    const y = (clientY - rect.top) / rect.height - 0.5;
+    const next = new Set<PadButton>();
+    // Deadzone in the center; generous axes outside it.
+    const dead = 0.12;
+    if (Math.abs(x) > dead || Math.abs(y) > dead) {
+      if (Math.abs(x) >= Math.abs(y) * 0.55) {
+        next.add(x < 0 ? "left" : "right");
+      }
+      if (Math.abs(y) >= Math.abs(x) * 0.55) {
+        next.add(y < 0 ? "up" : "down");
+      }
+      // Allow diagonals when both axes are strong.
+      if (Math.abs(x) > 0.22 && Math.abs(y) > 0.22) {
+        next.add(x < 0 ? "left" : "right");
+        next.add(y < 0 ? "up" : "down");
+      }
+    }
+    return next;
+  };
+
+  const onDpadDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDir(dirsFromPoint(e.currentTarget, e.clientX, e.clientY));
+  };
+
+  const onDpadMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+    setDir(dirsFromPoint(e.currentTarget, e.clientX, e.clientY));
+  };
+
+  const onDpadUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    setDir(new Set());
+  };
+
+  const hold = (button: PadButton, active: boolean) => {
+    if (active) {
+      if (held.current.has(button)) return;
+      held.current.add(button);
+      onPad?.(button, true);
+    } else {
+      if (!held.current.has(button)) return;
+      held.current.delete(button);
+      onPad?.(button, false);
+    }
+  };
+
+  const buttonHandlers = (button: PadButton) => ({
+    onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      e.currentTarget.classList.add("is-pressed");
+      hold(button, true);
+    },
+    onPointerUp: (e: ReactPointerEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.currentTarget.classList.remove("is-pressed");
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      hold(button, false);
+    },
+    onPointerCancel: (e: ReactPointerEvent<HTMLButtonElement>) => {
+      e.currentTarget.classList.remove("is-pressed");
+      hold(button, false);
+    },
+    onLostPointerCapture: (e: ReactPointerEvent<HTMLButtonElement>) => {
+      e.currentTarget.classList.remove("is-pressed");
+      hold(button, false);
+    },
+  });
+
   return (
     <div className="embermon-stage embermon-handheld-stage">
       <div className="embermon-handheld">
@@ -65,45 +137,37 @@ export function NiftyBoyShell({
         <div className="embermon-handheld-controls">
           <div
             className="embermon-dpad"
-            ref={(node) => {
-              if (!node || node.dataset.bound) return;
-              node.dataset.bound = "1";
-              for (const dir of ["up", "down", "left", "right"] as const) {
-                const hit = node.querySelector(`.hit.${dir}`);
-                if (hit instanceof HTMLElement) bindPress(hit, dir, onPad);
-              }
-            }}
+            role="group"
+            aria-label="D-pad"
+            onPointerDown={onDpadDown}
+            onPointerMove={onDpadMove}
+            onPointerUp={onDpadUp}
+            onPointerCancel={onDpadUp}
+            onContextMenu={(e) => e.preventDefault()}
           >
-            <div className="embermon-dpad-center" />
-            <button type="button" className="hit up" aria-label="Up" />
-            <button type="button" className="hit down" aria-label="Down" />
-            <button type="button" className="hit left" aria-label="Left" />
-            <button type="button" className="hit right" aria-label="Right" />
+            <div className="embermon-dpad-visual" aria-hidden="true">
+              <div className="embermon-dpad-center" />
+            </div>
           </div>
+
           <div className="embermon-ab">
             <button
               type="button"
               className="embermon-btn b"
               aria-label="B"
-              ref={(node) => {
-                if (!node || node.dataset.bound) return;
-                node.dataset.bound = "1";
-                bindPress(node, "b", onPad);
-              }}
+              {...buttonHandlers("b")}
+              onContextMenu={(e) => e.preventDefault()}
             >
-              B
+              <span className="embermon-btn-face">B</span>
             </button>
             <button
               type="button"
               className="embermon-btn a"
               aria-label="A"
-              ref={(node) => {
-                if (!node || node.dataset.bound) return;
-                node.dataset.bound = "1";
-                bindPress(node, "a", onPad);
-              }}
+              {...buttonHandlers("a")}
+              onContextMenu={(e) => e.preventDefault()}
             >
-              A
+              <span className="embermon-btn-face">A</span>
             </button>
           </div>
         </div>
@@ -113,11 +177,8 @@ export function NiftyBoyShell({
             type="button"
             className="embermon-option-btn"
             aria-label="Select"
-            ref={(node) => {
-              if (!node || node.dataset.bound) return;
-              node.dataset.bound = "1";
-              bindPress(node, "select", onPad);
-            }}
+            {...buttonHandlers("select")}
+            onContextMenu={(e) => e.preventDefault()}
           >
             <span className="embermon-option-pill" />
             <span className="embermon-option-label">SELECT</span>
@@ -126,11 +187,8 @@ export function NiftyBoyShell({
             type="button"
             className="embermon-option-btn"
             aria-label="Start"
-            ref={(node) => {
-              if (!node || node.dataset.bound) return;
-              node.dataset.bound = "1";
-              bindPress(node, "start", onPad);
-            }}
+            {...buttonHandlers("start")}
+            onContextMenu={(e) => e.preventDefault()}
           >
             <span className="embermon-option-pill" />
             <span className="embermon-option-label">START</span>

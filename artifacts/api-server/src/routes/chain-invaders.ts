@@ -13,6 +13,7 @@
 
 import { Router, type Request, type Response } from "express";
 import { Wallet, keccak256, solidityPacked, getBytes } from "ethers";
+import { settleEligibleDays } from "../lib/chain-invaders-settler";
 
 const router = Router();
 
@@ -131,6 +132,21 @@ router.post("/chain-invaders/attest", async (req: Request, res: Response) => {
   } catch (err) {
     res.status(500).json({
       error: err instanceof Error ? err.message : "Signing failed",
+    });
+  }
+});
+
+/**
+ * Manually trigger settlement for eligible past days.
+ * Normal path: api-server auto-settler pays winners after 8pm Eastern — no claim step.
+ */
+router.post("/chain-invaders/settle", async (_req: Request, res: Response) => {
+  try {
+    const result = await settleEligibleDays();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Settle failed",
     });
   }
 });

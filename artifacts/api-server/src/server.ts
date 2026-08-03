@@ -22,6 +22,10 @@ import { ensureLaunchTable } from "./lib/launch-db";
 import { startBridgeRelayer, stopBridgeRelayer } from "./lib/bridge-relayer";
 import { startLaunchProcessor } from "./lib/launch-processor";
 import { startMiningStatusPoller } from "./lib/mining-status-cache";
+import {
+  startChainInvadersSettler,
+  stopChainInvadersSettler,
+} from "./lib/chain-invaders-settler";
 import { WebSocketServer } from "ws";
 import { setupCommunityWS } from "./routes/community";
 import { setupMmoWS } from "./routes/mmo";
@@ -65,9 +69,11 @@ export async function startServer(port: number): Promise<ServerHandle> {
   // Polls READ_NODE_URL every 15 s so /api/mining/status requests are served
   // from cache instead of hitting the already-loaded mining node per request.
   startMiningStatusPoller();
+  startChainInvadersSettler();
 
   const stop = (): Promise<void> => {
     stopBridgeRelayer();
+    stopChainInvadersSettler();
     return new Promise((resolve) => server.close(() => resolve()));
   };
 
