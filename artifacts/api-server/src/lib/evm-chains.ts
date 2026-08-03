@@ -38,9 +38,9 @@ export const ETHEREUM: EvmChainConfig = {
   chainId: 1,
   label: "Ethereum mainnet",
   rpcUrls: envList("ETH_RPC_URL", [
+    "https://ethereum-rpc.publicnode.com",
+    "https://eth.drpc.org",
     "https://eth.llamarpc.com",
-    "https://cloudflare-eth.com",
-    "https://rpc.ankr.com/eth",
   ]),
   confirmations: envInt("ETH_CONFIRMATIONS", 12),
 };
@@ -49,7 +49,10 @@ export const BASE: EvmChainConfig = {
   key: "Base",
   chainId: 8453,
   label: "Base",
-  rpcUrls: envList("BASE_RPC_URL", ["https://mainnet.base.org"]),
+  rpcUrls: envList("BASE_RPC_URL", [
+    "https://mainnet.base.org",
+    "https://base-rpc.publicnode.com",
+  ]),
   // ~2s blocks, so 30 confirmations is roughly a minute.
   confirmations: envInt("BASE_CONFIRMATIONS", 30),
 };
@@ -58,7 +61,10 @@ export const ARBITRUM: EvmChainConfig = {
   key: "Arbitrum",
   chainId: 42161,
   label: "Arbitrum One",
-  rpcUrls: envList("ARBITRUM_RPC_URL", ["https://arb1.arbitrum.io/rpc"]),
+  rpcUrls: envList("ARBITRUM_RPC_URL", [
+    "https://arb1.arbitrum.io/rpc",
+    "https://arbitrum-one-rpc.publicnode.com",
+  ]),
   // ~0.25s blocks, so 120 confirmations is roughly 30 seconds.
   confirmations: envInt("ARBITRUM_CONFIRMATIONS", 120),
 };
@@ -69,7 +75,7 @@ export const BSC: EvmChainConfig = {
   label: "BNB Smart Chain",
   rpcUrls: envList("BSC_RPC_URL", [
     "https://bsc-dataseed.binance.org",
-    "https://bsc-dataseed1.defibit.io",
+    "https://bsc-rpc.publicnode.com",
   ]),
   confirmations: envInt("BSC_CONFIRMATIONS", 15),
 };
@@ -78,7 +84,10 @@ export const POLYGON: EvmChainConfig = {
   key: "Polygon",
   chainId: 137,
   label: "Polygon",
-  rpcUrls: envList("POLYGON_RPC_URL", ["https://polygon-rpc.com"]),
+  rpcUrls: envList("POLYGON_RPC_URL", [
+    "https://polygon-bor-rpc.publicnode.com",
+    "https://polygon.drpc.org",
+  ]),
   confirmations: envInt("POLYGON_CONFIRMATIONS", 128),
 };
 
@@ -171,7 +180,7 @@ export async function evmRpc<T>(
   method: string,
   params: unknown[],
 ): Promise<T> {
-  let lastError = "no RPC endpoint configured";
+  const failures: string[] = [];
   for (const url of chain.rpcUrls) {
     try {
       const res = await fetch(url, {
@@ -185,8 +194,14 @@ export async function evmRpc<T>(
       if (json.error) throw new Error(json.error.message ?? "RPC error");
       return json.result as T;
     } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
+      // Record every endpoint rather than just the last one: reporting a single
+      // failure hides which providers were tried and why each refused, which is
+      // exactly what you need to know when a chain goes unreachable.
+      const host = URL.canParse(url) ? new URL(url).host : url;
+      failures.push(`${host}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  throw new Error(`${chain.label} RPC unavailable (${lastError})`);
+  throw new Error(
+    `${chain.label} RPC unavailable — ${failures.join(" | ") || "no endpoint configured"}`,
+  );
 }
