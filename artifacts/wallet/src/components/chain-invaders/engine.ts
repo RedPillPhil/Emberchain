@@ -232,9 +232,6 @@ export class ChainInvadersEngine {
       else if (this.phase === "playing") this.setPhase("paused");
       else if (this.phase === "paused") this.setPhase("playing");
     }
-    if (active && button === "a" && this.phase === "playing") {
-      this.tryShoot();
-    }
   }
 
   showTitle() {
