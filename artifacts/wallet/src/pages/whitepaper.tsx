@@ -131,12 +131,21 @@ export default function WhitepaperPage() {
           </p>
         </Section>
 
-        <Section title="Embermon">
+        <Section title="NiftyMon & Chain Invaders">
           <p>
-            <strong className="text-foreground">Embermon</strong> is an upcoming monster-collecting
-            MMO set in the Emberchain wasteland. Built on RPG Maker XP with custom plugins for
-            wild encounters, AI-powered NPC dialogue, real-time multiplayer sync, and future
-            on-chain Embermon NFT minting when caught in-game.
+            <strong className="text-foreground">NiftyMon</strong> is an upcoming monster-collecting
+            MMO (nifties = NFTs) set in the Emberchain wasteland — played on{" "}
+            <strong className="text-foreground">NiftyVision</strong> (desktop) or the{" "}
+            <strong className="text-foreground">NiftyBoy</strong> handheld shell (mobile).
+          </p>
+          <p>
+            <strong className="text-foreground">Chain Invaders</strong> is a live arcade mini-game
+            with a daily 500 EMBR jackpot (noon–8pm Eastern):{" "}
+            <strong className="text-foreground">75%</strong> to highest cumulative score,{" "}
+            <strong className="text-foreground">25%</strong> to highest single run. Scores are
+            secured with <strong className="text-foreground">commit–reveal</strong> plus{" "}
+            <strong className="text-foreground">ECDSA signatures</strong> from the game server —
+            players cannot forge rewards without the server key.
           </p>
         </Section>
 
@@ -160,7 +169,8 @@ export default function WhitepaperPage() {
               "Multi-chain P2P escrow exchange",
               "EmberSwap bridge (EMBR ↔ wEMBR on Base)",
               "Ember Delta DEX",
-              "Embermon MMO launch",
+              "NiftyMon MMO launch",
+              "Chain Invaders daily jackpot arcade",
               "Bulletproofs / ZK range proofs for shielded amounts",
             ].map((item) => (
               <li key={item} className="flex items-start gap-2">

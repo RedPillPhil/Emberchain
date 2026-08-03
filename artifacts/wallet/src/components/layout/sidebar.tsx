@@ -21,6 +21,7 @@ import {
   Download,
   Gamepad2,
   FileText,
+  Swords,
 } from "lucide-react";
 
 export const navItems: Array<{ href: string; label: string; icon: React.ComponentType<{ className?: string }>; highlight?: boolean; external?: boolean }> = [
@@ -39,7 +40,8 @@ export const navItems: Array<{ href: string; label: string; icon: React.Componen
   { href: "/blocks", label: "BLOCKS", icon: Blocks },
   { href: "/transactions", label: "TRANSACTIONS", icon: ArrowLeftRight },
   { href: "/contracts", label: "CONTRACTS", icon: Terminal },
-  { href: "/embermon", label: "EMBERMON", icon: Gamepad2, highlight: true },
+  { href: "/embermon", label: "NIFTYMON", icon: Gamepad2, highlight: true },
+  { href: "/chain-invaders", label: "CHAIN INVADERS", icon: Swords, highlight: true },
   { href: "/downloads", label: "DOWNLOADS", icon: Download },
 ];
 

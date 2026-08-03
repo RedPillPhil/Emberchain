@@ -69,7 +69,7 @@ export function ComingSoonScreen({ variant = "tv" }: { variant?: "tv" | "handhel
           Soon
         </h1>
         <p className="text-[11px] sm:text-sm font-mono text-orange-400/90 tracking-widest uppercase animate-embermon-pulse-sub">
-          Embermon · Emberchain MMO
+          NiftyMon · Emberchain MMO
         </p>
       </div>
     </div>

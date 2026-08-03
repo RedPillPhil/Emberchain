@@ -213,7 +213,25 @@
   background: linear-gradient(50deg, #e1deea 10%, #d9d2d5 90%);
   position: relative;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  touch-action: none;
 }
+
+.embermon-dpad .hit {
+  position: absolute;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  touch-action: none;
+  z-index: 2;
+  cursor: pointer;
+}
+
+.embermon-dpad .hit.up { top: 4px; left: 30px; }
+.embermon-dpad .hit.down { bottom: 4px; left: 30px; }
+.embermon-dpad .hit.left { left: 4px; top: 30px; }
+.embermon-dpad .hit.right { right: 4px; top: 30px; }
 
 .embermon-dpad::before,
 .embermon-dpad::after {
@@ -266,31 +284,76 @@
   width: 42px;
   height: 42px;
   border-radius: 50%;
+  border: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
   font-weight: 700;
   color: #302058;
+  touch-action: none;
+  cursor: pointer;
+  user-select: none;
 }
 
-.embermon-btn.b {
-  background: radial-gradient(26px 26px at 24px 27px, #6f0119 75%, #ef94b2);
-}
-
+.embermon-btn.b,
 .embermon-btn.a {
   background: radial-gradient(26px 26px at 24px 27px, #6f0119 75%, #ef94b2);
+  box-shadow: 1px -4px 0 -3px #7c4b5b inset, -3px 7px 5px -2px #1e0009, 1px -1px 0 2px #53182b;
+}
+
+.embermon-btn.is-pressed {
+  transform: scale(0.92);
+  filter: brightness(0.85);
 }
 
 .embermon-handheld-start-row {
   display: flex;
   justify-content: center;
-  gap: 2.5rem;
-  margin-top: 1.5rem;
+  gap: 1.75rem;
+  margin-top: 1.35rem;
+  transform: rotate(-28deg);
+}
+
+.embermon-option-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 0;
+  padding: 6px 8px;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+
+.embermon-option-pill {
+  width: 48px;
+  height: 12px;
+  border-radius: 999px;
+  background-image: linear-gradient(#c0beca, #7f7584);
+  box-shadow:
+    -2px -2px 5px #0004 inset,
+    2px 2px 5px #fff3 inset,
+    2px 2px 6px #0007,
+    -1px 2px 3px #000d;
+  border: 1px solid #5a5460;
+}
+
+.embermon-option-btn.is-pressed .embermon-option-pill {
+  box-shadow:
+    2px 2px 4px #0006 inset,
+    -1px -1px 3px #fff2 inset;
+  transform: translateY(1px);
+  filter: brightness(0.9);
+}
+
+.embermon-option-label {
   font-size: 9px;
   letter-spacing: 0.08em;
   color: #302058;
-  transform: rotate(-28deg);
+  font-weight: 700;
 }
 
 .embermon-handheld-speaker {

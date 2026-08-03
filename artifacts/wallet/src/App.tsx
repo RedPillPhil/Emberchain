@@ -33,6 +33,7 @@ const TokenDetail       = React.lazy(() => import('@/pages/token-detail'));
 const Downloads         = React.lazy(() => import('@/pages/downloads'));
 const Whitepaper        = React.lazy(() => import('@/pages/whitepaper'));
 const Embermon          = React.lazy(() => import('@/pages/embermon'));
+const ChainInvaders     = React.lazy(() => import('@/pages/chain-invaders'));
 const Admin             = React.lazy(() => import('@/pages/admin'));
 const NotFound          = React.lazy(() => import('@/pages/not-found'));
 
@@ -72,6 +73,7 @@ function Router() {
         <Route path="/downloads" component={Downloads} />
         <Route path="/whitepaper" component={Whitepaper} />
         <Route path="/embermon" component={Embermon} />
+        <Route path="/chain-invaders" component={ChainInvaders} />
         <Route path="/admin" component={Admin} />
         <Route component={NotFound} />
       </Switch>

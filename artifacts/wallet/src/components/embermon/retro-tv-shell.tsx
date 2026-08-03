@@ -8,7 +8,7 @@ export function RetroTvShell({ children }: { children: ReactNode }) {
           <div className="embermon-tv-screen-well">
             <div className="embermon-tv-glass">{children}</div>
           </div>
-          <div className="embermon-tv-brand">EMBERMON</div>
+          <div className="embermon-tv-brand">NIFTYVISION</div>
           <div className="embermon-tv-controls">
             <span className="embermon-tv-knob" />
             <span className="embermon-tv-knob" />

@@ -13,6 +13,7 @@ import tokenLaunchRouter from "./token-launch";
 import mmoRouter from "./mmo";
 import adminCleanupRouter from "./admin-cleanup";
 import miningStatsRouter from "./mining-stats";
+import chainInvadersRouter from "./chain-invaders";
 
 const router: IRouter = Router();
 
@@ -37,6 +38,7 @@ router.use(tokenLaunchRouter);
 router.use("/mmo", mmoRouter);
 router.use(adminCleanupRouter);
 router.use(miningStatsRouter);
+router.use(chainInvadersRouter);
 
 // ── Block any attempt to reach chain-node internal endpoints via api-server ───
 // Even though api-server doesn't proxy /internal/*, explicitly 404 these so
