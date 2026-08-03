@@ -38,18 +38,35 @@ function getConfig() {
   };
 }
 
-async function withRetry<T>(label: string, fn: () => Promise<T>, max = 5): Promise<T> {
+async function withRetry<T>(
+  label: string,
+  fn: () => Promise<T>,
+  max = 5,
+  isFatal?: (err: unknown) => boolean,
+): Promise<T> {
   let last: unknown;
   for (let i = 1; i <= max; i++) {
     try {
       return await fn();
     } catch (err) {
       last = err;
-      await sleep(Math.min(1000 * 2 ** (i - 1), 30_000));
+      if (isFatal?.(err)) throw err;
       logger.warn({ label, attempt: i, err: (err as Error).message }, "[bridge-relayer] retry");
+      if (i < max) await sleep(Math.min(1000 * 2 ** (i - 1), 30_000));
     }
   }
   throw last;
+}
+
+/**
+ * The Base bridge rejects a nonce it has already released.  That is a permanent
+ * outcome, not a transient failure: the recipient has their funds and no retry
+ * can ever succeed, so the event must leave the pending list instead of being
+ * re-attempted every loop forever.
+ */
+function isNonceAlreadyUsed(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("nonce already used");
 }
 
 async function runEmbrToBaseLoop(
@@ -81,15 +98,30 @@ async function runEmbrToBaseLoop(
           if (!src || src.status !== "success") continue;
         }
 
-        const txHash = await withRetry(`bridgeIn(${event.nonce})`, async () => {
-          const tx = await contract.bridgeIn(event.recipient, BigInt(event.amount), BigInt(event.nonce));
-          const receipt = await tx.wait(1);
-          if (!receipt || receipt.status === 0) throw new Error("bridgeIn reverted");
-          return receipt.hash as string;
-        });
+        const txHash = await withRetry(
+          `bridgeIn(${event.nonce})`,
+          async () => {
+            const tx = await contract.bridgeIn(event.recipient, BigInt(event.amount), BigInt(event.nonce));
+            const receipt = await tx.wait(1);
+            if (!receipt || receipt.status === 0) throw new Error("bridgeIn reverted");
+            return receipt.hash as string;
+          },
+          5,
+          isNonceAlreadyUsed,
+        );
         await markBridgeRelayed(event.nonce, "embr_to_base", txHash);
         logger.info({ nonce: event.nonce, txHash }, "[bridge-relayer] EMBR→Base relayed");
       } catch (err) {
+        if (isNonceAlreadyUsed(err)) {
+          // Released on Base already — we just don't know which tx did it, so
+          // record it relayed without a destination hash rather than retrying.
+          await markBridgeRelayed(event.nonce, "embr_to_base");
+          logger.warn(
+            { nonce: event.nonce },
+            "[bridge-relayer] nonce already released on Base — marking relayed",
+          );
+          continue;
+        }
         logger.error({ nonce: event.nonce, err: (err as Error).message }, "[bridge-relayer] EMBR→Base failed");
       }
     }
