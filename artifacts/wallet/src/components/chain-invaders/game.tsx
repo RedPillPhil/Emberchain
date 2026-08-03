@@ -44,6 +44,10 @@ export function ChainInvadersGame({
   const [escScoresOpen, setEscScoresOpen] = useState(false);
   const seedProviderRef = useRef(roundSeedProvider);
   seedProviderRef.current = roundSeedProvider;
+  const onGameOverRef = useRef(onGameOver);
+  onGameOverRef.current = onGameOver;
+  const onPhaseRef = useRef(onPhase);
+  onPhaseRef.current = onPhase;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -53,11 +57,11 @@ export function ChainInvadersGame({
       onScore: setScore,
       onGameOver: (r) => {
         setEscScoresOpen(false);
-        onGameOver?.(r);
+        onGameOverRef.current?.(r);
       },
       onPhase: (p) => {
         setPhase(p);
-        onPhase?.(p);
+        onPhaseRef.current?.(p);
       },
     });
     engine.setRoundSeedProvider(async () => seedProviderRef.current?.() ?? null);

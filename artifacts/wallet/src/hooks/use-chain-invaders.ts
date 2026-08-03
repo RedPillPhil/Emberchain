@@ -267,7 +267,7 @@ export function useChainInvadersCompetition() {
           let description: string;
           if (!windowKnown) {
             description = isUtcPlayWindowLocal()
-              ? "Couldn't reach the chain to confirm the live window — hard refresh and enter (500 EMBR) if you want this run to count."
+              ? "Couldn't confirm the live window with the chain just now — hard refresh and play again. You do not need to pay another 500 EMBR if you're already entered."
               : "Couldn't reach the chain. Tournament scoring is 16:00–24:00 UTC — try again when the site is healthy.";
           } else if (inWindow) {
             description = "Enter the contest (500 EMBR) to submit scores for the jackpot.";
