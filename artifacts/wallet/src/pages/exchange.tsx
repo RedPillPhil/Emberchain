@@ -173,6 +173,21 @@ function networkInfo(network: string | null | undefined): NetworkInfo | undefine
   return network ? NETWORKS[network] : undefined;
 }
 
+/** Marketplace chip text — ETH/USDC need the chain name; USDT standards already encode it. */
+function networkChipLabel(currency: ExchangeCurrency, network: string): string {
+  if (currency === "ETH") {
+    if (network === "Ethereum") return "ETH · Ethereum";
+    if (network === "Base") return "Base ETH";
+    if (network === "Arbitrum") return "Arbitrum ETH";
+  }
+  if (currency === "USDC") {
+    if (network === "Ethereum") return "USDC · Ethereum";
+    if (network === "Base") return "Base USDC";
+    if (network === "Arbitrum") return "Arbitrum USDC";
+  }
+  return network;
+}
+
 const EXPLORER_LINKS: Record<ExchangeCurrency, (hash: string) => string> = {
   ETH:  (h) => `https://etherscan.io/tx/${h}`,
   USDT: (h) => `https://etherscan.io/tx/${h}`,
@@ -804,11 +819,11 @@ function MarketplaceTab() {
                       <span className="text-muted-foreground/50">· {fmtDate(listing.createdAt)}</span>
                     )}
                   </div>
-                  {listing.acceptedNetworks && listing.acceptedNetworks.length > 1 && (
+                  {listing.acceptedNetworks && listing.acceptedNetworks.length > 0 && (
                     <div className="flex gap-1 mt-0.5 flex-wrap">
                       {listing.acceptedNetworks.map((n) => (
                         <span key={n} className="text-[10px] px-1.5 py-0 rounded border border-green-500/30 text-green-400/80">
-                          {n}
+                          {networkChipLabel(listing.currency, n)}
                         </span>
                       ))}
                     </div>
@@ -1240,9 +1255,13 @@ function MyListingsTab() {
                 <> → <code className="font-mono">{truncate(listing.receiveAddress, 10, 6)}</code></>
               )}
             </div>
-            {listing.acceptedNetworks && listing.acceptedNetworks.length > 1 && (
-              <div className="text-xs text-muted-foreground">
-                Accepts: {listing.acceptedNetworks.join(", ")}
+            {listing.acceptedNetworks && listing.acceptedNetworks.length > 0 && (
+              <div className="flex gap-1 mt-0.5 flex-wrap">
+                {listing.acceptedNetworks.map((n) => (
+                  <span key={n} className="text-[10px] px-1.5 py-0 rounded border border-green-500/30 text-green-400/80">
+                    {networkChipLabel(listing.currency, n)}
+                  </span>
+                ))}
               </div>
             )}
             {listing.status === "fulfilled" && listing.buyerAddress && (
