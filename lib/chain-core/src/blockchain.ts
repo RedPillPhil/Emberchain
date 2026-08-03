@@ -1,6 +1,6 @@
 import { createEVM } from "@ethereumjs/evm";
 import type { EVM } from "@ethereumjs/evm";
-import { Address, hexToBytes, bytesToHex } from "@ethereumjs/util";
+import { Address, Account, hexToBytes, bytesToHex } from "@ethereumjs/util";
 import { keccak256 } from "ethereum-cryptography/keccak.js";
 import type { PrefixedHexString } from "@ethereumjs/util";
 import type { SimpleStateManager } from "@ethereumjs/statemanager";
@@ -911,6 +911,123 @@ export class Blockchain {
     return this.evmBlock(Date.now(), tip?.number ?? 0);
   }
 
+  /** Decode Error(string) / Panic(uint256) revert payloads for explorer/API. */
+  private decodeRevertReason(returnData: string): string | null {
+    const hex = returnData.replace(/^0x/i, "").toLowerCase();
+    if (hex.startsWith("08c379a0") && hex.length >= 8 + 128) {
+      const len = Number.parseInt(hex.slice(72, 136), 16);
+      if (!Number.isFinite(len) || len < 0 || len > 1024) return null;
+      const start = 136;
+      const end = start + len * 2;
+      if (hex.length < end) return null;
+      try {
+        return Buffer.from(hex.slice(start, end), "hex").toString("utf8");
+      } catch {
+        return null;
+      }
+    }
+    if (hex.startsWith("4e487b71") && hex.length >= 8 + 64) {
+      const code = BigInt("0x" + hex.slice(8, 72));
+      return `Panic(0x${code.toString(16)})`;
+    }
+    return null;
+  }
+
+  private async bumpAccountNonce(address: PrefixedHexString): Promise<void> {
+    const addr = new Address(hexToBytes(address));
+    const existing = await this.stateManager.getAccount(addr);
+    if (existing) {
+      existing.nonce += 1n;
+      await this.stateManager.putAccount(addr, existing);
+    } else {
+      const acc = new Account(1n, 0n);
+      await this.stateManager.putAccount(addr, acc);
+    }
+  }
+
+  /**
+   * Run a mined transaction call with an outer state checkpoint.
+   * ethereumjs runCall can leave value/storage applied even when exceptionError
+   * is set (journal/state-manager edge cases). On failure we hard-revert to the
+   * pre-tx depth, then re-apply the nonce bump (Ethereum: failed txs still
+   * consume nonce).
+   */
+  private async executeMinedCall(input: {
+    from: PrefixedHexString;
+    to: PrefixedHexString | null;
+    value: bigint;
+    data: PrefixedHexString;
+    gasLimit: bigint;
+    block: ReturnType<Blockchain["evmBlock"]>;
+  }): Promise<{
+    success: boolean;
+    gasUsed: bigint;
+    error: string | null;
+    returnData: PrefixedHexString;
+    contractAddress: PrefixedHexString | null;
+  }> {
+    const depthBefore = this.stateManager.accountStack.length;
+    const unwind = async (mode: "revert" | "commit") => {
+      while (this.stateManager.accountStack.length > depthBefore) {
+        if (mode === "revert") await this.stateManager.revert();
+        else await this.stateManager.commit();
+      }
+    };
+
+    await this.stateManager.checkpoint();
+    try {
+      const result = await this.evm.runCall({
+        caller: new Address(hexToBytes(input.from)),
+        to: input.to ? new Address(hexToBytes(input.to)) : undefined,
+        value: input.value,
+        data: hexToBytes(input.data),
+        gasLimit: input.gasLimit,
+        block: input.block,
+      });
+      const returnData = bytesToHex(result.execResult.returnValue) as PrefixedHexString;
+      if (result.execResult.exceptionError) {
+        await unwind("revert");
+        await this.bumpAccountNonce(input.from);
+        const reason = this.decodeRevertReason(returnData);
+        return {
+          success: false,
+          gasUsed: result.execResult.executionGasUsed,
+          error: reason ?? result.execResult.exceptionError.error ?? "revert",
+          returnData,
+          contractAddress: null,
+        };
+      }
+      await unwind("commit");
+      return {
+        success: true,
+        gasUsed: result.execResult.executionGasUsed,
+        error: null,
+        returnData,
+        contractAddress: result.createdAddress
+          ? (result.createdAddress.toString() as PrefixedHexString)
+          : null,
+      };
+    } catch (err) {
+      try {
+        await unwind("revert");
+      } catch {
+        /* ignore */
+      }
+      try {
+        await this.bumpAccountNonce(input.from);
+      } catch {
+        /* ignore */
+      }
+      return {
+        success: false,
+        gasUsed: input.gasLimit,
+        error: err instanceof Error ? err.message : "Execution failed",
+        returnData: "0x",
+        contractAddress: null,
+      };
+    }
+  }
+
   async callContract(input: {
     to: string;
     data: string;
@@ -1721,28 +1838,22 @@ export class Blockchain {
       // incorrectly call subRefund() with gasRefund=0 → REFUND_EXHAUSTED.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (this.stateManager as any).originalStorageCache?.clear?.();
-      try {
-        const result = await this.evm.runCall({
-          caller: new Address(hexToBytes(tx.from)),
-          to: tx.to ? new Address(hexToBytes(tx.to)) : undefined,
-          value: tx.value,
-          data: hexToBytes(tx.data),
-          gasLimit: tx.gasLimit,
-          block: this.evmBlock(header.timestamp, header.number),
-        });
-        stored.status = result.execResult.exceptionError ? "failed" : "success";
-        stored.gasUsed = result.execResult.executionGasUsed.toString();
-        stored.error = result.execResult.exceptionError ? result.execResult.exceptionError.error : null;
-        stored.contractAddress = result.createdAddress ? (result.createdAddress.toString() as PrefixedHexString) : null;
-        stored.returnData = bytesToHex(result.execResult.returnValue);
-      } catch (err) {
-        stored.status = "failed";
-        stored.gasUsed = stored.gasLimit; // charge full gas on hard failure
-        stored.error = err instanceof Error ? err.message : "Execution failed";
-      }
+      const mined = await this.executeMinedCall({
+        from: tx.from,
+        to: tx.to,
+        value: tx.value,
+        data: tx.data,
+        gasLimit: tx.gasLimit,
+        block: this.evmBlock(header.timestamp, header.number),
+      });
+      stored.status = mined.success ? "success" : "failed";
+      stored.gasUsed = mined.gasUsed.toString();
+      stored.error = mined.error;
+      stored.contractAddress = mined.contractAddress;
+      stored.returnData = mined.returnData;
 
       // Charge gas fee: gasUsed × GAS_PRICE, deducted from sender
-      const gasUsed = BigInt(stored.gasUsed ?? stored.gasLimit);
+      const gasUsed = mined.gasUsed;
       const fee = gasUsed * GAS_PRICE;
       try {
         await debit(this.stateManager, tx.from, fee);
@@ -1977,30 +2088,20 @@ export class Blockchain {
       if (!stored) continue;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (this.stateManager as any).originalStorageCache?.clear?.();
-      try {
-        const result = await this.evm.runCall({
-          caller:   new Address(hexToBytes(tx.from)),
-          to:       tx.to ? new Address(hexToBytes(tx.to)) : undefined,
-          value:    tx.value,
-          data:     hexToBytes(tx.data),
-          gasLimit: tx.gasLimit,
-          block:    this.evmBlock(new Date(block.timestamp).getTime(), block.number),
-        });
-        stored.status   = result.execResult.exceptionError ? "failed" : "success";
-        stored.gasUsed  = result.execResult.executionGasUsed.toString();
-        stored.error    = result.execResult.exceptionError
-          ? result.execResult.exceptionError.error
-          : null;
-        stored.contractAddress = result.createdAddress
-          ? (result.createdAddress.toString() as PrefixedHexString)
-          : null;
-        stored.returnData = bytesToHex(result.execResult.returnValue);
-      } catch (err) {
-        stored.status  = "failed";
-        stored.gasUsed = stored.gasLimit;
-        stored.error   = err instanceof Error ? err.message : "Execution failed";
-      }
-      const gasUsed = BigInt(stored.gasUsed ?? stored.gasLimit);
+      const mined = await this.executeMinedCall({
+        from: tx.from,
+        to: tx.to,
+        value: tx.value,
+        data: tx.data,
+        gasLimit: tx.gasLimit,
+        block: this.evmBlock(new Date(block.timestamp).getTime(), block.number),
+      });
+      stored.status = mined.success ? "success" : "failed";
+      stored.gasUsed = mined.gasUsed.toString();
+      stored.error = mined.error;
+      stored.contractAddress = mined.contractAddress;
+      stored.returnData = mined.returnData;
+      const gasUsed = mined.gasUsed;
       const fee = gasUsed * GAS_PRICE;
       try { await debit(this.stateManager, tx.from, fee); } catch { /* ignore */ }
       stored.blockNumber = block.number;
@@ -2258,24 +2359,20 @@ export class Blockchain {
       for (const tx of blockTxs) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (this.stateManager as any).originalStorageCache?.clear?.();
-        try {
-          const result = await this.evm.runCall({
-            caller:   new Address(hexToBytes(tx.from as PrefixedHexString)),
-            to:       tx.to ? new Address(hexToBytes(tx.to as PrefixedHexString)) : undefined,
-            value:    BigInt(tx.value),
-            data:     hexToBytes((tx.data ?? "0x") as PrefixedHexString),
-            gasLimit: BigInt(tx.gasLimit),
-            block:    this.evmBlock(new Date(block.timestamp).getTime(), block.number),
-          });
-          tx.status  = result.execResult.exceptionError ? "failed" : "success";
-          tx.gasUsed = result.execResult.executionGasUsed.toString();
-          const gasUsed = BigInt(tx.gasUsed ?? tx.gasLimit);
-          const fee = gasUsed * GAS_PRICE;
-          try { await debit(this.stateManager, tx.from as PrefixedHexString, fee); } catch { /* ignore */ }
-        } catch {
-          tx.status  = "failed";
-          tx.gasUsed = tx.gasLimit;
-        }
+        const mined = await this.executeMinedCall({
+          from: tx.from as PrefixedHexString,
+          to: (tx.to as PrefixedHexString | null) ?? null,
+          value: BigInt(tx.value),
+          data: (tx.data ?? "0x") as PrefixedHexString,
+          gasLimit: BigInt(tx.gasLimit),
+          block: this.evmBlock(new Date(block.timestamp).getTime(), block.number),
+        });
+        tx.status = mined.success ? "success" : "failed";
+        tx.gasUsed = mined.gasUsed.toString();
+        tx.error = mined.error;
+        tx.returnData = mined.returnData;
+        const fee = mined.gasUsed * GAS_PRICE;
+        try { await debit(this.stateManager, tx.from as PrefixedHexString, fee); } catch { /* ignore */ }
         tx.blockNumber = block.number;
       }
 

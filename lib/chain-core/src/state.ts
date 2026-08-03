@@ -20,10 +20,11 @@ export function createStateManager(common: Common): SimpleStateManager {
   return new SimpleStateManager({ common });
 }
 
-/** Dumps the canonical (checkpoint-depth-0) state layer to a JSON-friendly object. */
+/** Dumps the top (canonical) state layer to a JSON-friendly object. */
 export function dumpState(stateManager: SimpleStateManager): SerializedState {
+  const layer = Math.max(0, stateManager.accountStack.length - 1);
   const accounts: [PrefixedHexString, SerializedAccount][] = [];
-  for (const [address, account] of stateManager.accountStack[0]) {
+  for (const [address, account] of stateManager.accountStack[layer]!) {
     if (!account) continue;
     accounts.push([
       address,
@@ -36,11 +37,11 @@ export function dumpState(stateManager: SimpleStateManager): SerializedState {
     ]);
   }
   const code: [PrefixedHexString, PrefixedHexString][] = [];
-  for (const [address, bytes] of stateManager.codeStack[0]) {
+  for (const [address, bytes] of stateManager.codeStack[layer]!) {
     code.push([address, bytesToHex(bytes)]);
   }
   const storage: [string, PrefixedHexString][] = [];
-  for (const [key, bytes] of stateManager.storageStack[0]) {
+  for (const [key, bytes] of stateManager.storageStack[layer]!) {
     storage.push([key, bytesToHex(bytes)]);
   }
   return { accounts, code, storage };
