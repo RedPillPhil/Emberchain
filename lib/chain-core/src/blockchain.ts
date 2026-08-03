@@ -885,6 +885,32 @@ export class Blockchain {
 
   // ---------- Contract calls (read-only) ----------
 
+  /**
+   * ethereumjs TIMESTAMP is Unix **seconds**. Our block headers use ms / ISO.
+   * Without this, runCall defaults timestamp to 0 and any Solidity that does
+   * `block.timestamp - offset` underflows (and eth_call returns revert junk).
+   */
+  private evmBlock(timestampMs: number, blockNumber = 0) {
+    return {
+      header: {
+        number: BigInt(blockNumber),
+        coinbase: new Address(hexToBytes(ZERO_ADDRESS)),
+        timestamp: BigInt(Math.max(0, Math.floor(timestampMs / 1000))),
+        difficulty: 0n,
+        prevRandao: new Uint8Array(32),
+        gasLimit: 30_000_000n,
+        baseFeePerGas: undefined,
+        getBlobGasPrice: () => undefined,
+      },
+    };
+  }
+
+  /** Wall-clock block env for eth_call / estimateGas (time-based views stay current). */
+  private evmBlockNow() {
+    const tip = this.blocks[this.blocks.length - 1];
+    return this.evmBlock(Date.now(), tip?.number ?? 0);
+  }
+
   async callContract(input: {
     to: string;
     data: string;
@@ -900,6 +926,7 @@ export class Blockchain {
           data: hexToBytes((input.data as PrefixedHexString) ?? "0x"),
           gasLimit: 10_000_000n,
           skipBalance: true,
+          block: this.evmBlockNow(),
         });
         return {
           success: !result.execResult.exceptionError,
@@ -934,6 +961,7 @@ export class Blockchain {
           value: input.value ?? 0n,
           gasLimit: 30_000_000n,
           skipBalance: true,
+          block: this.evmBlockNow(),
         });
         const used = result.execResult.executionGasUsed;
         // 20 % buffer, minimum 21 000
@@ -1700,6 +1728,7 @@ export class Blockchain {
           value: tx.value,
           data: hexToBytes(tx.data),
           gasLimit: tx.gasLimit,
+          block: this.evmBlock(header.timestamp, header.number),
         });
         stored.status = result.execResult.exceptionError ? "failed" : "success";
         stored.gasUsed = result.execResult.executionGasUsed.toString();
@@ -1955,6 +1984,7 @@ export class Blockchain {
           value:    tx.value,
           data:     hexToBytes(tx.data),
           gasLimit: tx.gasLimit,
+          block:    this.evmBlock(new Date(block.timestamp).getTime(), block.number),
         });
         stored.status   = result.execResult.exceptionError ? "failed" : "success";
         stored.gasUsed  = result.execResult.executionGasUsed.toString();
@@ -2235,6 +2265,7 @@ export class Blockchain {
             value:    BigInt(tx.value),
             data:     hexToBytes((tx.data ?? "0x") as PrefixedHexString),
             gasLimit: BigInt(tx.gasLimit),
+            block:    this.evmBlock(new Date(block.timestamp).getTime(), block.number),
           });
           tx.status  = result.execResult.exceptionError ? "failed" : "success";
           tx.gasUsed = result.execResult.executionGasUsed.toString();

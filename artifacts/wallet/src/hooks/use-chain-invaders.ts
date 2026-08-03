@@ -39,8 +39,18 @@ async function embrEthCall(to: string, data: string): Promise<string> {
 }
 
 function decodeUint(hex: string): bigint {
-  if (!hex || hex === "0x") return 0n;
-  return BigInt(hex);
+  if (!hex || hex === "0x" || hex === "0x0") return 0n;
+  const clean = hex.replace(/^0x/i, "").toLowerCase();
+  // eth_call used to return revert payloads as "success" — never treat as amounts
+  if (clean.startsWith("08c379a0") || clean.startsWith("4e487b71")) return 0n;
+  if (clean.length === 0 || clean.length > 64) {
+    // ABI uint256 is one 32-byte word; longer = multi-return or junk
+    if (clean.length > 64 && clean.length % 64 === 0) {
+      return BigInt("0x" + clean.slice(0, 64));
+    }
+    if (clean.length > 64) return 0n;
+  }
+  return BigInt("0x" + clean.padStart(64, "0"));
 }
 
 function decodeBool(hex: string): boolean {
@@ -49,7 +59,11 @@ function decodeBool(hex: string): boolean {
 
 /** ABI decode (uint256,uint256) from eth_call */
 function decodeTwoUint(hex: string): [bigint, bigint] {
-  const clean = hex.replace(/^0x/, "").padStart(128, "0");
+  const clean = hex.replace(/^0x/i, "").toLowerCase();
+  if (!clean || clean.startsWith("08c379a0") || clean.startsWith("4e487b71")) {
+    return [0n, 0n];
+  }
+  if (clean.length < 128) return [0n, 0n];
   return [BigInt("0x" + clean.slice(0, 64)), BigInt("0x" + clean.slice(64, 128))];
 }
 

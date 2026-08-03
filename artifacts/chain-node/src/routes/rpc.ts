@@ -156,6 +156,9 @@ async function dispatch(method: string, params: unknown[]): Promise<unknown> {
       const c = params[0] as { to?: string; from?: string; data?: string };
       if (!c.to) return "0x";
       const result = await chain.callContract({ to: c.to, data: c.data ?? "0x", from: c.from ?? null });
+      if (!result.success) {
+        throw rpcError(-32000, result.error ?? "execution reverted");
+      }
       return result.returnData;
     }
     case "eth_estimateGas": {
