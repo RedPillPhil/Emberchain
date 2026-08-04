@@ -18,7 +18,10 @@ Winners do **not** claim. After 8pm Eastern the competition window closes and
 (same address can win both).
 
 `api-server` runs an **auto-settler** every 5 minutes that calls `settleDay` for
-eligible past days. Anyone else can also call it (permissionless).
+eligible days after the window closes — including the current `dayId` once
+`inCompetitionWindow()` is false (after close, `currentDayId` still points at
+that contest until the next noon UTC offset). Anyone can also call `settleDay`
+on-chain or trigger `POST /api/chain-invaders/settle` (permissionless).
 
 ---
 

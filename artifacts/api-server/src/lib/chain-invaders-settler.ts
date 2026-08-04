@@ -74,8 +74,14 @@ export async function settleEligibleDays(): Promise<{
   const game = new Contract(address, ABI, signer);
 
   const currentDay: bigint = await game.currentDayId();
-  // Settle up to the last 3 completed days (in case a tick was missed).
-  for (let i = 1; i <= 3; i++) {
+  const inWindow: boolean = await game.inCompetitionWindow();
+
+  // After the window closes, currentDayId is STILL today's contest until the next
+  // noon UTC offset — so we must settle i=0 when !inWindow. Previously we only
+  // tried currentDay-1..-3 and permanently skipped the day that just ended.
+  const offsets = inWindow ? [1, 2, 3] : [0, 1, 2, 3];
+
+  for (const i of offsets) {
     const dayId = currentDay - BigInt(i);
     if (dayId < 0n) continue;
     const idNum = Number(dayId);
@@ -86,6 +92,7 @@ export async function settleEligibleDays(): Promise<{
       const pot: bigint = d.pot ?? d[0];
       const settledFlag: boolean = d.settled ?? d[5];
       const cumulativeLeader: string = d.cumulativeLeader ?? d[2];
+      const singleLeader: string = d.singleLeader ?? d[4];
 
       if (settledFlag) {
         skipped.push(`day ${idNum}: already settled`);
@@ -96,7 +103,11 @@ export async function settleEligibleDays(): Promise<{
         continue;
       }
       if (!cumulativeLeader || cumulativeLeader === "0x0000000000000000000000000000000000000000") {
-        skipped.push(`day ${idNum}: no winner yet`);
+        skipped.push(`day ${idNum}: no cumulative winner`);
+        continue;
+      }
+      if (!singleLeader || singleLeader === "0x0000000000000000000000000000000000000000") {
+        skipped.push(`day ${idNum}: no single-run winner`);
         continue;
       }
 
@@ -109,7 +120,7 @@ export async function settleEligibleDays(): Promise<{
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Window still open is expected for current day; previous days should settle.
+      // Window still open is expected for the live day.
       if (/window still open/i.test(msg)) {
         skipped.push(`day ${idNum}: window still open`);
       } else {

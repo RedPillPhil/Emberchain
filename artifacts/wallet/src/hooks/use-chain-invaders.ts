@@ -17,6 +17,9 @@ import {
   encInWindow,
   encEntered,
   encDayWindow,
+  encDays,
+  encSettleDay,
+  decodeDayState,
   makeCommitment,
   randomSalt,
   formatEmbrJackpot,
@@ -111,11 +114,21 @@ function isUtcPlayWindowLocal(now = new Date()): boolean {
   return mins >= 16 * 60 && mins < 24 * 60;
 }
 
+function formatCountdown(totalSec: number): string {
+  if (totalSec <= 0) return "0:00:00";
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
 export type EntryStatus =
   | "not_entered"
   | "entered_live"
   | "entered_next"
   | "unknown";
+
+export type CountdownMode = "to_start" | "to_end" | "none";
 
 export function useChainInvadersCompetition() {
   const { activeWallet } = useActiveWallet();
@@ -131,6 +144,11 @@ export function useChainInvadersCompetition() {
   const [hasEnteredEntryDay, setHasEnteredEntryDay] = useState(false);
   const [hasEnteredLiveDay, setHasEnteredLiveDay] = useState(false);
   const [windowLines, setWindowLines] = useState<string[]>(() => defaultUtcWindowLines());
+  const [windowStartSec, setWindowStartSec] = useState(0);
+  const [windowEndSec, setWindowEndSec] = useState(0);
+  const [unsettledDayId, setUnsettledDayId] = useState<bigint | null>(null);
+  const [unsettledPotWei, setUnsettledPotWei] = useState(0n);
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   const [busy, setBusy] = useState(false);
   const [lastResult, setLastResult] = useState<PlayResult | null>(null);
   const padRef = useRef<((button: PadButton, active: boolean) => void) | null>(null);
@@ -151,6 +169,33 @@ export function useChainInvadersCompetition() {
 
   const practiceMode = !inWindow || !hasEnteredLiveDay;
 
+  const countdownMode: CountdownMode = !windowKnown
+    ? "none"
+    : inWindow
+      ? "to_end"
+      : windowStartSec > nowSec
+        ? "to_start"
+        : "none";
+
+  const countdownTarget =
+    countdownMode === "to_end"
+      ? windowEndSec
+      : countdownMode === "to_start"
+        ? windowStartSec
+        : 0;
+
+  const countdownSec = Math.max(0, countdownTarget - nowSec);
+  const countdownLabel =
+    countdownMode === "to_end"
+      ? "Tournament ends in"
+      : countdownMode === "to_start"
+        ? "Next tournament starts in"
+        : "";
+  const countdownText = countdownMode === "none" ? "" : formatCountdown(countdownSec);
+
+  const settlePending =
+    unsettledDayId != null && unsettledPotWei > 0n && !inWindow;
+
   const refresh = useCallback(async () => {
     if (!CHAIN_INVADERS_ADDRESS) {
       setJackpotWei(0n);
@@ -158,6 +203,8 @@ export function useChainInvadersCompetition() {
       setWindowKnown(false);
       setHasEnteredEntryDay(false);
       setHasEnteredLiveDay(false);
+      setUnsettledDayId(null);
+      setUnsettledPotWei(0n);
       return;
     }
     try {
@@ -176,16 +223,54 @@ export function useChainInvadersCompetition() {
       setInWindow(live);
       setWindowKnown(true);
 
+      // Display + countdown use the contest you're entering / next live window.
       try {
         const winData = await embrEthCall(CHAIN_INVADERS_ADDRESS, encDayWindow(entry));
         const [start, end] = decodeTwoUint(winData);
         if (start > 0n && end > start) {
           setWindowLines(formatWindowLines(start, end));
+          setWindowStartSec(Number(start));
+          setWindowEndSec(Number(end));
         } else {
-          setWindowLines(defaultUtcWindowLines());
+          const lines = defaultUtcWindowLines();
+          setWindowLines(lines);
         }
       } catch {
         setWindowLines(defaultUtcWindowLines());
+      }
+
+      // When live, countdown-to-end needs the *current* day's end (same as entry while live).
+      if (live) {
+        try {
+          const liveWin = await embrEthCall(CHAIN_INVADERS_ADDRESS, encDayWindow(cur));
+          const [, end] = decodeTwoUint(liveWin);
+          if (end > 0n) setWindowEndSec(Number(end));
+        } catch {
+          /* keep entry window end */
+        }
+      }
+
+      // Detect unpaid concluded contest (currentDayId after close still holds the pot).
+      try {
+        const dayHex = await embrEthCall(CHAIN_INVADERS_ADDRESS, encDays(cur));
+        const day = decodeDayState(dayHex);
+        if (
+          day &&
+          !live &&
+          !day.settled &&
+          day.pot > 0n &&
+          day.cumulativeLeader !== "0x0000000000000000000000000000000000000000" &&
+          day.singleLeader !== "0x0000000000000000000000000000000000000000"
+        ) {
+          setUnsettledDayId(cur);
+          setUnsettledPotWei(day.pot);
+        } else {
+          setUnsettledDayId(null);
+          setUnsettledPotWei(0n);
+        }
+      } catch {
+        setUnsettledDayId(null);
+        setUnsettledPotWei(0n);
       }
 
       if (activeWallet?.address) {
@@ -211,6 +296,11 @@ export function useChainInvadersCompetition() {
     const t = window.setInterval(() => void refresh(), 30_000);
     return () => window.clearInterval(t);
   }, [refresh]);
+
+  useEffect(() => {
+    const t = window.setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000);
+    return () => window.clearInterval(t);
+  }, []);
 
   const enterCompetition = useCallback(async () => {
     if (!CHAIN_INVADERS_ADDRESS) {
@@ -394,6 +484,78 @@ export function useChainInvadersCompetition() {
     }
   }, [activeWallet?.address]);
 
+  const settleWinners = useCallback(async () => {
+    if (!CHAIN_INVADERS_ADDRESS) {
+      toast({ title: "Contract not configured", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      // 1) Prefer server auto-settler (uses settler key; no wallet needed).
+      const api = resolveApiServer();
+      try {
+        const res = await fetch(`${api}/api/chain-invaders/settle`, { method: "POST" });
+        const json = (await res.json()) as {
+          settled?: number[];
+          skipped?: string[];
+          error?: string;
+        };
+        if (res.ok && json.settled && json.settled.length > 0) {
+          toast({
+            title: "Winners paid",
+            description: `Settled day ${json.settled.join(", ")} — jackpot sent on-chain.`,
+          });
+          await refresh();
+          return;
+        }
+      } catch {
+        /* fall through to on-chain settle */
+      }
+
+      // 2) Permissionless on-chain settleDay — anyone with a wallet can trigger payout.
+      if (!activeWallet) {
+        toast({
+          title: "Connect a wallet to settle",
+          description:
+            "Server settle didn’t pay yet. Connect a wallet and press Settle again — anyone can call it.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (unsettledDayId == null) {
+        toast({
+          title: "Nothing to settle",
+          description: "No unpaid concluded contest found right now.",
+        });
+        await refresh();
+        return;
+      }
+
+      await submitTx.mutateAsync({
+        data: {
+          fromPrivateKey: activeWallet.privateKey,
+          to: CHAIN_INVADERS_ADDRESS,
+          value: "0",
+          data: encSettleDay(unsettledDayId),
+          gasLimit: "300000",
+        },
+      });
+      toast({
+        title: "Winners paid",
+        description: `Day ${unsettledDayId.toString()} settled — jackpot sent to the leaders.`,
+      });
+      await refresh();
+    } catch (err) {
+      toast({
+        title: "Settle failed",
+        description: err instanceof Error ? err.message : "Transaction failed",
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }, [activeWallet, unsettledDayId, refresh, submitTx, toast]);
+
   const setPadHandler = useCallback((fn: (button: PadButton, active: boolean) => void) => {
     padRef.current = fn;
   }, []);
@@ -418,10 +580,16 @@ export function useChainInvadersCompetition() {
     entryStatus,
     practiceMode,
     windowLines,
+    countdownMode,
+    countdownLabel,
+    countdownText,
+    settlePending,
+    unsettledPotLabel: unsettledPotWei > 0n ? formatEmbrJackpot(unsettledPotWei) : "",
     busy,
     lastResult,
     contractConfigured: Boolean(CHAIN_INVADERS_ADDRESS),
     enterCompetition,
+    settleWinners,
     submitScore,
     fetchRoundSeed,
     refresh,

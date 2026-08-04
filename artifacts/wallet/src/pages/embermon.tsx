@@ -65,9 +65,15 @@ export default function NiftyMonPage() {
           entryStatus={comp.entryStatus}
           practiceMode={comp.practiceMode}
           windowLines={comp.windowLines}
+          countdownLabel={comp.countdownLabel}
+          countdownText={comp.countdownText}
+          countdownMode={comp.countdownMode}
+          settlePending={comp.settlePending}
+          unsettledPotLabel={comp.unsettledPotLabel}
           busy={comp.busy}
           contractConfigured={comp.contractConfigured}
           onEnter={() => void comp.enterCompetition()}
+          onSettle={() => void comp.settleWinners()}
         />
 
         {handheld ? (

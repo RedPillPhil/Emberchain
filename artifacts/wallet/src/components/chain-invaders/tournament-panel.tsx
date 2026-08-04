@@ -1,6 +1,6 @@
-import { Trophy, Clock, CheckCircle2, CircleDashed, Gamepad2 } from "lucide-react";
+import { Trophy, Clock, CheckCircle2, CircleDashed, Gamepad2, Banknote } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { EntryStatus } from "@/hooks/use-chain-invaders";
+import type { CountdownMode, EntryStatus } from "@/hooks/use-chain-invaders";
 
 export function TournamentPanel({
   handheld,
@@ -9,9 +9,15 @@ export function TournamentPanel({
   entryStatus,
   practiceMode,
   windowLines,
+  countdownLabel,
+  countdownText,
+  countdownMode,
+  settlePending,
+  unsettledPotLabel,
   busy,
   contractConfigured,
   onEnter,
+  onSettle,
 }: {
   handheld: boolean;
   formatJackpot: string;
@@ -19,9 +25,15 @@ export function TournamentPanel({
   entryStatus: EntryStatus;
   practiceMode: boolean;
   windowLines: string[];
+  countdownLabel: string;
+  countdownText: string;
+  countdownMode: CountdownMode;
+  settlePending: boolean;
+  unsettledPotLabel: string;
   busy: boolean;
   contractConfigured: boolean;
   onEnter: () => void;
+  onSettle: () => void;
 }) {
   const entered = entryStatus === "entered_live" || entryStatus === "entered_next";
 
@@ -36,6 +48,16 @@ export function TournamentPanel({
           <p className="text-xs text-muted-foreground leading-relaxed">
             <strong className="text-foreground">Scoring window:</strong> 16:00–24:00 UTC daily.
           </p>
+          {countdownMode !== "none" && countdownText && (
+            <div className="pt-1">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+                {countdownLabel}
+              </p>
+              <p className="font-mono text-xl sm:text-2xl font-bold text-primary tabular-nums tracking-tight">
+                {countdownText}
+              </p>
+            </div>
+          )}
           {contractConfigured && windowLines.length > 0 && (
             <div className="font-mono text-[11px] text-muted-foreground/90 leading-relaxed space-y-0.5 pt-0.5">
               {windowLines.map((line) => (
@@ -93,6 +115,26 @@ export function TournamentPanel({
           </span>
         )}
       </div>
+
+      {settlePending && (
+        <div className="rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2 space-y-2">
+          <p className="text-xs text-amber-200/90 leading-relaxed">
+            Contest ended with an unpaid jackpot
+            {unsettledPotLabel ? ` (${unsettledPotLabel})` : ""}. Settlement pays winners
+            automatically; anyone can also trigger it below.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={onSettle}
+            className="gap-1.5 border-amber-500/50 text-amber-200 hover:bg-amber-500/20"
+          >
+            <Banknote className="w-3.5 h-3.5" />
+            {busy ? "Settling…" : "Settle & pay winners"}
+          </Button>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-3 pt-1">
         {!handheld && (

@@ -33,6 +33,8 @@ const SEL = {
   inCompetitionWindow: fnSelector("inCompetitionWindow()"),
   entered: fnSelector("entered(uint256,address)"),
   dayWindow: fnSelector("dayWindow(uint256)"),
+  days_: fnSelector("days_(uint256)"),
+  settleDay: fnSelector("settleDay(uint256)"),
 };
 
 function padUint(n: bigint | number): string {
@@ -100,6 +102,39 @@ export function encEntered(dayId: bigint, player: string): string {
 
 export function encDayWindow(dayId: bigint): string {
   return "0x" + SEL.dayWindow + padUint(dayId);
+}
+
+export function encDays(dayId: bigint): string {
+  return "0x" + SEL.days_ + padUint(dayId);
+}
+
+export function encSettleDay(dayId: bigint): string {
+  return "0x" + SEL.settleDay + padUint(dayId);
+}
+
+/** Decode days_(uint256) eth_call result. */
+export function decodeDayState(hex: string): {
+  pot: bigint;
+  bestCumulative: bigint;
+  cumulativeLeader: string;
+  bestSingle: bigint;
+  singleLeader: string;
+  settled: boolean;
+  entrants: bigint;
+} | null {
+  const clean = hex.replace(/^0x/i, "").toLowerCase();
+  if (!clean || clean.length < 448 || clean.startsWith("08c379a0")) return null;
+  const word = (i: number) => clean.slice(i * 64, i * 64 + 64);
+  const addr = (i: number) => "0x" + word(i).slice(24);
+  return {
+    pot: BigInt("0x" + word(0)),
+    bestCumulative: BigInt("0x" + word(1)),
+    cumulativeLeader: addr(2),
+    bestSingle: BigInt("0x" + word(3)),
+    singleLeader: addr(4),
+    settled: BigInt("0x" + word(5)) !== 0n,
+    entrants: BigInt("0x" + word(6)),
+  };
 }
 
 export function randomSalt(): string {
