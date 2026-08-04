@@ -387,11 +387,80 @@
 
 .landing-lego-stage {
   position: relative;
-  min-height: 320px;
+  min-height: 340px;
   display: flex;
   align-items: flex-end;
   justify-content: center;
   padding-bottom: 1rem;
+}
+
+.landing-lego-cycle {
+  position: relative;
+  width: 200px;
+  height: 300px;
+}
+
+/* Contract paper tossed from robot arm */
+.landing-contract-paper {
+  position: absolute;
+  top: 108px;
+  right: 18px;
+  z-index: 5;
+  width: 52px;
+  height: 36px;
+  background: linear-gradient(145deg, #f0ece3 0%, #d8d0c4 100%);
+  border: 1px solid rgba(255, 90, 0, 0.45);
+  border-radius: 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: translate(0, 0) rotate(0deg);
+  animation: landing-contract-toss 14s ease-in-out infinite;
+}
+
+.landing-contract-paper span {
+  font-size: 5px;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: #3a3530;
+}
+
+@keyframes landing-contract-toss {
+  0%, 4% { opacity: 0; transform: translate(0, 0) rotate(0deg); }
+  6% { opacity: 1; transform: translate(8px, 4px) rotate(-8deg); }
+  12% { opacity: 1; transform: translate(24px, 28px) rotate(12deg); }
+  18%, 100% { opacity: 0; transform: translate(40px, 80px) rotate(35deg); }
+}
+
+.landing-lego-blocks-static {
+  position: absolute;
+  bottom: 2.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 4px;
+  width: 120px;
+  z-index: 2;
+}
+
+.landing-lego-block {
+  width: 100%;
+  height: 28px;
+  border-radius: 4px;
+  opacity: 0;
+  transform: translateY(24px) scale(0.85);
+  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.25), 0 4px 12px rgba(0, 0, 0, 0.35);
+  animation: landing-block-shield 14s ease-out infinite;
+}
+
+@keyframes landing-block-shield {
+  0%, 8% { opacity: 0; transform: translateY(24px) scale(0.85); }
+  14%, 72% { opacity: 1; transform: translateY(0) scale(1); }
+  82%, 100% { opacity: 0; transform: translateY(32px) scale(0.7); }
 }
 
 .landing-lego-blocks {
@@ -404,25 +473,6 @@
   align-items: center;
   gap: 4px;
   width: 120px;
-}
-
-.landing-lego-block {
-  width: 100%;
-  height: 28px;
-  border-radius: 4px;
-  animation: landing-block-drop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.25), 0 4px 12px rgba(0, 0, 0, 0.35);
-}
-
-.landing-lego-block.is-ember { background: linear-gradient(180deg, #ff7a2f, #ff5a00); }
-.landing-lego-block.is-heat { background: linear-gradient(180deg, #ffc040, #ffb020); }
-.landing-lego-block.is-forge { background: linear-gradient(180deg, #6a5040, #4a3828); }
-.landing-lego-block.is-ash { background: linear-gradient(180deg, #5a5550, #3a3530); }
-.landing-lego-block.is-coal { background: linear-gradient(180deg, #2a2826, #1a1816); }
-
-@keyframes landing-block-drop {
-  from { transform: translateY(-80px) scale(0.8); opacity: 0; }
-  to { transform: translateY(0) scale(1); opacity: 1; }
 }
 
 /* CSS Robot */
@@ -545,7 +595,6 @@
 .landing-robot-arm.right {
   right: 8px;
   transform: rotate(-12deg);
-  animation: landing-arm-right 2s ease-in-out infinite;
 }
 
 @keyframes landing-arm-left {
@@ -553,9 +602,20 @@
   50% { transform: rotate(24deg); }
 }
 
-@keyframes landing-arm-right {
-  0%, 100% { transform: rotate(-12deg); }
-  50% { transform: rotate(-24deg); }
+.landing-lego-block.is-ember { background: linear-gradient(180deg, #ff7a2f, #ff5a00); }
+.landing-lego-block.is-heat { background: linear-gradient(180deg, #ffc040, #ffb020); }
+.landing-lego-block.is-forge { background: linear-gradient(180deg, #6a5040, #4a3828); }
+.landing-lego-block.is-ash { background: linear-gradient(180deg, #5a5550, #3a3530); }
+.landing-lego-block.is-coal { background: linear-gradient(180deg, #2a2826, #1a1816); }
+
+.landing-robot-arm-throw {
+  animation: landing-arm-throw 14s ease-in-out infinite;
+}
+
+@keyframes landing-arm-throw {
+  0%, 4% { transform: rotate(-12deg); }
+  8% { transform: rotate(-48deg); }
+  14%, 100% { transform: rotate(-12deg); }
 }
 
 .landing-robot-wheel {

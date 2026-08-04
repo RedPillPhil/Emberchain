@@ -24,8 +24,8 @@ router.get("/contracts/list", async (_req: Request, res: Response): Promise<void
 
 router.post("/contracts/rescan", async (_req: Request, res: Response): Promise<void> => {
   try {
-    const added = await rescanContracts(true);
-    res.json({ success: true, discovered: added });
+    const result = await rescanContracts(true);
+    res.json({ success: true, ...result });
   } catch (err) {
     res.status(503).json({ error: (err as Error).message });
   }

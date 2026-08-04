@@ -1270,6 +1270,20 @@ export class Blockchain {
     return bytes && bytes.length > 0 ? bytesToHex(bytes) : "0x";
   }
 
+  /** All addresses that currently have EVM bytecode in chain state. */
+  async listContractAddresses(): Promise<PrefixedHexString[]> {
+    await this.whenReady();
+    const layer = Math.max(0, this.stateManager.codeStack.length - 1);
+    const out: PrefixedHexString[] = [];
+    for (const [address, bytes] of this.stateManager.codeStack[layer]!) {
+      if (bytes && bytes.length > 0) {
+        const hex = address.startsWith("0x") ? address : `0x${address}`;
+        out.push(hex.toLowerCase() as PrefixedHexString);
+      }
+    }
+    return out;
+  }
+
   // ---------- Chain status ----------
 
   async getStatus() {

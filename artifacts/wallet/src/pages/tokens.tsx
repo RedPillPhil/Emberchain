@@ -58,6 +58,7 @@ export default function TokensPage() {
   const [loadingTokens, setLoadingTokens]       = useState(true);
   const [loadingContracts, setLoadingContracts] = useState(true);
   const [rescanning, setRescanning] = useState(false);
+  const [rescanMsg, setRescanMsg] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoadingTokens(true);
@@ -78,10 +79,18 @@ export default function TokensPage() {
 
   const handleRescan = async () => {
     setRescanning(true);
+    setRescanMsg(null);
     try {
-      await fetch(chainNodeApi("/api/contracts/rescan"), { method: "POST" });
+      const res = await fetch(chainNodeApi("/api/contracts/rescan"), { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && typeof json.discovered === "number") {
+        setRescanMsg(`Indexed ${json.discovered} contract(s) via ${json.storage ?? "registry"}.`);
+      } else {
+        setRescanMsg(json.error ?? "Rescan finished — check node logs if still empty.");
+      }
       await fetchAll();
     } catch {
+      setRescanMsg("Rescan request failed — is chain-node running?");
       await fetchAll();
     } finally {
       setRescanning(false);
@@ -98,6 +107,9 @@ export default function TokensPage() {
           <p className="text-muted-foreground font-sans text-sm uppercase tracking-widest font-bold">
             ERC-20 tokens and smart contracts deployed on Emberchain
           </p>
+          {rescanMsg && (
+            <p className="text-xs text-primary/90 mt-2 normal-case tracking-normal font-sans">{rescanMsg}</p>
+          )}
         </div>
         <div className="flex items-center gap-2 mt-2 shrink-0">
           <button

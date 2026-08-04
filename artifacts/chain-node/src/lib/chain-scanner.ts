@@ -1,11 +1,10 @@
 /**
- * Chain Scanner — runs in chain-node, writes to the shared contract_registry table.
- * Scans all transactions to discover deployed ERC-20 contracts automatically.
+ * Chain Scanner — discovers deployed contracts from EVM state + deployment txs.
  */
 
 import { ethers } from "ethers";
 import { chain } from "./chain";
-import { upsertContractRecord, getContractRecord, ensureContractTable } from "./contract-registry";
+import { upsertContractRecord, ensureContractTable, registryBackend } from "./contract-registry";
 import { logger } from "./logger";
 
 const coder = ethers.AbiCoder.defaultAbiCoder();
@@ -36,26 +35,47 @@ async function detectERC20(address: string): Promise<{
   };
 }
 
-const indexed = new Set<string>();
+export interface RescanResult {
+  discovered: number;
+  scanned: number;
+  storage: "postgres" | "file";
+}
 
-/** Scan chain txs for contract deployments and populate contract_registry. */
-export async function rescanContracts(force = false): Promise<number> {
+/** Scan EVM state + tx history for contract deployments. */
+export async function rescanContracts(_force = false): Promise<RescanResult> {
+  await chain.whenReady();
+
+  const meta = new Map<string, { creator?: string; creatorTx?: string }>();
+
+  // Primary: every address with bytecode in live chain state
+  const codeAddrs = await chain.listContractAddresses();
+  for (const addr of codeAddrs) {
+    meta.set(addr.toLowerCase(), {});
+  }
+
+  // Secondary: contract-creation txs (derive address when metadata missing)
   const txs = await chain.listTransactions(undefined, 1_000_000);
-  const deployments = txs.filter(
-    (tx) => tx.to === null && tx.status === "success" && tx.contractAddress,
-  );
-  if (deployments.length === 0) return 0;
+  for (const tx of txs) {
+    if (tx.to !== null || tx.status !== "success") continue;
 
-  let added = 0;
-  for (const tx of deployments) {
-    const addr = tx.contractAddress!.toLowerCase();
-    if (!force && indexed.has(addr)) continue;
-    const existing = await getContractRecord(addr);
-    if (!force && existing && (existing.isToken || existing.name)) {
-      indexed.add(addr);
-      continue;
+    let addr = tx.contractAddress?.toLowerCase() ?? null;
+    if (!addr) {
+      try {
+        addr = ethers.getCreateAddress({ from: tx.from, nonce: tx.nonce }).toLowerCase();
+      } catch { continue; }
     }
 
+    const code = await chain.getContractCode(addr);
+    if (code === "0x" || code.length <= 2) continue;
+
+    meta.set(addr, {
+      creator:   tx.from?.toLowerCase(),
+      creatorTx: tx.hash,
+    });
+  }
+
+  let discovered = 0;
+  for (const [addr, info] of meta) {
     const erc20 = await detectERC20(addr);
     await upsertContractRecord({
       address:     addr,
@@ -64,21 +84,26 @@ export async function rescanContracts(force = false): Promise<number> {
       symbol:      erc20?.symbol      ?? null,
       decimals:    erc20?.decimals    ?? null,
       totalSupply: erc20?.totalSupply ?? null,
-      creator:     tx.from?.toLowerCase() ?? null,
-      creatorTx:   tx.hash,
+      creator:     info.creator       ?? null,
+      creatorTx:   info.creatorTx     ?? null,
     });
-    indexed.add(addr);
-    added++;
+    discovered++;
 
     if (erc20) {
       logger.info(
         { address: addr, name: erc20.name, symbol: erc20.symbol },
-        "[scanner] ERC-20 token discovered",
+        "[scanner] ERC-20 token indexed",
       );
+    } else {
+      logger.info({ address: addr }, "[scanner] contract indexed");
     }
   }
-  if (added > 0) logger.info({ discovered: added }, "[scanner] scan complete");
-  return added;
+
+  if (discovered > 0) {
+    logger.info({ discovered, storage: registryBackend() }, "[scanner] rescan complete");
+  }
+
+  return { discovered, scanned: meta.size, storage: registryBackend() };
 }
 
 async function scanOnce(): Promise<void> {
@@ -89,15 +114,14 @@ let _timer: ReturnType<typeof setInterval> | null = null;
 
 export function startChainScanner(): void {
   if (_timer) return;
-  if (!process.env.DATABASE_URL) {
-    logger.info("[scanner] no database configured — contract registry disabled");
-    return;
-  }
+
   ensureContractTable()
     .then(async () => {
+      logger.info({ storage: registryBackend() }, "[scanner] starting contract registry");
       await rescanContracts(true);
     })
     .catch((err: Error) => logger.warn({ err: err.message }, "[scanner] initial scan error"));
+
   _timer = setInterval(() => {
     scanOnce().catch((err: Error) =>
       logger.warn({ err: err.message }, "[scanner] periodic scan error"),

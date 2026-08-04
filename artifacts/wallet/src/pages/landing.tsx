@@ -73,8 +73,8 @@ export default function LandingPage() {
           </h1>
           <p className="landing-hero-sub">
             Emberchain is a proof-of-work smart contract chain with browser mining,
-            zero-knowledge privacy, and a full DeFi stack bridged to Base. No premine.
-            No ICO. Open source.
+            an optional shielded privacy pool, and a full DeFi stack bridged to Base.
+            No premine. No ICO. Open source.
           </p>
           <Link href="/wallet" className="landing-hero-cta">
             Enter Ember Web Wallet
@@ -124,7 +124,8 @@ export default function LandingPage() {
           Emberchain launched as a fully open, community-mined network. There was no premine,
           no venture allocation, and no gatekeeper pool — every EMBR in circulation was earned
           through proof-of-work or transferred on-chain. The chain runs an Ethereum-compatible
-          virtual machine, supports shielded balances via a Monero-inspired privacy pool, and
+          virtual machine, supports optional shielded balances via a Monero-inspired privacy pool
+          (stealth addresses, Pedersen commitments, and ring signatures — not zk-SNARKs), and
           ships with native apps for mining, trading, and cross-chain bridging.
         </p>
         <p className="landing-body" style={{ marginTop: "1rem" }}>
@@ -246,7 +247,7 @@ export default function LandingPage() {
           </Link>
           <Link href="/privacy" className="landing-eco-card">
             <h4>Privacy Pool</h4>
-            <p>Shield and unshield EMBR with zero-knowledge proofs.</p>
+            <p>Shield and unshield EMBR — private leg hides sender, recipient, and amount on-chain.</p>
           </Link>
           <Link href="/whitepaper" className="landing-eco-card">
             <h4>Whitepaper</h4>
@@ -305,7 +306,7 @@ export default function LandingPage() {
           <div className="landing-team-card">
             <h4>Official contact</h4>
             <p>
-              <a href="mailto:hello@emberchain.org">hello@emberchain.org</a>
+              <a href="mailto:emberchaindev@gmail.com">emberchaindev@gmail.com</a>
               <br />
               Website: <a href="https://emberchain.org">emberchain.org</a>
             </p>
@@ -324,6 +325,10 @@ export default function LandingPage() {
             <h4>Community</h4>
             <p>
               <Link href="/community">Community hub</Link>
+              {" · "}
+              <a href="https://t.me/emberchainorg" target="_blank" rel="noreferrer">
+                Telegram
+              </a>
               {" · "}
               <a href="https://x.com/emberchainorg" target="_blank" rel="noreferrer">
                 @emberchainorg
