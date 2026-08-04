@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Build wallet + Ember Delta and publish to nginx on the seed server.
 #
+# CHAIN-SAFE: This script does NOT touch chain.json, restart chain-node,
+# run migrations, or call any /api/sync/* endpoints. Website static files only.
+#
 # Run on the VM (same host as chain-node):
 #   cd /root/Emberchain/emberchain
 #   bash scripts/deploy-vm/deploy-static-from-git.sh

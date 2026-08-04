@@ -12,7 +12,7 @@ echo "=== Inodes (100% here causes ENOSPC even with free GB) ==="
 df -i / 2>/dev/null || true
 echo ""
 
-echo "→ remove stale build output"
+echo "→ remove stale build output only (never touches chain.json or chain-backups)"
 rm -rf \
   "${REPO_ROOT}/artifacts/wallet/dist" \
   "${REPO_ROOT}/artifacts/ember-delta/dist" \
@@ -22,13 +22,9 @@ rm -rf \
 echo "→ prune pnpm store (safe — re-downloads on next install)"
 pnpm store prune 2>/dev/null || true
 
-echo "→ trim old chain backups (keep newest 5)"
-BACKUP_DIR="${REPO_ROOT}/artifacts/data/backups"
-if [[ -d "$BACKUP_DIR" ]]; then
-  ls -1t "$BACKUP_DIR"/chain.json.* 2>/dev/null | tail -n +6 | xargs -r rm -f
-fi
+# Intentionally does NOT delete chain.json, chain-backups/, or restart chain-node.
 
-echo "→ docker prune (unused images/containers)"
+echo "→ docker prune (unused images/containers — does not remove running postgres volume)"
 docker system prune -af 2>/dev/null || true
 
 echo "→ apt cache"
