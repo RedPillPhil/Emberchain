@@ -27,8 +27,9 @@ import {
 } from "lucide-react";
 
 const SOCIAL_LINKS = [
-  { label: "Telegram", href: "https://t.me/emberchain.org" },
+  { label: "Telegram", href: "https://t.me/emberchainorg" },
   { label: "X", href: "https://x.com/emberchainorg" },
+  { label: "Email", href: "mailto:emberchaindev@gmail.com" },
 ] as const;
 
 // ── types ─────────────────────────────────────────────────────────────────────
