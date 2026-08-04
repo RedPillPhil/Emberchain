@@ -14,15 +14,26 @@ import {
   verifyTradeOnChain,
   type DexOrder,
 } from "../lib/dex-orders-store";
-import { scanDexTradeLogs, parseTradesFromTxHash, invalidateTradeScanCache } from "../lib/dex-trade-scan";
+import { parseTradesFromTxHash, invalidateTradeScanCache } from "../lib/dex-trade-scan";
 import { upsertRecordedTrades } from "../lib/dex-fills-store";
+import {
+  bumpDexTradesRefresh,
+  getDexTradesCached,
+  startDexTradesPoller,
+} from "../lib/dex-trades-cache";
 
 const router: IRouter = Router();
 const TX_HASH_RE = /^0x[0-9a-fA-F]{64}$/;
 
+// Warm the trades snapshot as soon as this module loads (server boot).
+startDexTradesPoller();
+
 router.get("/dex/trades", async (req: Request, res: Response): Promise<void> => {
   try {
-    if (req.query.refresh === "1") invalidateTradeScanCache();
+    if (req.query.refresh === "1") {
+      invalidateTradeScanCache();
+      bumpDexTradesRefresh();
+    }
     const lookbackRaw = Number(req.query.lookback ?? 0);
     // lookback=0 → full history from deploy block; otherwise clamp 1k–500k blocks
     const lookback = lookbackRaw === 0
@@ -30,9 +41,14 @@ router.get("/dex/trades", async (req: Request, res: Response): Promise<void> => 
       : Number.isFinite(lookbackRaw)
         ? Math.min(Math.max(lookbackRaw, 1_000), 500_000)
         : 0;
-    const { headBlock, logs } = await scanDexTradeLogs(lookback);
-    res.setHeader("Cache-Control", "public, max-age=30");
-    res.json({ headBlock, logs });
+    const snap = getDexTradesCached(lookback);
+    res.setHeader("Cache-Control", "public, max-age=15");
+    res.json({
+      headBlock: snap.headBlock,
+      logs: snap.logs,
+      updatedAt: snap.updatedAt,
+      stale: snap.stale,
+    });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
@@ -52,6 +68,7 @@ router.post("/dex/trades/ingest", async (req: Request, res: Response): Promise<v
     }
     upsertRecordedTrades(trades);
     invalidateTradeScanCache();
+    bumpDexTradesRefresh();
     res.json({ ok: true, count: trades.length, trades });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
@@ -115,6 +132,7 @@ router.post("/dex/orders/:hash/fill", async (req: Request<{ hash: string }>, res
     const trades = await parseTradesFromTxHash(txHash);
     upsertRecordedTrades(trades);
     invalidateTradeScanCache();
+    bumpDexTradesRefresh();
 
     const order = await getOrder(req.params.hash);
     if (!order) {

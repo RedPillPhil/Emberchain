@@ -1119,27 +1119,22 @@ export class Blockchain {
     // ChainInvaders.DaySettled(uint256 indexed dayId, address indexed cumulativeWinner,
     //   uint256 cumulativePayout, uint256 cumulativeScore, address indexed singleWinner,
     //   uint256 singlePayout, uint256 singleScore)
-    const DAY_SETTLED =
-      "0x" +
-      bytesToHex(
-        keccak256(
-          new TextEncoder().encode(
-            "DaySettled(uint256,address,uint256,uint256,address,uint256,uint256)",
-          ),
+    // bytesToHex already returns a 0x-prefixed string — do not prepend another 0x.
+    const DAY_SETTLED = bytesToHex(
+      keccak256(
+        new TextEncoder().encode(
+          "DaySettled(uint256,address,uint256,uint256,address,uint256,uint256)",
         ),
-      );
+      ),
+    );
 
     // EmberBridge.BridgeIn / NativeBridge.BridgeReleased — relayer releases escrowed EMBR.
-    const BRIDGE_IN =
-      "0x" +
-      bytesToHex(
-        keccak256(new TextEncoder().encode("BridgeIn(address,uint256,uint256)")),
-      );
-    const BRIDGE_RELEASED =
-      "0x" +
-      bytesToHex(
-        keccak256(new TextEncoder().encode("BridgeReleased(address,uint256,uint256)")),
-      );
+    const BRIDGE_IN = bytesToHex(
+      keccak256(new TextEncoder().encode("BridgeIn(address,uint256,uint256)")),
+    );
+    const BRIDGE_RELEASED = bytesToHex(
+      keccak256(new TextEncoder().encode("BridgeReleased(address,uint256,uint256)")),
+    );
 
     let accounted = 0n;
     for (const log of input.logs) {
@@ -2585,18 +2580,30 @@ export class Blockchain {
    * One-shot backfill: replay the canonical chain into a fresh EVM and persist
    * logs / internalTransfers on mined txs that predate receipt indexing.
    * Holds the EVM lock for the duration (can take minutes on a long chain).
+   *
+   * Requires an unpruned chain starting at genesis (block 0). On pruned seeds,
+   * use POST /api/sync/patch-tx-meta for individual txs instead.
    */
   async reindexReceiptMetadata(): Promise<{ updated: number; height: number }> {
     await this.whenReady();
     return this.withEvmLock(async () => {
-      let updated = 0;
+      const genesis = this.blocks[0];
+      if (!genesis || genesis.number !== 0) {
+        throw new Error(
+          `Cannot reindex receipts: in-memory chain does not start at genesis ` +
+            `(oldest block #${genesis?.number ?? "?"}). File pruning keeps only the ` +
+            `last ~2000 blocks. Patch individual txs via /api/sync/patch-tx-meta, ` +
+            `or import a full snapshot that includes genesis.`,
+        );
+      }
+      let candidates = 0;
       for (const tx of this.transactions.values()) {
         if (tx.status === "success" && !(tx.logs?.length) && !(tx.internalTransfers?.length)) {
-          updated++; // count candidates; actual write happens in replay
+          candidates++;
         }
       }
       console.log(
-        `[chain] Reindexing receipt metadata for ~${updated} mined tx(s) without logs ` +
+        `[chain] Reindexing receipt metadata for ~${candidates} mined tx(s) without logs ` +
           `(height ${this.blocks.length - 1})…`,
       );
       this.stateManager = createStateManager(this.common);
@@ -2612,6 +2619,36 @@ export class Blockchain {
       );
       return { updated: withInternals, height: this.blocks.length - 1 };
     });
+  }
+
+  /**
+   * Manually attach internalTransfers (and optional logs) to a mined tx.
+   * Used when full genesis reindex is unavailable (pruned block history).
+   */
+  async patchTransactionMeta(
+    hash: string,
+    meta: {
+      internalTransfers?: StoredInternalTransfer[];
+      logs?: StoredTxLog[];
+    },
+  ): Promise<StoredTransaction> {
+    await this.whenReady();
+    const key = hash.toLowerCase() as PrefixedHexString;
+    const tx =
+      this.transactions.get(key) ??
+      this.transactions.get(hash as PrefixedHexString);
+    if (!tx) throw new Error(`Transaction ${hash} not found`);
+    if (meta.internalTransfers) {
+      tx.internalTransfers = meta.internalTransfers.map((t) => {
+        const from = normalizeHexAddress(t.from);
+        const to = normalizeHexAddress(t.to);
+        if (!from || !to) throw new Error(`Invalid transfer address in patch for ${hash}`);
+        return { from, to, value: String(t.value) };
+      });
+    }
+    if (meta.logs) tx.logs = meta.logs;
+    this.persist();
+    return tx;
   }
 
   /** Returns the canonical chain's cumulative proof-of-work as a bigint. */

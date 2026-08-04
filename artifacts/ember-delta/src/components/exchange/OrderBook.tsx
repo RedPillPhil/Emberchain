@@ -57,8 +57,27 @@ export const OrderBook = React.memo(function OrderBook({
   const fetchGenRef = useRef(0);
   const currentBlockRef = useRef(currentBlock);
   currentBlockRef.current = currentBlock;
+  const hasOrdersRef = useRef(false);
+  hasOrdersRef.current = openOrders.length > 0;
   const [cancellingHash, setCancellingHash] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; err: boolean } | null>(null);
+
+  const ordersCacheKey = `ember-delta:orders:${tokenAddress.toLowerCase()}`;
+
+  // Paint last-known orders for this pair immediately (stale-while-revalidate).
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(ordersCacheKey);
+      if (!raw) return;
+      const cached = JSON.parse(raw) as ParsedOpenOrder[];
+      if (Array.isArray(cached) && cached.length > 0) {
+        setOpenOrders(cached);
+        setLoading(false);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [ordersCacheKey]);
 
   const showToast = (msg: string, err = false) => {
     setToast({ msg, err });
@@ -85,7 +104,8 @@ export const OrderBook = React.memo(function OrderBook({
 
   const fetchOrders = useCallback(async (opts?: { showLoading?: boolean; forceRefresh?: boolean }) => {
     const gen = ++fetchGenRef.current;
-    if (opts?.showLoading !== false) setLoading(true);
+    // Only spin if we have nothing to show yet.
+    if (opts?.showLoading !== false && !hasOrdersRef.current) setLoading(true);
 
     try {
       const raw = await fetchRawOpenOrders(tokenAddress);
@@ -98,6 +118,16 @@ export const OrderBook = React.memo(function OrderBook({
       if (gen !== fetchGenRef.current) return;
 
       let parsed = parseOpenOrders(raw, tokenAddress, block);
+      // Show book immediately from file store; enrich volumes in background.
+      setOpenOrders(parsed);
+      setFetchError(null);
+      setLoading(false);
+      try {
+        sessionStorage.setItem(ordersCacheKey, JSON.stringify(parsed));
+      } catch {
+        /* ignore */
+      }
+
       if (opts?.forceRefresh) invalidateOrderVolumeCache();
       if (publicClient) {
         parsed = await enrichOrdersWithChainVolume(publicClient, parsed);
@@ -105,7 +135,11 @@ export const OrderBook = React.memo(function OrderBook({
       if (gen !== fetchGenRef.current) return;
 
       setOpenOrders(parsed);
-      setFetchError(null);
+      try {
+        sessionStorage.setItem(ordersCacheKey, JSON.stringify(parsed));
+      } catch {
+        /* ignore */
+      }
     } catch (e) {
       if (gen !== fetchGenRef.current) return;
       console.error('OrderBook fetch error', e);
@@ -113,12 +147,11 @@ export const OrderBook = React.memo(function OrderBook({
     } finally {
       if (gen === fetchGenRef.current) setLoading(false);
     }
-  }, [tokenAddress, publicClient]);
+  }, [tokenAddress, publicClient, ordersCacheKey]);
 
   // Initial load + after user places/cancels/fills an order.
   useEffect(() => {
     setFetchError(null);
-    setOpenOrders([]);
     void fetchOrders({ showLoading: true, forceRefresh: true });
   }, [tokenAddress, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 

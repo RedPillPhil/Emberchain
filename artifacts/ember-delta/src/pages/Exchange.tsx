@@ -59,11 +59,37 @@ function dtoToTradeLogEntry(d: DexTradeLogDto): TradeLogEntry {
   };
 }
 
-// ── Shared trade fetch — server-side Base scan (browser eth_getLogs is unreliable) ──────
+// ── Shared trade fetch — stale-while-revalidate via chain-node snapshot ──────
+const TRADES_CACHE_KEY = "ember-delta:trades-snapshot:v1";
+
+function loadCachedTrades(): { headBlock: number; logs: TradeLogEntry[] } | null {
+  try {
+    const raw = localStorage.getItem(TRADES_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { headBlock?: number; logs?: DexTradeLogDto[] };
+    if (!Array.isArray(parsed.logs)) return null;
+    return {
+      headBlock: parsed.headBlock ?? 0,
+      logs: parsed.logs.map(dtoToTradeLogEntry),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedTrades(headBlock: number, logs: DexTradeLogDto[]): void {
+  try {
+    localStorage.setItem(TRADES_CACHE_KEY, JSON.stringify({ headBlock, logs }));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
 function useSharedTradeData(_tokenAddress: `0x${string}`) {
-  const [currentBlock, setCurrentBlock] = useState<bigint>(0n);
-  const [tradeLogs, setTradeLogs] = useState<TradeLogEntry[]>([]);
-  const [tradesLoading, setTradesLoading] = useState(true);
+  const cached = typeof window !== "undefined" ? loadCachedTrades() : null;
+  const [currentBlock, setCurrentBlock] = useState<bigint>(() => BigInt(cached?.headBlock ?? 0));
+  const [tradeLogs, setTradeLogs] = useState<TradeLogEntry[]>(() => cached?.logs ?? []);
+  const [tradesLoading, setTradesLoading] = useState(() => !(cached && cached.logs.length > 0));
   const [tradesError, setTradesError] = useState(false);
 
   const fetchLogs = useCallback(async () => {
@@ -75,9 +101,15 @@ function useSharedTradeData(_tokenAddress: `0x${string}`) {
         setTradesError(true);
         return;
       }
-      const data = (await res.json()) as { headBlock?: number; logs?: DexTradeLogDto[] };
+      const data = (await res.json()) as {
+        headBlock?: number;
+        logs?: DexTradeLogDto[];
+        stale?: boolean;
+      };
+      const logs = data.logs ?? [];
       setCurrentBlock(BigInt(data.headBlock ?? 0));
-      setTradeLogs((data.logs ?? []).map(dtoToTradeLogEntry));
+      setTradeLogs(logs.map(dtoToTradeLogEntry));
+      saveCachedTrades(data.headBlock ?? 0, logs);
       setTradesError(false);
     } catch {
       setTradesError(true);

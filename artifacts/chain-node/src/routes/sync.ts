@@ -147,6 +147,44 @@ router.post("/sync/reindex-receipts", async (req: Request, res: Response): Promi
   }
 });
 
+/** Manually attach internalTransfers to one tx (for pruned chains where reindex cannot run). */
+router.post("/sync/patch-tx-meta", async (req: Request, res: Response): Promise<void> => {
+  const secret = process.env.CHAIN_NODE_INTERNAL_SECRET ?? process.env.SESSION_SECRET;
+  const auth = req.headers["x-internal-secret"];
+  if (!secret || auth !== secret) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  try {
+    const body = req.body as {
+      hash?: string;
+      internalTransfers?: Array<{ from: string; to: string; value: string }>;
+      logs?: Array<{ address: string; topics: string[]; data: string }>;
+    };
+    if (!body.hash || !/^0x[0-9a-fA-F]{64}$/.test(body.hash)) {
+      res.status(400).json({ error: "hash (0x…64 hex) required" });
+      return;
+    }
+    if (!body.internalTransfers?.length && !body.logs?.length) {
+      res.status(400).json({ error: "internalTransfers and/or logs required" });
+      return;
+    }
+    const tx = await chain.patchTransactionMeta(body.hash, {
+      internalTransfers: body.internalTransfers as never,
+      logs: body.logs as never,
+    });
+    res.json({
+      ok: true,
+      hash: tx.hash,
+      internalTransfers: tx.internalTransfers ?? [],
+      logs: tx.logs ?? [],
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ error: msg });
+  }
+});
+
 router.post("/sync/force-resync", async (req: Request, res: Response): Promise<void> => {
   const secret = process.env.CHAIN_NODE_INTERNAL_SECRET ?? process.env.SESSION_SECRET;
   const auth   = req.headers["x-internal-secret"];
