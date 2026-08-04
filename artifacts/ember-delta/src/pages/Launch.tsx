@@ -10,8 +10,8 @@ import { useAccount, useSendTransaction, useWaitForTransactionReceipt } from 'wa
 import { parseEther } from 'viem';
 import { API, apiFetch } from '@/lib/api';
 
-/** Set VITE_TOKEN_LAUNCH_DOWN=false when api-server + Postgres are running again. */
-const TOKEN_LAUNCH_DOWN = import.meta.env.VITE_TOKEN_LAUNCH_DOWN !== 'false';
+/** Paused only when VITE_TOKEN_LAUNCH_DOWN=true (e.g. api-server maintenance). */
+const TOKEN_LAUNCH_DOWN = import.meta.env.VITE_TOKEN_LAUNCH_DOWN === 'true';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
