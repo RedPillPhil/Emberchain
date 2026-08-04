@@ -2,6 +2,20 @@ import type { PrefixedHexString } from "@ethereumjs/util";
 
 export type TxStatus = "pending" | "success" | "failed";
 
+/** EVM log from a mined contract call (ethereumjs Log shape, hex-encoded). */
+export interface StoredTxLog {
+  address: PrefixedHexString;
+  topics: PrefixedHexString[];
+  data: PrefixedHexString;
+}
+
+/** Native EMBR moved by an inner CALL (e.g. contract payout), not the top-level tx.value. */
+export interface StoredInternalTransfer {
+  from: PrefixedHexString;
+  to: PrefixedHexString;
+  value: string; // decimal wei string
+}
+
 export interface StoredTransaction {
   hash: PrefixedHexString;
   from: PrefixedHexString;
@@ -17,6 +31,10 @@ export interface StoredTransaction {
   error: string | null;
   returnData: PrefixedHexString | null;
   createdAt: string; // ISO date
+  /** Contract event logs emitted during execution (empty/omitted on older txs). */
+  logs?: StoredTxLog[];
+  /** Native value moved by internal CALLs (contract → winner, etc.). */
+  internalTransfers?: StoredInternalTransfer[];
 }
 
 export interface StoredBlock {

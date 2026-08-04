@@ -80,6 +80,15 @@ const KNOWN_FUNCTIONS: Record<string, FunctionDef> = {
       { name: "value",   type: "uint256" },
     ],
   },
+  // Chain Invaders
+  "0x8093067c": {
+    name: "settleDay",
+    params: [{ name: "dayId", type: "uint256" }],
+  },
+  "0xe97dcb62": {
+    name: "enter",
+    params: [],
+  },
 };
 
 // ── ABI decoding helpers ────────────────────────────────────────────────────

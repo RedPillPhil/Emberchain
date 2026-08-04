@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { formatHash, formatEmbr, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { internalMovedWei, type TxWithInternals } from "@/lib/tx-internals";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const HASH_RE = /^0x[0-9a-fA-F]{64}$/;
@@ -226,7 +227,22 @@ export default function Transactions() {
                       />
                     )}
                   </td>
-                  <td className="p-4 text-right font-bold text-foreground">{formatEmbr(tx.value)}</td>
+                  <td className="p-4 text-right font-bold text-foreground">
+                    {formatEmbr(tx.value)}
+                    {(() => {
+                      const moved = internalMovedWei(tx as TxWithInternals);
+                      if (moved <= 0n) return null;
+                      // Top-level value 0 but contract moved EMBR internally (settle, etc.)
+                      if (BigInt(tx.value || "0") === 0n) {
+                        return (
+                          <span className="block text-[10px] font-normal text-primary/80">
+                            ({formatEmbr(moved.toString())} moved)
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </td>
                 </tr>
               ))}
             </tbody>

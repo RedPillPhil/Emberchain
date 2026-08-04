@@ -12,6 +12,8 @@ import { loadChainFile, saveChainFile, flushChainFile, type PersistedChain } fro
 import type {
   StoredBlock,
   StoredTransaction,
+  StoredTxLog,
+  StoredInternalTransfer,
   ChainConfig,
   PrivateNote,
   ShieldedTxRecord,
@@ -878,7 +880,15 @@ export class Blockchain {
     await this.whenReady();
     let all = [...this.transactions.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
     if (address) {
-      all = all.filter((tx) => tx.from === address || tx.to === address);
+      const needle = address.toLowerCase();
+      all = all.filter((tx) => {
+        if (tx.from.toLowerCase() === needle) return true;
+        if (tx.to?.toLowerCase() === needle) return true;
+        // Include txs that paid this address via an inner CALL (settle, bridge release, etc.)
+        return (tx.internalTransfers ?? []).some(
+          (t) => t.to.toLowerCase() === needle || t.from.toLowerCase() === needle,
+        );
+      });
     }
     return all.slice(0, limit);
   }
@@ -965,6 +975,8 @@ export class Blockchain {
     error: string | null;
     returnData: PrefixedHexString;
     contractAddress: PrefixedHexString | null;
+    logs: StoredTxLog[];
+    internalTransfers: StoredInternalTransfer[];
   }> {
     const depthBefore = this.stateManager.accountStack.length;
     const unwind = async (mode: "revert" | "commit") => {
@@ -973,6 +985,18 @@ export class Blockchain {
         else await this.stateManager.commit();
       }
     };
+
+    const emptyMeta = { logs: [] as StoredTxLog[], internalTransfers: [] as StoredInternalTransfer[] };
+
+    // Snapshot contract balance so we can attribute inner CALL value (payouts).
+    let contractBalBefore = 0n;
+    if (input.to) {
+      try {
+        contractBalBefore = await getBalance(this.stateManager, input.to);
+      } catch {
+        contractBalBefore = 0n;
+      }
+    }
 
     await this.stateManager.checkpoint();
     try {
@@ -995,9 +1019,19 @@ export class Blockchain {
           error: reason ?? result.execResult.exceptionError.error ?? "revert",
           returnData,
           contractAddress: null,
+          ...emptyMeta,
         };
       }
       await unwind("commit");
+
+      const logs = this.extractLogs(result.execResult.logs);
+      const internalTransfers = await this.deriveInternalTransfers({
+        contract: input.to,
+        topLevelValue: input.value,
+        contractBalBefore,
+        logs,
+      });
+
       return {
         success: true,
         gasUsed: result.execResult.executionGasUsed,
@@ -1006,6 +1040,8 @@ export class Blockchain {
         contractAddress: result.createdAddress
           ? (result.createdAddress.toString() as PrefixedHexString)
           : null,
+        logs,
+        internalTransfers,
       };
     } catch (err) {
       try {
@@ -1024,8 +1060,149 @@ export class Blockchain {
         error: err instanceof Error ? err.message : "Execution failed",
         returnData: "0x",
         contractAddress: null,
+        ...emptyMeta,
       };
     }
+  }
+
+  /** ethereumjs Log[] → hex StoredTxLog[] */
+  private extractLogs(raw: unknown): StoredTxLog[] {
+    if (!Array.isArray(raw) || raw.length === 0) return [];
+    const out: StoredTxLog[] = [];
+    for (const entry of raw) {
+      try {
+        // ethereumjs: [address: Uint8Array, topics: Uint8Array[], data: Uint8Array]
+        if (Array.isArray(entry) && entry.length >= 3) {
+          const address = bytesToHex(entry[0] as Uint8Array) as PrefixedHexString;
+          const topics = (entry[1] as Uint8Array[]).map(
+            (t) => bytesToHex(t) as PrefixedHexString,
+          );
+          const data = bytesToHex(entry[2] as Uint8Array) as PrefixedHexString;
+          out.push({ address, topics, data });
+          continue;
+        }
+        // object shape { address, topics, data }
+        const e = entry as { address?: Uint8Array | string; topics?: Uint8Array[]; data?: Uint8Array | string };
+        if (e.address && e.topics && e.data) {
+          const address = (
+            typeof e.address === "string" ? e.address : bytesToHex(e.address)
+          ) as PrefixedHexString;
+          const topics = e.topics.map((t) =>
+            (typeof t === "string" ? t : bytesToHex(t)) as PrefixedHexString,
+          );
+          const data = (
+            typeof e.data === "string" ? e.data : bytesToHex(e.data)
+          ) as PrefixedHexString;
+          out.push({ address, topics, data });
+        }
+      } catch {
+        /* skip malformed log */
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Build explorer-visible internal transfers from event logs + contract balance delta.
+   * DaySettled (Chain Invaders) and similar payout events are decoded first; if the
+   * contract spent native EMBR without a decoded recipient log, record a residual.
+   */
+  private async deriveInternalTransfers(input: {
+    contract: PrefixedHexString | null;
+    topLevelValue: bigint;
+    contractBalBefore: bigint;
+    logs: StoredTxLog[];
+  }): Promise<StoredInternalTransfer[]> {
+    const transfers: StoredInternalTransfer[] = [];
+    if (!input.contract) return transfers;
+
+    // ChainInvaders.DaySettled(uint256 indexed dayId, address indexed cumulativeWinner,
+    //   uint256 cumulativePayout, uint256 cumulativeScore, address indexed singleWinner,
+    //   uint256 singlePayout, uint256 singleScore)
+    const DAY_SETTLED =
+      "0x" +
+      bytesToHex(
+        keccak256(
+          new TextEncoder().encode(
+            "DaySettled(uint256,address,uint256,uint256,address,uint256,uint256)",
+          ),
+        ),
+      );
+
+    // EmberBridge.BridgeIn / NativeBridge.BridgeReleased — relayer releases escrowed EMBR.
+    const BRIDGE_IN =
+      "0x" +
+      bytesToHex(
+        keccak256(new TextEncoder().encode("BridgeIn(address,uint256,uint256)")),
+      );
+    const BRIDGE_RELEASED =
+      "0x" +
+      bytesToHex(
+        keccak256(new TextEncoder().encode("BridgeReleased(address,uint256,uint256)")),
+      );
+
+    let accounted = 0n;
+    for (const log of input.logs) {
+      const topic0 = (log.topics[0] ?? "").toLowerCase();
+
+      if (topic0 === DAY_SETTLED.toLowerCase()) {
+        if (log.topics.length < 4 || log.data.length < 2 + 256) continue;
+        const cumWinner = ("0x" + log.topics[2]!.slice(-40)) as PrefixedHexString;
+        const singleWinner = ("0x" + log.topics[3]!.slice(-40)) as PrefixedHexString;
+        const data = log.data.replace(/^0x/i, "");
+        const cumPayout = BigInt("0x" + data.slice(0, 64));
+        const singlePayout = BigInt("0x" + data.slice(128, 192));
+        if (cumWinner.toLowerCase() === singleWinner.toLowerCase()) {
+          const total = cumPayout + singlePayout;
+          if (total > 0n) {
+            transfers.push({ from: input.contract, to: cumWinner, value: total.toString() });
+            accounted += total;
+          }
+        } else {
+          if (cumPayout > 0n) {
+            transfers.push({ from: input.contract, to: cumWinner, value: cumPayout.toString() });
+            accounted += cumPayout;
+          }
+          if (singlePayout > 0n) {
+            transfers.push({ from: input.contract, to: singleWinner, value: singlePayout.toString() });
+            accounted += singlePayout;
+          }
+        }
+        continue;
+      }
+
+      if (topic0 === BRIDGE_IN.toLowerCase() || topic0 === BRIDGE_RELEASED.toLowerCase()) {
+        // indexed recipient, amount in data, indexed nonce
+        if (log.topics.length < 2 || log.data.length < 2 + 64) continue;
+        const recipient = ("0x" + log.topics[1]!.slice(-40)) as PrefixedHexString;
+        const amount = BigInt("0x" + log.data.replace(/^0x/i, "").slice(0, 64));
+        if (amount > 0n) {
+          transfers.push({ from: input.contract, to: recipient, value: amount.toString() });
+          accounted += amount;
+        }
+      }
+    }
+
+    // Fallback: contract spent native EMBR beyond top-level receive that we couldn't attribute.
+    try {
+      const balAfter = await getBalance(this.stateManager, input.contract);
+      // Contract received topLevelValue then may have sent payouts.
+      const expectedIfNoSpend = input.contractBalBefore + input.topLevelValue;
+      const spent = expectedIfNoSpend > balAfter ? expectedIfNoSpend - balAfter : 0n;
+      const residual = spent > accounted ? spent - accounted : 0n;
+      if (residual > 0n && transfers.length === 0) {
+        // Unknown recipient — still surface that value left the contract.
+        transfers.push({
+          from: input.contract,
+          to: ZERO_ADDRESS,
+          value: residual.toString(),
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+
+    return transfers;
   }
 
   async callContract(input: {
@@ -1851,6 +2028,8 @@ export class Blockchain {
       stored.error = mined.error;
       stored.contractAddress = mined.contractAddress;
       stored.returnData = mined.returnData;
+      stored.logs = mined.logs;
+      stored.internalTransfers = mined.internalTransfers;
 
       // Charge gas fee: gasUsed × GAS_PRICE, deducted from sender
       const gasUsed = mined.gasUsed;
@@ -1867,6 +2046,12 @@ export class Blockchain {
       // Register recipient so listWallets() picks up new addresses that receive EMBR
       if (tx.to && !this.wallets.has(tx.to.toLowerCase() as PrefixedHexString)) {
         this.wallets.set(tx.to.toLowerCase() as PrefixedHexString, { createdAt: new Date().toISOString() });
+      }
+      for (const tr of mined.internalTransfers) {
+        const recv = tr.to.toLowerCase() as PrefixedHexString;
+        if (recv !== ZERO_ADDRESS && !this.wallets.has(recv)) {
+          this.wallets.set(recv, { createdAt: new Date().toISOString() });
+        }
       }
     }
 
@@ -2101,6 +2286,8 @@ export class Blockchain {
       stored.error = mined.error;
       stored.contractAddress = mined.contractAddress;
       stored.returnData = mined.returnData;
+      stored.logs = mined.logs;
+      stored.internalTransfers = mined.internalTransfers;
       const gasUsed = mined.gasUsed;
       const fee = gasUsed * GAS_PRICE;
       try { await debit(this.stateManager, tx.from, fee); } catch { /* ignore */ }
@@ -2109,6 +2296,12 @@ export class Blockchain {
         this.wallets.set(tx.to.toLowerCase() as PrefixedHexString, {
           createdAt: new Date().toISOString(),
         });
+      }
+      for (const tr of mined.internalTransfers) {
+        const recv = tr.to.toLowerCase() as PrefixedHexString;
+        if (recv !== ZERO_ADDRESS && !this.wallets.has(recv)) {
+          this.wallets.set(recv, { createdAt: new Date().toISOString() });
+        }
       }
     }
 
@@ -2371,6 +2564,8 @@ export class Blockchain {
         tx.gasUsed = mined.gasUsed.toString();
         tx.error = mined.error;
         tx.returnData = mined.returnData;
+        tx.logs = mined.logs;
+        tx.internalTransfers = mined.internalTransfers;
         const fee = mined.gasUsed * GAS_PRICE;
         try { await debit(this.stateManager, tx.from as PrefixedHexString, fee); } catch { /* ignore */ }
         tx.blockNumber = block.number;
@@ -2384,6 +2579,39 @@ export class Blockchain {
         }
       }
     }
+  }
+
+  /**
+   * One-shot backfill: replay the canonical chain into a fresh EVM and persist
+   * logs / internalTransfers on mined txs that predate receipt indexing.
+   * Holds the EVM lock for the duration (can take minutes on a long chain).
+   */
+  async reindexReceiptMetadata(): Promise<{ updated: number; height: number }> {
+    await this.whenReady();
+    return this.withEvmLock(async () => {
+      let updated = 0;
+      for (const tx of this.transactions.values()) {
+        if (tx.status === "success" && !(tx.logs?.length) && !(tx.internalTransfers?.length)) {
+          updated++; // count candidates; actual write happens in replay
+        }
+      }
+      console.log(
+        `[chain] Reindexing receipt metadata for ~${updated} mined tx(s) without logs ` +
+          `(height ${this.blocks.length - 1})…`,
+      );
+      this.stateManager = createStateManager(this.common);
+      this.evm = await createEVM({ common: this.common, stateManager: this.stateManager });
+      await this.replayChainEVM(this.blocks, new Map());
+      let withInternals = 0;
+      for (const tx of this.transactions.values()) {
+        if ((tx.internalTransfers?.length ?? 0) > 0) withInternals++;
+      }
+      this.persist();
+      console.log(
+        `[chain] Receipt reindex complete — ${withInternals} tx(s) now have internalTransfers`,
+      );
+      return { updated: withInternals, height: this.blocks.length - 1 };
+    });
   }
 
   /** Returns the canonical chain's cumulative proof-of-work as a bigint. */

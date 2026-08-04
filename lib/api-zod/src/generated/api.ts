@@ -184,6 +184,18 @@ export const ListTransactionsQueryParams = zod.object({
   "limit": zod.coerce.number().default(listTransactionsQueryLimitDefault)
 })
 
+const TxLogSchema = zod.object({
+  "address": zod.string(),
+  "topics": zod.array(zod.string()),
+  "data": zod.string(),
+})
+
+const TxInternalTransferSchema = zod.object({
+  "from": zod.string(),
+  "to": zod.string(),
+  "value": zod.string(),
+})
+
 export const ListTransactionsResponseItem = zod.object({
   "hash": zod.string(),
   "from": zod.string(),
@@ -198,7 +210,9 @@ export const ListTransactionsResponseItem = zod.object({
   "gasUsed": zod.string().nullable(),
   "error": zod.string().nullish(),
   "returnData": zod.string().nullish(),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "logs": zod.array(TxLogSchema).optional(),
+  "internalTransfers": zod.array(TxInternalTransferSchema).optional(),
 })
 export const ListTransactionsResponse = zod.array(ListTransactionsResponseItem)
 
@@ -224,7 +238,9 @@ export const GetTransactionResponse = zod.object({
   "gasUsed": zod.string().nullable(),
   "error": zod.string().nullish(),
   "returnData": zod.string().nullish(),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "logs": zod.array(TxLogSchema).optional(),
+  "internalTransfers": zod.array(TxInternalTransferSchema).optional(),
 })
 
 

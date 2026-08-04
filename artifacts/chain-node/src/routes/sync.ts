@@ -127,6 +127,26 @@ router.post("/sync/peers", (req: Request, res: Response): void => {
  * snapshot from the given peer.  Used to resolve chain forks manually.
  * POST /api/sync/force-resync  { "peer": "https://emberchain.duckdns.org" }
  */
+/** Backfill logs / internalTransfers on historical txs (holds EVM lock; can take minutes). */
+router.post("/sync/reindex-receipts", async (req: Request, res: Response): Promise<void> => {
+  const secret = process.env.CHAIN_NODE_INTERNAL_SECRET ?? process.env.SESSION_SECRET;
+  const auth = req.headers["x-internal-secret"];
+  if (!secret || auth !== secret) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  try {
+    console.log("[admin] reindex-receipts: starting…");
+    const result = await chain.reindexReceiptMetadata();
+    console.log(`[admin] reindex-receipts complete: ${JSON.stringify(result)}`);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[admin] reindex-receipts failed: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
 router.post("/sync/force-resync", async (req: Request, res: Response): Promise<void> => {
   const secret = process.env.CHAIN_NODE_INTERNAL_SECRET ?? process.env.SESSION_SECRET;
   const auth   = req.headers["x-internal-secret"];

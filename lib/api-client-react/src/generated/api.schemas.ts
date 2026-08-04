@@ -73,6 +73,18 @@ export const TransactionStatus = {
   failed: 'failed',
 } as const;
 
+export interface TransactionLog {
+  address: string;
+  topics: string[];
+  data: string;
+}
+
+export interface TransactionInternalTransfer {
+  from: string;
+  to: string;
+  value: string;
+}
+
 export interface Transaction {
   hash: string;
   from: string;
@@ -95,6 +107,9 @@ export interface Transaction {
   /** @nullable */
   returnData?: string | null;
   createdAt: string;
+  logs?: TransactionLog[];
+  /** Native EMBR moved by inner CALLs (contract payouts, bridge releases). */
+  internalTransfers?: TransactionInternalTransfer[];
 }
 
 export type BlockDetail = BlockSummary & {

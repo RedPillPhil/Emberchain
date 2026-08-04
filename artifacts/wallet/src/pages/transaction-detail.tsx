@@ -12,6 +12,7 @@ import { DecodedAddressLink, LedgerAddressLink } from "@/components/explorer/add
 import { dropChainTransaction } from "@/lib/chain-node";
 import { chainNodeBaseUrl } from "@/lib/config";
 import { useToast } from "@/hooks/use-toast";
+import { internalMovedWei, type TxWithInternals } from "@/lib/tx-internals";
 
 export default function TransactionDetail() {
   const { hash } = useParams();
@@ -112,7 +113,18 @@ export default function TransactionDetail() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-4 p-4 hover:bg-secondary/20 transition-colors">
                   <dt className="text-muted-foreground font-sans font-bold uppercase tracking-widest text-xs md:col-span-1 flex items-center">Value</dt>
-                  <dd className="md:col-span-3 font-bold text-glow text-xl">{formatEmbr(tx.value)} EMBR</dd>
+                  <dd className="md:col-span-3 font-bold text-glow text-xl">
+                    {formatEmbr(tx.value)} EMBR
+                    {(() => {
+                      const moved = internalMovedWei(tx as TxWithInternals);
+                      if (moved <= 0n || BigInt(tx.value || "0") !== 0n) return null;
+                      return (
+                        <span className="ml-2 text-base font-semibold text-primary">
+                          ({formatEmbr(moved.toString())} moved internally)
+                        </span>
+                      );
+                    })()}
+                  </dd>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-4 p-4 hover:bg-secondary/20 transition-colors">
                   <dt className="text-muted-foreground font-sans font-bold uppercase tracking-widest text-xs md:col-span-1 flex items-center">Gas Limit</dt>
@@ -176,9 +188,55 @@ export default function TransactionDetail() {
             </Card>
           )}
 
+          {(() => {
+            const internals = (tx as TxWithInternals).internalTransfers ?? [];
+            if (internals.length === 0) return null;
+            return (
+              <Card className="border-primary/30 bg-card/80 backdrop-blur rounded-sm">
+                <CardHeader className="border-b border-border bg-secondary/30">
+                  <CardTitle className="font-display tracking-tight text-xl uppercase">
+                    Internal Transfers
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground font-sans mt-1 normal-case tracking-normal">
+                    Native EMBR moved by the contract during this call (not the top-level tx value).
+                  </p>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <dl className="divide-y divide-border/50 font-mono text-sm">
+                    {internals.map((tr, i) => (
+                      <div
+                        key={`${tr.from}-${tr.to}-${tr.value}-${i}`}
+                        className="grid grid-cols-1 md:grid-cols-12 gap-2 p-4 hover:bg-secondary/20 transition-colors"
+                      >
+                        <div className="md:col-span-5 break-all">
+                          <span className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground block mb-1">From</span>
+                          <LedgerAddressLink address={tr.from} />
+                        </div>
+                        <div className="md:col-span-5 break-all">
+                          <span className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground block mb-1">To</span>
+                          <LedgerAddressLink address={tr.to} />
+                        </div>
+                        <div className="md:col-span-2 md:text-right">
+                          <span className="text-[10px] font-sans font-bold uppercase tracking-widest text-muted-foreground block mb-1">Amount</span>
+                          <span className="font-bold text-primary">{formatEmbr(tr.value)} EMBR</span>
+                        </div>
+                      </div>
+                    ))}
+                  </dl>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
           {(tx.data && tx.data !== "0x") && (() => {
             const decoded = decodeCalldata(tx.data);
             if (decoded) {
+              const internals = (tx as TxWithInternals).internalTransfers ?? [];
+              const showSettleHint =
+                decoded.functionName === "settleDay" &&
+                internals.length === 0 &&
+                BigInt(tx.value || "0") === 0n &&
+                tx.status === "success";
               return (
                 <Card className="border-border bg-card/80 backdrop-blur rounded-sm">
                   <CardHeader className="border-b border-border bg-secondary/30 flex flex-row items-center gap-3">
@@ -191,6 +249,12 @@ export default function TransactionDetail() {
                       </span>
                     </CardTitle>
                   </CardHeader>
+                  {showSettleHint && (
+                    <div className="px-4 py-3 border-b border-border/50 text-xs text-muted-foreground font-sans leading-relaxed">
+                      Top-level value is 0 because the signer only paid gas. The game contract paid winners
+                      with internal CALLs. After receipt reindexing, those moves appear under Internal Transfers.
+                    </div>
+                  )}
                   <CardContent className="p-0">
                     <dl className="divide-y divide-border/50 font-mono text-sm">
                       {decoded.params.map((p) => {

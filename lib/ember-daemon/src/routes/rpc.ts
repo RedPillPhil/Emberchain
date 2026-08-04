@@ -52,12 +52,23 @@ function formatTx(tx: StoredTransaction, blockHash?: string) {
 function formatReceipt(tx: StoredTransaction) {
   if (tx.status === "pending") return null;
   const blk = chain.getBlockForTx(tx.hash);
+  const logs = (tx.logs ?? []).map((log, i) => ({
+    address: log.address,
+    topics: log.topics,
+    data: log.data,
+    blockHash: blk?.hash ?? null,
+    blockNumber: tx.blockNumber !== null ? toHex(tx.blockNumber) : null,
+    transactionHash: tx.hash,
+    transactionIndex: "0x0",
+    logIndex: toHex(i),
+    removed: false,
+  }));
   return {
     blockHash: blk?.hash ?? null, blockNumber: tx.blockNumber !== null ? toHex(tx.blockNumber) : null,
     contractAddress: tx.contractAddress ?? null,
     cumulativeGasUsed: toHex(BigInt(tx.gasUsed ?? "21000")), effectiveGasPrice: "0x0",
-    from: tx.from, gasUsed: toHex(BigInt(tx.gasUsed ?? "21000")), logs: [], logsBloom: ZERO_BLOOM,
-    status: tx.status === "confirmed" ? "0x1" : "0x0",
+    from: tx.from, gasUsed: toHex(BigInt(tx.gasUsed ?? "21000")), logs, logsBloom: ZERO_BLOOM,
+    status: tx.status === "success" ? "0x1" : "0x0",
     to: tx.to ?? null, transactionHash: tx.hash, transactionIndex: "0x0", type: "0x2",
   };
 }

@@ -762,6 +762,39 @@ components:
         createdAt:
           type: string
           format: date-time
+        logs:
+          type: array
+          description: >
+            EVM event logs emitted during execution. Empty/omitted on pending txs
+            and on historical txs mined before receipt indexing.
+          items:
+            type: object
+            required: [address, topics, data]
+            properties:
+              address:
+                type: string
+              topics:
+                type: array
+                items:
+                  type: string
+              data:
+                type: string
+        internalTransfers:
+          type: array
+          description: >
+            Native EMBR moved by inner CALLs (contract payouts, bridge releases),
+            distinct from the top-level transaction value.
+          items:
+            type: object
+            required: [from, to, value]
+            properties:
+              from:
+                type: string
+              to:
+                type: string
+              value:
+                type: string
+                description: Amount in wei (decimal string)
 
     ContractCall:
       type: object

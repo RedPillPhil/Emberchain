@@ -7,6 +7,18 @@
  */
 import type { TransactionStatus } from './transactionStatus';
 
+export interface TransactionLog {
+  address: string;
+  topics: string[];
+  data: string;
+}
+
+export interface TransactionInternalTransfer {
+  from: string;
+  to: string;
+  value: string;
+}
+
 export interface Transaction {
   hash: string;
   from: string;
@@ -27,4 +39,6 @@ export interface Transaction {
   /** @nullable */
   returnData?: string | null;
   createdAt: Date;
+  logs?: TransactionLog[];
+  internalTransfers?: TransactionInternalTransfer[];
 }
