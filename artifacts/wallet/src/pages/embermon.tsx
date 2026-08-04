@@ -44,7 +44,7 @@ export default function NiftyMonPage() {
             </p>
           </div>
           <Link
-            href="/"
+            href="/wallet"
             className="text-xs font-bold uppercase tracking-widest text-muted-foreground hover:text-primary flex items-center gap-1 shrink-0"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
@@ -58,23 +58,25 @@ export default function NiftyMonPage() {
           <strong className="text-foreground">{handheld ? "NiftyBoy" : "NiftyVision"}</strong>.
         </p>
 
-        <TournamentPanel
-          handheld={handheld}
-          formatJackpot={comp.formatJackpot}
-          inWindow={comp.inWindow}
-          entryStatus={comp.entryStatus}
-          practiceMode={comp.practiceMode}
-          windowLines={comp.windowLines}
-          countdownLabel={comp.countdownLabel}
-          countdownText={comp.countdownText}
-          countdownMode={comp.countdownMode}
-          settlePending={comp.settlePending}
-          unsettledPotLabel={comp.unsettledPotLabel}
-          busy={comp.busy}
-          contractConfigured={comp.contractConfigured}
-          onEnter={() => void comp.enterCompetition()}
-          onSettle={() => void comp.settleWinners()}
-        />
+        {playing && (
+          <TournamentPanel
+            handheld={handheld}
+            formatJackpot={comp.formatJackpot}
+            inWindow={comp.inWindow}
+            entryStatus={comp.entryStatus}
+            practiceMode={comp.practiceMode}
+            windowLines={comp.windowLines}
+            countdownLabel={comp.countdownLabel}
+            countdownText={comp.countdownText}
+            countdownMode={comp.countdownMode}
+            settlePending={comp.settlePending}
+            unsettledPotLabel={comp.unsettledPotLabel}
+            busy={comp.busy}
+            contractConfigured={comp.contractConfigured}
+            onEnter={() => void comp.enterCompetition()}
+            onSettle={() => void comp.settleWinners()}
+          />
+        )}
 
         {handheld ? (
           <>

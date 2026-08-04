@@ -6,7 +6,7 @@ import { formatEmbr } from "@/lib/utils";
 import {
   Flame, Database, Clock, Activity, Zap, Cpu,
   ArrowUpRight, Users, QrCode, Copy, Check,
-  ShieldAlert, ShieldCheck, Share2, RefreshCw,
+  ShieldAlert, ShieldCheck, Share2, RefreshCw, Wallet,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,8 @@ import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 import { BackupDialog } from "@/components/backup-dialog";
 import { isBackupConfirmed } from "@/lib/keystore";
+import { addEmberToMetaMask } from "@/lib/metamask";
+import { useToast } from "@/hooks/use-toast";
 
 // Need Blocks icon
 import { Blocks } from "lucide-react";
@@ -35,6 +37,8 @@ export default function Dashboard() {
   const [copied, setCopied]             = useState(false);
   const [showBackup, setShowBackup]     = useState(false);
   const [backedUp, setBackedUp]         = useState(false);
+  const [metaMaskBusy, setMetaMaskBusy] = useState(false);
+  const { toast } = useToast();
 
   // Re-check backup flag whenever the dialog closes or wallet changes
   useEffect(() => {
@@ -73,6 +77,20 @@ export default function Dashboard() {
     setRefreshing(true);
     try { await Promise.all([refetchWallet(), refetchChain(), refetchMining()]); }
     finally { setRefreshing(false); }
+  };
+
+  const handleAddToMetaMask = async () => {
+    setMetaMaskBusy(true);
+    try {
+      const result = await addEmberToMetaMask();
+      toast({
+        title: result.ok ? "MetaMask updated" : "MetaMask",
+        description: result.message,
+        variant: result.ok ? "default" : "destructive",
+      });
+    } finally {
+      setMetaMaskBusy(false);
+    }
   };
 
   // Track balance changes to animate
@@ -122,24 +140,36 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Backup button — always accessible from header area */}
+        {/* Backup + MetaMask */}
         {activeWallet && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setShowBackup(true)}
-            className={cn(
-              "gap-1.5 text-xs",
-              backedUp
-                ? "border-green-500/30 text-green-400 hover:bg-green-500/10"
-                : "border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
-            )}
-          >
-            {backedUp
-              ? <><ShieldCheck className="w-3.5 h-3.5" /> Backed Up</>
-              : <><ShieldAlert className="w-3.5 h-3.5" /> Backup Wallet</>
-            }
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleAddToMetaMask}
+              disabled={metaMaskBusy}
+              className="gap-1.5 text-xs border-primary/30 text-primary hover:bg-primary/10"
+            >
+              <Wallet className="w-3.5 h-3.5" />
+              {metaMaskBusy ? "Adding…" : "Add to MetaMask"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowBackup(true)}
+              className={cn(
+                "gap-1.5 text-xs",
+                backedUp
+                  ? "border-green-500/30 text-green-400 hover:bg-green-500/10"
+                  : "border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+              )}
+            >
+              {backedUp
+                ? <><ShieldCheck className="w-3.5 h-3.5" /> Backed Up</>
+                : <><ShieldAlert className="w-3.5 h-3.5" /> Backup Wallet</>
+              }
+            </Button>
+          </div>
         )}
       </div>
 

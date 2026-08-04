@@ -30,7 +30,7 @@ export default function Setup() {
   const fileInputRef                = useRef<HTMLInputElement>(null);
 
   if (isLoaded && activeWallet) {
-    return <Redirect to="/" />;
+    return <Redirect to="/wallet" />;
   }
 
   // ── Create wallet (pure client-side cryptography) ──────────────────────────

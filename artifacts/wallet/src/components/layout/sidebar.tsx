@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 
 export const navItems: Array<{ href: string; label: string; icon: React.ComponentType<{ className?: string }>; highlight?: boolean; external?: boolean }> = [
-  { href: "/", label: "OVERVIEW", icon: Activity },
+  { href: "/wallet", label: "OVERVIEW", icon: Activity },
   { href: "/send", label: "TRANSFER", icon: Send },
   { href: "/onramp", label: "BUY EMBR", icon: CreditCard, highlight: true },
   { href: "/exchange", label: "EXCHANGE", icon: Store },

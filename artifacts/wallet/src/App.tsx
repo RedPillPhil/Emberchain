@@ -12,6 +12,7 @@ setBaseUrl(resolveApiServer());
 // ── Lazy-load every page so only the current route's code is fetched ──────────
 // This prevents all 500KB+ of page source (emberswap, exchange, ledger, etc.)
 // from being downloaded and parsed on startup.
+const Landing           = React.lazy(() => import('@/pages/landing'));
 const Dashboard         = React.lazy(() => import('@/pages/dashboard'));
 const Setup             = React.lazy(() => import('@/pages/setup'));
 const Send              = React.lazy(() => import('@/pages/send'));
@@ -51,7 +52,8 @@ function Router() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Switch>
-        <Route path="/" component={Dashboard} />
+        <Route path="/" component={Landing} />
+        <Route path="/wallet" component={Dashboard} />
         <Route path="/setup" component={Setup} />
         <Route path="/send" component={Send} />
         <Route path="/mining" component={Mining} />

@@ -46,7 +46,12 @@ interface OrderFormProps {
   onClearFillSelection?: () => void;
 }
 
-const EXPIRES_BLOCKS = 43_200n;
+/**
+ * Contract still requires an `expires` block, but we set it so far in the future
+ * that orders effectively never expire (no ~1 day delist).
+ * Max uint256 would work too; 2^255-1 stays clear of signed-int edge cases in tooling.
+ */
+const ORDER_EXPIRES_BLOCK = (1n << 255n) - 1n;
 
 function DepositRequiredDialog({
   error,
@@ -368,8 +373,7 @@ export const OrderForm = React.memo(function OrderForm({
     toast('Check MetaMask — sign your order…');
 
     try {
-      const currentBlock = publicClient ? await publicClient.getBlockNumber() : 0n;
-      const expires = currentBlock + EXPIRES_BLOCKS;
+      const expires = ORDER_EXPIRES_BLOCK;
       const nonce = BigInt(Date.now());
 
       const amountGetWei  = side === 'sell' ? parseEther((priceNum * amountNum).toFixed(18)) : parseEther(amountNum.toFixed(18));

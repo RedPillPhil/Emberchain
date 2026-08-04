@@ -23,7 +23,7 @@ export function Shell({ children, requireWallet = true }: { children: React.Reac
   }
 
   if (location.pathname === '/setup' && activeWallet) {
-    return <Redirect to="/" />;
+    return <Redirect to="/wallet" />;
   }
 
   return (
