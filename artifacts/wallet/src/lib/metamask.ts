@@ -26,8 +26,14 @@ function emberRpcUrl(): string {
   return `${siteOrigin()}/api/rpc`;
 }
 
+function emberLogoUrls(): string[] {
+  const origin = siteOrigin();
+  // MetaMask reliably shows PNG for custom-chain native currency; SVG often shows "?".
+  return [`${origin}/ember-coin.png`, `${origin}/ember-coin.svg`];
+}
+
 function emberLogoUrl(): string {
-  return `${siteOrigin()}/ember-coin.svg`;
+  return emberLogoUrls()[0];
 }
 
 export async function addEmberToMetaMask(): Promise<{ ok: boolean; message: string }> {
@@ -48,13 +54,21 @@ export async function addEmberToMetaMask(): Promise<{ ok: boolean; message: stri
           nativeCurrency: { name: "EMBR", symbol: "EMBR", decimals: 18 },
           rpcUrls: [emberRpcUrl()],
           blockExplorerUrls: [`${siteOrigin()}/ledger`],
-          iconUrls: [logo],
+          iconUrls: emberLogoUrls(),
         },
       ],
     });
   } catch (err: unknown) {
     const code = (err as { code?: number })?.code;
-    if (code !== 4001 && code !== -32603) {
+    // 4902 = already added — try switching so MetaMask refreshes network context
+    if (code === 4902) {
+      try {
+        await provider.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: EMBER_CHAIN_ID }],
+        });
+      } catch { /* continue to wEMBR step */ }
+    } else if (code !== 4001 && code !== -32603) {
       return { ok: false, message: "Could not add Emberchain network to MetaMask." };
     }
   }
