@@ -127,27 +127,16 @@ router.post("/sync/peers", (req: Request, res: Response): void => {
  * snapshot from the given peer.  Used to resolve chain forks manually.
  * POST /api/sync/force-resync  { "peer": "https://emberchain.duckdns.org" }
  */
-/** Backfill logs / internalTransfers on historical txs (holds EVM lock; can take minutes). */
-router.post("/sync/reindex-receipts", async (req: Request, res: Response): Promise<void> => {
-  const secret = process.env.CHAIN_NODE_INTERNAL_SECRET ?? process.env.SESSION_SECRET;
-  const auth = req.headers["x-internal-secret"];
-  if (!secret || auth !== secret) {
-    res.status(403).json({ error: "Forbidden" });
-    return;
-  }
-  try {
-    console.log("[admin] reindex-receipts: starting…");
-    const result = await chain.reindexReceiptMetadata();
-    console.log(`[admin] reindex-receipts complete: ${JSON.stringify(result)}`);
-    res.json({ ok: true, ...result });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[admin] reindex-receipts failed: ${msg}`);
-    res.status(500).json({ error: msg });
-  }
+/** DISABLED — this wiped production balances. Do not re-enable. Use patch-tx-meta only. */
+router.post("/sync/reindex-receipts", async (_req: Request, res: Response): Promise<void> => {
+  res.status(410).json({
+    error:
+      "reindex-receipts is permanently disabled (it reset EVM state on pruned chains). " +
+      "For a single historical tx use POST /api/sync/patch-tx-meta instead.",
+  });
 });
 
-/** Manually attach internalTransfers to one tx (for pruned chains where reindex cannot run). */
+/** Manually attach internalTransfers to one tx — does NOT reset balances or replay the chain. */
 router.post("/sync/patch-tx-meta", async (req: Request, res: Response): Promise<void> => {
   const secret = process.env.CHAIN_NODE_INTERNAL_SECRET ?? process.env.SESSION_SECRET;
   const auth = req.headers["x-internal-secret"];

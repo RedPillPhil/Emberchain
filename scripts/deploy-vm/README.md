@@ -60,6 +60,26 @@ pnpm --filter @workspace/chain-node run build
 sudo systemctl restart emberchain-node
 ```
 
+## Chain.json rolling backups (required on seed)
+
+```bash
+cd /root/Emberchain/emberchain
+git pull
+chmod +x scripts/deploy-vm/backup-chain-json.sh
+
+# Run once now
+bash scripts/deploy-vm/backup-chain-json.sh
+
+# Every 3 hours on the hour
+crontab -e
+# add:
+# 0 */3 * * * /root/Emberchain/emberchain/scripts/deploy-vm/backup-chain-json.sh >>/var/log/emberchain-chain-backup.log 2>&1
+```
+
+Retention: keep all 3-hourly copies for days 0–2; then thin to 4/day (age 3–4), 2/day (age 5–9), 1/day (age ≥10). Also maintains `chain.json.bak-latest`.
+
+**Never** call `POST /api/sync/reindex-receipts` — permanently disabled after a production wipe. Use `patch-tx-meta` for single-tx explorer metadata only.
+
 ## Verify
 
 ```bash

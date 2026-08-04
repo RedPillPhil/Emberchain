@@ -2577,53 +2577,19 @@ export class Blockchain {
   }
 
   /**
-   * One-shot backfill: replay the canonical chain into a fresh EVM and persist
-   * logs / internalTransfers on mined txs that predate receipt indexing.
-   * Holds the EVM lock for the duration (can take minutes on a long chain).
-   *
-   * Requires an unpruned chain starting at genesis (block 0). On pruned seeds,
-   * use POST /api/sync/patch-tx-meta for individual txs instead.
+   * Permanently disabled — previously reset EVM state and replayed a pruned
+   * block window, wiping production balances. Use patchTransactionMeta instead.
    */
   async reindexReceiptMetadata(): Promise<{ updated: number; height: number }> {
-    await this.whenReady();
-    return this.withEvmLock(async () => {
-      const genesis = this.blocks[0];
-      if (!genesis || genesis.number !== 0) {
-        throw new Error(
-          `Cannot reindex receipts: in-memory chain does not start at genesis ` +
-            `(oldest block #${genesis?.number ?? "?"}). File pruning keeps only the ` +
-            `last ~2000 blocks. Patch individual txs via /api/sync/patch-tx-meta, ` +
-            `or import a full snapshot that includes genesis.`,
-        );
-      }
-      let candidates = 0;
-      for (const tx of this.transactions.values()) {
-        if (tx.status === "success" && !(tx.logs?.length) && !(tx.internalTransfers?.length)) {
-          candidates++;
-        }
-      }
-      console.log(
-        `[chain] Reindexing receipt metadata for ~${candidates} mined tx(s) without logs ` +
-          `(height ${this.blocks.length - 1})…`,
-      );
-      this.stateManager = createStateManager(this.common);
-      this.evm = await createEVM({ common: this.common, stateManager: this.stateManager });
-      await this.replayChainEVM(this.blocks, new Map());
-      let withInternals = 0;
-      for (const tx of this.transactions.values()) {
-        if ((tx.internalTransfers?.length ?? 0) > 0) withInternals++;
-      }
-      this.persist();
-      console.log(
-        `[chain] Receipt reindex complete — ${withInternals} tx(s) now have internalTransfers`,
-      );
-      return { updated: withInternals, height: this.blocks.length - 1 };
-    });
+    throw new Error(
+      "reindexReceiptMetadata is permanently disabled after a production state wipe. " +
+        "Use patchTransactionMeta for individual txs.",
+    );
   }
 
   /**
    * Manually attach internalTransfers (and optional logs) to a mined tx.
-   * Used when full genesis reindex is unavailable (pruned block history).
+   * Does NOT reset balances or replay the chain.
    */
   async patchTransactionMeta(
     hash: string,
