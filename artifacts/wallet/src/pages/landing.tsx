@@ -256,16 +256,44 @@ export default function LandingPage() {
       </section>
 
       <section className="landing-section" id="team">
-        <p className="landing-kicker">Project &amp; contact</p>
-        <h2 className="landing-section-title">Open source &amp; transparent</h2>
+        <p className="landing-kicker">Team</p>
+        <h2 className="landing-section-title">Built by builders</h2>
         <p className="landing-body">
-          Emberchain is maintained in the open. Source code, contract addresses, and release
-          artifacts are published on GitHub. For token listing inquiries and official
-          correspondence, use the project email on the same domain as this website.
+          Emberchain is developed in the open with transparent governance, public source code,
+          and direct community contact on the same domain as this website.
         </p>
-        <div className="landing-team-grid">
+
+        <div className="landing-team-members">
+          <article className="landing-team-member">
+            <div className="landing-team-member-header">
+              <img src="/ember-coin.svg" alt="" className="landing-team-avatar" width={56} height={56} />
+              <div>
+                <h3 className="landing-team-member-name">Robaire Tomas</h3>
+                <p className="landing-team-member-role">Founder &amp; Lead Developer</p>
+                <a
+                  href="https://x.com/RobaireCrypto"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="landing-team-member-handle"
+                >
+                  @RobaireCrypto
+                </a>
+              </div>
+            </div>
+            <p className="landing-team-member-bio">
+              Robaire is a software developer and crypto investor active in the space since 2016.
+              Before founding Emberchain, he spent years at Amazon working in AI development —
+              building production systems at scale and shipping features used by millions of users.
+              He brings that same engineering discipline to Emberchain: a mineable L1 with real
+              EVM execution, privacy tooling, and cross-chain DeFi — designed to be usable from
+              day one, not just whitepaper promises.
+            </p>
+          </article>
+        </div>
+
+        <div className="landing-team-grid" style={{ marginTop: "2rem" }}>
           <div className="landing-team-card">
-            <h4>Lead maintainer</h4>
+            <h4>Open source</h4>
             <p>
               <a href={GITHUB} target="_blank" rel="noreferrer">
                 RedPillPhil / Emberchain on GitHub

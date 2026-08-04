@@ -12,6 +12,7 @@ import dexOrdersRouter from "./dex-orders";
 import bridgeRouter from "./bridge";
 import bridgeScanRouter from "./bridge-scan";
 import privacyRouter from "./privacy";
+import contractsRouter from "./contracts";
 import { requireInternalAuth } from "../lib/internal-auth";
 
 const router = Router();
@@ -28,6 +29,7 @@ router.use(dexOrdersRouter);
 router.use(bridgeRouter);
 router.use(bridgeScanRouter);
 router.use(privacyRouter);
+router.use(contractsRouter);
 // All /api/internal/* routes require service-to-service auth (shared bearer secret).
 router.use("/internal", requireInternalAuth, internalRouter);
 

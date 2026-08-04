@@ -16,6 +16,8 @@ User=root
 WorkingDirectory=/root/Emberchain/emberchain/artifacts/chain-node
 Environment="PORT=8080"
 Environment="NODE_ENV=production"
+# Contract registry (shared with api-server — required for token/contract explorer)
+Environment="DATABASE_URL=postgresql://ember:REPLACE_PG_PASS@127.0.0.1:5432/emberchain"
 # Do NOT set MINING_DISABLED=true on the seed server — browser miners use this node.
 
 # Keep blocks flowing so submitted txs confirm (~8s target). Use intensity 1 only.

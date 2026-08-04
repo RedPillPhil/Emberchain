@@ -78,13 +78,54 @@ export async function upsertContractRecord(data: {
   );
 }
 
-export async function getContractRecord(address: string): Promise<{ isToken: boolean; name: string | null } | null> {
+export interface ContractRecord {
+  address: string;
+  abi: object[] | null;
+  name: string | null;
+  symbol: string | null;
+  decimals: number | null;
+  totalSupply: string | null;
+  isToken: boolean;
+  creator: string | null;
+  creatorTx: string | null;
+  createdAt: string;
+}
+
+function rowToRecord(row: Record<string, unknown>): ContractRecord {
+  return {
+    address:     row["address"] as string,
+    abi:         (row["abi"] as object[] | null) ?? null,
+    name:        (row["name"] as string | null) ?? null,
+    symbol:      (row["symbol"] as string | null) ?? null,
+    decimals:    (row["decimals"] as number | null) ?? null,
+    totalSupply: (row["total_supply"] as string | null) ?? null,
+    isToken:     (row["is_token"] as boolean) ?? false,
+    creator:     (row["creator"] as string | null) ?? null,
+    creatorTx:   (row["creator_tx"] as string | null) ?? null,
+    createdAt:   (row["created_at"] as Date).toISOString(),
+  };
+}
+
+export async function getContractRecord(address: string): Promise<ContractRecord | null> {
   try {
     const res = await pool.query(
-      "SELECT is_token, name FROM contract_registry WHERE address = $1",
+      "SELECT * FROM contract_registry WHERE address = $1",
       [address.toLowerCase()],
     );
-    if (!res.rows[0]) return null;
-    return { isToken: res.rows[0]["is_token"] as boolean, name: res.rows[0]["name"] as string | null };
+    return res.rows[0] ? rowToRecord(res.rows[0]) : null;
   } catch { return null; }
+}
+
+export async function listTokens(): Promise<ContractRecord[]> {
+  const res = await pool.query(
+    "SELECT * FROM contract_registry WHERE is_token = true ORDER BY created_at ASC",
+  );
+  return res.rows.map(rowToRecord);
+}
+
+export async function listContracts(): Promise<ContractRecord[]> {
+  const res = await pool.query(
+    "SELECT * FROM contract_registry ORDER BY created_at DESC",
+  );
+  return res.rows.map(rowToRecord);
 }

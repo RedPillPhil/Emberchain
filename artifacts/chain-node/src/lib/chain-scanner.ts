@@ -38,19 +38,23 @@ async function detectERC20(address: string): Promise<{
 
 const indexed = new Set<string>();
 
-async function scanOnce(): Promise<void> {
+/** Scan chain txs for contract deployments and populate contract_registry. */
+export async function rescanContracts(force = false): Promise<number> {
   const txs = await chain.listTransactions(undefined, 1_000_000);
   const deployments = txs.filter(
     (tx) => tx.to === null && tx.status === "success" && tx.contractAddress,
   );
-  if (deployments.length === 0) return;
+  if (deployments.length === 0) return 0;
 
   let added = 0;
   for (const tx of deployments) {
     const addr = tx.contractAddress!.toLowerCase();
-    if (indexed.has(addr)) continue;
+    if (!force && indexed.has(addr)) continue;
     const existing = await getContractRecord(addr);
-    if (existing && (existing.isToken || existing.name)) { indexed.add(addr); continue; }
+    if (!force && existing && (existing.isToken || existing.name)) {
+      indexed.add(addr);
+      continue;
+    }
 
     const erc20 = await detectERC20(addr);
     await upsertContractRecord({
@@ -74,6 +78,11 @@ async function scanOnce(): Promise<void> {
     }
   }
   if (added > 0) logger.info({ discovered: added }, "[scanner] scan complete");
+  return added;
+}
+
+async function scanOnce(): Promise<void> {
+  await rescanContracts(false);
 }
 
 let _timer: ReturnType<typeof setInterval> | null = null;
@@ -85,7 +94,9 @@ export function startChainScanner(): void {
     return;
   }
   ensureContractTable()
-    .then(() => scanOnce())
+    .then(async () => {
+      await rescanContracts(true);
+    })
     .catch((err: Error) => logger.warn({ err: err.message }, "[scanner] initial scan error"));
   _timer = setInterval(() => {
     scanOnce().catch((err: Error) =>
