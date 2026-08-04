@@ -18,6 +18,18 @@ cd "$REPO_ROOT"
 echo "→ git pull"
 git pull origin main
 
+echo "→ disk check"
+df -h / | tail -1
+INODE_USE="$(df -i / 2>/dev/null | tail -1 | awk '{print $5}' | tr -d '%' || echo 0)"
+DISK_USE="$(df / | tail -1 | awk '{print $5}' | tr -d '%')"
+if [[ "${INODE_USE:-0}" -gt 95 ]] || [[ "${DISK_USE:-0}" -gt 95 ]]; then
+  echo "⚠ Low disk or inodes — running free-disk-for-build.sh"
+  bash "$(dirname "$0")/free-disk-for-build.sh"
+fi
+
+echo "→ clear stale dist (frees space before vite write)"
+rm -rf "${REPO_ROOT}/artifacts/wallet/dist" "${REPO_ROOT}/artifacts/ember-delta/dist"
+
 echo "→ pnpm install"
 pnpm install --frozen-lockfile 2>/dev/null || pnpm install
 
