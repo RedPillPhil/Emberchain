@@ -1,0 +1,64 @@
+import { assert, test } from "vitest";
+import { resetCache, resetG } from "../../../test/helpers.ts";
+import { finances, player, team } from "../index.ts";
+import { idb } from "../../db/index.ts";
+import { g, helpers } from "../../util/index.ts";
+import { DEFAULT_LEVEL } from "../../../common/budgetLevels.ts";
+
+test("store payroll and appropriately assess luxury and minimum payroll taxes for each team", async () => {
+	resetG();
+
+	// Three teams. One above the luxury payroll, one below the minimum payroll, and one in between.
+	g.setWithoutSavingToDB("numTeams", 3);
+	g.setWithoutSavingToDB("numActiveTeams", 3);
+
+	// One player per team is all that's needed for payroll calculation.
+	const players = [
+		player.generate(0, 30, 2017, true, DEFAULT_LEVEL),
+		player.generate(1, 30, 2017, true, DEFAULT_LEVEL),
+		player.generate(2, 30, 2017, true, DEFAULT_LEVEL),
+	] as const;
+	players[0].contract.amount = g.get("luxuryPayroll") + 1;
+	players[1].contract.amount =
+		(g.get("luxuryPayroll") + g.get("minPayroll")) / 2;
+	players[2].contract.amount = g.get("minPayroll") - 1;
+
+	const teamsDefault = helpers.getTeamsDefault().slice(0, 3);
+
+	await resetCache({
+		players,
+		teamSeasons: teamsDefault.map((t) => team.genSeasonRow(t)),
+		teams: teamsDefault.map(team.generate),
+	});
+
+	await finances.assessPayrollMinLuxury();
+	const teamSeasons = await idb.cache.teamSeasons.getAll();
+	assert.strictEqual(teamSeasons.length, g.get("numActiveTeams"));
+
+	for (let i = 0; i < g.get("numActiveTeams"); i++) {
+		const teamSeason = teamSeasons[i];
+		assert(teamSeason);
+		assert(teamSeason.payrollEndOfSeason > 0);
+
+		if (teamSeason.payrollEndOfSeason > g.get("luxuryPayroll")) {
+			assert.strictEqual(
+				teamSeason.expenses.luxuryTax,
+				g.get("luxuryTax") *
+					(teamSeason.payrollEndOfSeason - g.get("luxuryPayroll")),
+			);
+			assert.strictEqual(teamSeason.expenses.luxuryTax, g.get("luxuryTax") * 1);
+		} else {
+			assert.strictEqual(teamSeason.expenses.luxuryTax, 0);
+		}
+
+		if (teamSeason.payrollEndOfSeason < g.get("minPayroll")) {
+			assert.strictEqual(
+				teamSeason.expenses.minTax,
+				g.get("minPayroll") - teamSeason.payrollEndOfSeason,
+			);
+			assert.strictEqual(teamSeason.expenses.minTax, 1);
+		} else {
+			assert.strictEqual(teamSeason.expenses.minTax, 0);
+		}
+	}
+});

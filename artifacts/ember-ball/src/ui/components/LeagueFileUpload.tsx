@@ -1,0 +1,378 @@
+import {
+	useEffect,
+	useId,
+	useReducer,
+	useRef,
+	useState,
+	type ChangeEvent,
+	type SyntheticEvent,
+} from "react";
+import { ProgressBarText } from "./ProgressBarText.tsx";
+import {
+	LEAGUE_DATABASE_VERSION,
+	GAME_NAME,
+	WEBSITE_ROOT,
+} from "../../common/constants.ts";
+import type { BasicInfo } from "../../worker/api/leagueFileUpload.ts";
+import { toWorker } from "../util/toWorker.ts";
+import simpleGameAttributesUpgrade from "../../common/simpleGameAttributesUpgrade.ts";
+import { resetFileInput } from "../util/resetFileInput.ts";
+import { localActions, useLocal } from "../util/local.ts";
+
+const ErrorMessage = ({ error }: { error: Error | null }) => {
+	if (!error) {
+		return "Unknown error";
+	}
+
+	if (error instanceof LeagueFileVersionError) {
+		return (
+			<>
+				This league file is a newer format (version {error.version}) than is
+				supported by your version of {GAME_NAME} (version{" "}
+				{LEAGUE_DATABASE_VERSION}). Please{" "}
+				<a
+					href={`https://${WEBSITE_ROOT}/manual/faq/#latest-version`}
+					target="_blank"
+				>
+					make sure you have the latest version of the game loaded
+				</a>
+				.
+			</>
+		);
+	}
+
+	return error.message;
+};
+
+const styleStatus = {
+	maxWidth: 400,
+};
+
+export type LeagueFileUploadOutput = {
+	basicInfo: BasicInfo;
+	file?: File;
+	url?: string;
+};
+
+type State = {
+	error: Error | null;
+	schemaErrors: any[];
+	status: "initial" | "checking" | "error" | "done";
+};
+
+const initialState: State = {
+	error: null,
+	schemaErrors: [],
+	status: "initial",
+};
+
+const reducer = (state: State, action: any): State => {
+	switch (action.type) {
+		case "init":
+			return {
+				error: null,
+				schemaErrors: [],
+				status: "initial",
+			};
+
+		case "schemaErrors":
+			console.log("JSON Schema validation errors:");
+			console.log(action.schemaErrors);
+			return { ...state, schemaErrors: action.schemaErrors };
+
+		case "error": {
+			console.error(action.error);
+			return { ...state, error: action.error, status: "error" };
+		}
+
+		case "done":
+			return { ...state, error: null, status: "done" };
+
+		case "checking":
+			return {
+				error: null,
+				schemaErrors: [],
+				status: "checking",
+			};
+
+		default:
+			throw new Error();
+	}
+};
+
+class LeagueFileVersionError extends Error {
+	public version: number;
+	constructor(version: number) {
+		super("");
+		this.version = version;
+		this.name = "LeagueFileVersionError";
+	}
+}
+
+export const LeagueFileUpload = ({
+	disabled,
+	enterURL,
+	includePlayersInBasicInfo,
+	onDone,
+	onLoading,
+}: {
+	onDone: (b: Error | LeagueFileUploadOutput) => void;
+	disabled?: boolean;
+	enterURL?: boolean;
+	includePlayersInBasicInfo?: boolean;
+	// onLoading is called when it starts reading the file into memory
+	onLoading?: () => void;
+}) => {
+	const [url, setURL] = useState("");
+	const [state, dispatch] = useReducer(reducer, initialState);
+	const isMounted = useRef(true);
+	useEffect(() => {
+		return () => {
+			isMounted.current = false;
+		};
+	}, []);
+
+	const leagueCreationID = useId();
+	const { leagueCreation, leagueCreationPercent } = useLocal([
+		"leagueCreation",
+		"leagueCreationPercent",
+	]);
+
+	// Reset status when switching between file upload
+	useEffect(() => {
+		dispatch({
+			type: "init",
+		});
+	}, [enterURL]);
+
+	const beforeFile = () => {
+		if (onLoading) {
+			onLoading();
+		}
+	};
+
+	const afterCheck = async ({
+		basicInfo,
+		file,
+		schemaErrors,
+		url,
+	}: LeagueFileUploadOutput & {
+		schemaErrors: any[];
+	}) => {
+		if (schemaErrors.length > 0) {
+			dispatch({
+				type: "schemaErrors",
+				schemaErrors,
+			});
+		}
+
+		// Handle whatever upgrades we can ASAP, so CustomizeSettings in a new league has the best chance to work (and other stuff too)
+		if (basicInfo?.gameAttributes) {
+			simpleGameAttributesUpgrade(basicInfo.gameAttributes, basicInfo.version);
+		}
+
+		if (
+			basicInfo &&
+			basicInfo.version !== undefined &&
+			basicInfo.version > LEAGUE_DATABASE_VERSION
+		) {
+			const error = new LeagueFileVersionError(basicInfo.version);
+
+			if (isMounted.current) {
+				dispatch({
+					type: "error",
+					error,
+				});
+				onDone(error);
+			}
+			return;
+		}
+
+		try {
+			await onDone({
+				basicInfo,
+				file,
+				url,
+			});
+		} catch (error) {
+			if (isMounted.current) {
+				dispatch({
+					type: "error",
+					error,
+				});
+				onDone(error);
+			}
+			return;
+		}
+
+		if (isMounted.current) {
+			dispatch({
+				type: "done",
+			});
+		}
+	};
+
+	const handleFileURL = async (event: SyntheticEvent) => {
+		event.preventDefault();
+
+		beforeFile();
+
+		dispatch({
+			type: "checking",
+		});
+
+		try {
+			const { basicInfo, schemaErrors } = await toWorker(
+				"leagueFileUpload",
+				"initialCheck",
+				{
+					file: url,
+					includePlayersInBasicInfo,
+					leagueCreationID,
+				},
+			);
+
+			await afterCheck({
+				basicInfo,
+				schemaErrors,
+				url,
+			});
+
+			localActions.update({
+				leagueCreation: undefined,
+				leagueCreationPercent: undefined,
+			});
+		} catch (error) {
+			if (isMounted.current) {
+				dispatch({
+					type: "error",
+					error,
+				});
+				onDone(error);
+			}
+
+			return;
+		}
+	};
+
+	const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+		beforeFile();
+		const file = event.currentTarget.files?.[0];
+
+		if (!file) {
+			dispatch({
+				type: "init",
+			});
+			return;
+		}
+
+		dispatch({
+			type: "checking",
+		});
+
+		try {
+			const { basicInfo, schemaErrors } = await toWorker(
+				"leagueFileUpload",
+				"initialCheck",
+				{
+					file,
+					includePlayersInBasicInfo,
+					leagueCreationID,
+				},
+			);
+
+			await afterCheck({
+				basicInfo,
+				file,
+				schemaErrors,
+			});
+		} catch (error) {
+			if (isMounted.current) {
+				dispatch({
+					type: "error",
+					error,
+				});
+				onDone(error);
+			}
+
+			return;
+		}
+	};
+
+	return (
+		<>
+			{enterURL ? (
+				<div className="d-flex">
+					<input
+						type="text"
+						className="form-control me-2"
+						placeholder="URL"
+						value={url}
+						onChange={(event) => {
+							setURL(event.target.value);
+						}}
+						onKeyDown={(event) => {
+							// This is so "Enter" loads the file, rather than doing nothing or submitting the whole form
+							if (event.key === "Enter") {
+								handleFileURL(event);
+							}
+						}}
+					/>
+					<button
+						className="btn btn-secondary ml-2"
+						onClick={handleFileURL}
+						disabled={disabled || state.status === "checking"}
+					>
+						Load
+					</button>
+				</div>
+			) : (
+				<input
+					type="file"
+					accept=".json,.gz,application/json,application/gzip"
+					onClick={resetFileInput}
+					onChange={handleFileUpload}
+					disabled={disabled || state.status === "checking"}
+				/>
+			)}
+			<div style={styleStatus}>
+				{state.status === "error" ? (
+					<p className="alert alert-danger mt-3">
+						Error: <ErrorMessage error={state.error} />
+					</p>
+				) : null}
+				{state.schemaErrors.length > 0 ? (
+					<p className="alert alert-warning mt-3">
+						Warning: {state.schemaErrors.length} JSON schema validation errors.
+						More detail is available in the JavaScript console. Also, see{" "}
+						<a
+							href={`https://${WEBSITE_ROOT}/manual/customization/json-schema/`}
+						>
+							the manual
+						</a>{" "}
+						for more information. You can still use this file, but these errors
+						may cause bugs.
+					</p>
+				) : null}
+				{state.status === "checking" ? (
+					<>
+						<div className="alert alert-info mt-3">
+							{leagueCreationPercent?.id === leagueCreationID ||
+							leagueCreation?.id === leagueCreationID ? (
+								<ProgressBarText
+									text={`Validating ${
+										leagueCreation?.status ?? "league file"
+									}...`}
+									percent={leagueCreationPercent?.percent ?? 0}
+								/>
+							) : null}
+						</div>
+					</>
+				) : null}
+				{state.status === "done" ? (
+					<p className="alert alert-success mt-3">Done!</p>
+				) : null}
+			</div>
+		</>
+	);
+};

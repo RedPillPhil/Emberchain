@@ -38,7 +38,7 @@ export CI=true
 pnpm install --frozen-lockfile --config.confirmModulesPurge=false 2>/dev/null \
   || pnpm install --config.confirmModulesPurge=false
 
-echo "→ build wallet + ember-delta"
+echo "→ build wallet + ember-delta + ember-ball"
 node scripts/build-vercel.mjs
 
 echo "→ publish to ${WEB_ROOT}"

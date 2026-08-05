@@ -1,0 +1,66 @@
+import type { ContainerState } from "@restart/ui/ModalManager";
+import { Modal as BaseModal } from "react-bootstrap";
+import BootstrapModalManager from "react-bootstrap/BootstrapModalManager";
+import { createNanoEvents } from "nanoevents";
+
+export const emitter = createNanoEvents<{
+	keepScrollToRight: () => void;
+}>();
+
+// If animation is enabled, the modal gets stuck open on Android Chrome 91. This happens only when clicking Cancel/Save - the X and clicking outside the modal still works to close it. All my code is working - show does get set false, it does get rendered, just still displayed. Disabling ads makes no difference. It works when calling programmatically wtih ButtonElement.click() but not with an actual click. Disabling animation fixes it though. Also https://mail.google.com/mail/u/0/#inbox/FMfcgzGkZGhkhtPsGFPFxcKxhvZFkHpl
+const animation = false;
+
+class MyModalManager extends BootstrapModalManager {
+	constructor() {
+		super();
+	}
+
+	override setContainerStyle(containerState: ContainerState) {
+		super.setContainerStyle(containerState);
+
+		if (!containerState.scrollBarWidth) {
+			return;
+		}
+
+		const element = document.querySelector(".league-top-bar-toggle");
+
+		// Element only exists within league
+		if (element instanceof HTMLElement) {
+			element.style.right = `${containerState.scrollBarWidth}px`;
+		}
+	}
+	override removeContainerStyle(containerState: ContainerState) {
+		super.removeContainerStyle(containerState);
+
+		if (!containerState.scrollBarWidth) {
+			return;
+		}
+
+		const element = document.querySelector(".league-top-bar-toggle");
+
+		// Element only exists within league
+		if (element instanceof HTMLElement) {
+			element.style.right = "";
+		}
+
+		emitter.emit("keepScrollToRight");
+	}
+}
+
+const manager = new MyModalManager();
+
+export const Modal = ({
+	children,
+	...props
+}: Parameters<typeof BaseModal>[0]) => {
+	return (
+		<BaseModal animation={animation} manager={manager} {...props}>
+			{children}
+		</BaseModal>
+	);
+};
+
+Modal.Body = BaseModal.Body;
+Modal.Footer = BaseModal.Footer;
+Modal.Header = BaseModal.Header;
+Modal.Title = BaseModal.Title;

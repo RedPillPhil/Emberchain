@@ -1,0 +1,630 @@
+import { useEffect, useRef, useState } from "react";
+import { Dropdown } from "react-bootstrap";
+import { helpers } from "../../util/helpers.ts";
+import { toWorker } from "../../util/toWorker.ts";
+import clsx from "clsx";
+import {
+	type Defaults,
+	formatPlayerBioInfoState,
+	isInvalidNumber,
+	type PageInfo,
+	parseAndValidate,
+	type PlayerBioInfoState,
+	prune,
+} from "./PlayerBioInfo.tsx";
+import PlayerBioInfoSortButton from "./PlayerBioInfoSortButton.tsx";
+import { IMPORT_FILE_STYLE } from "./RowsEditor.tsx";
+import { HelpPopover } from "../../components/HelpPopover.tsx";
+import { Modal } from "../../components/Modal.tsx";
+import { orderBy } from "../../../common/utils.ts";
+import { WEBSITE_ROOT } from "../../../common/constants.ts";
+import { downloadFile } from "../../util/downloadFile.ts";
+import { resetFileInput } from "../../util/resetFileInput.ts";
+import { CountryFlag } from "../../components/CountryFlag.tsx";
+
+export const smallColStyle = {
+	marginLeft: 10,
+	width: 81,
+};
+
+export const PlayerBioInfoRowButton = ({
+	className,
+	onClick,
+	title,
+	icon,
+}: {
+	className: string;
+	onClick: () => void;
+	title: string;
+	icon: string;
+}) => {
+	return (
+		<button
+			className={`${className} btn btn-link ps-2 pe-0 py-0 border-0`}
+			onClick={onClick}
+			style={{ fontSize: 20, marginTop: 10 }}
+			title={title}
+			type="button"
+		>
+			<span className={`glyphicon ${icon}`} />
+		</button>
+	);
+};
+
+// https://stackoverflow.com/a/35200633/786644
+const ImportButton = ({
+	defaults,
+	setErrorMessage,
+	setInfoState,
+}: {
+	defaults: Defaults | undefined;
+	setErrorMessage: (errorMessage?: string) => void;
+	setInfoState: (injuries: PlayerBioInfoState) => void;
+}) => (
+	<button
+		className="btn btn-light-bordered"
+		style={{ position: "relative", overflow: "hidden" }}
+		onClick={() => {}}
+	>
+		Import
+		<input
+			className="cursor-pointer"
+			type="file"
+			accept=".json,.gz,application/json,application/gzip"
+			style={IMPORT_FILE_STYLE}
+			onClick={resetFileInput}
+			onChange={async (event) => {
+				if (!event.target.files) {
+					return;
+				}
+				const file = event.target.files[0];
+				if (!file) {
+					return;
+				}
+
+				setErrorMessage();
+
+				try {
+					const { basicInfo } = await toWorker(
+						"leagueFileUpload",
+						"initialCheck",
+						{
+							file,
+						},
+					);
+
+					if (basicInfo.gameAttributes) {
+						setInfoState(
+							formatPlayerBioInfoState(
+								basicInfo.gameAttributes.playerBioInfo,
+								defaults,
+							),
+						);
+					} else {
+						setErrorMessage("League file does not contain any settings.");
+					}
+				} catch (error) {
+					setErrorMessage(error.message);
+				}
+			}}
+		/>
+	</button>
+);
+
+const ExportButton = ({
+	defaults,
+	infoState,
+}: {
+	defaults: Defaults;
+	infoState: PlayerBioInfoState;
+}) => {
+	return (
+		<button
+			className="btn btn-light-bordered"
+			onClick={() => {
+				const parsed = parseAndValidate(infoState);
+				const pruned = prune(parsed, defaults, true);
+
+				downloadFile(
+					"playerBioInfo.json",
+					JSON.stringify(
+						{ gameAttributes: { playerBioInfo: pruned } },
+						undefined,
+						2,
+					),
+					"application/json",
+				);
+			}}
+		>
+			Export
+		</button>
+	);
+};
+
+type SetInfoState = (
+	infoState:
+		| PlayerBioInfoState
+		| ((infoState: PlayerBioInfoState) => PlayerBioInfoState),
+) => void;
+
+type CountryRow = PlayerBioInfoState["countries"][number];
+
+const Controls = ({
+	defaults,
+	defaultsState,
+	infoState,
+	position,
+	setInfoState,
+}: {
+	defaults: Defaults;
+	defaultsState: PlayerBioInfoState;
+	infoState: PlayerBioInfoState;
+	position: "top" | "bottom";
+	setInfoState: SetInfoState;
+}) => {
+	const [importErrorMessage, setImportErrorMessage] = useState<
+		string | undefined
+	>();
+
+	const addCountry = (newCountry: CountryRow) => {
+		if (position === "top") {
+			setInfoState((data) => ({
+				...data,
+				countries: [newCountry, ...data.countries],
+			}));
+		} else {
+			setInfoState((data) => ({
+				...data,
+				countries: [...data.countries, newCountry],
+			}));
+		}
+	};
+
+	const currentCountryNames = new Set(
+		infoState.countries.map((row) => row.country),
+	);
+	const defaultCountriesAvailable = defaultsState.countries.filter(
+		(row) => !currentCountryNames.has(row.country),
+	);
+
+	return (
+		<>
+			<div className="d-flex align-items-center">
+				<div className="btn-group">
+					<Dropdown>
+						<Dropdown.Toggle
+							className="btn-light-bordered btn-light-bordered-group-left"
+							variant="foo"
+							id="dropdown-countries-add"
+						>
+							Add
+						</Dropdown.Toggle>
+
+						<Dropdown.Menu>
+							<Dropdown.Item
+								onClick={async () => {
+									const newCountry: CountryRow = {
+										id: Math.random(),
+										country: "Country",
+										frequency: "1",
+
+										builtIn: false,
+
+										defaultRaces: true,
+										races: [...infoState.defaultRaces],
+
+										defaultColleges: true,
+										colleges: [...infoState.defaultColleges],
+										fractionSkipCollege: "0.98",
+
+										defaultNames: false,
+										names: {
+											first: [],
+											last: [],
+										},
+
+										flag: undefined,
+									};
+
+									addCountry(newCountry);
+								}}
+							>
+								Custom
+							</Dropdown.Item>
+							{defaultCountriesAvailable.map((row) => (
+								<Dropdown.Item
+									key={row.id}
+									onClick={() => {
+										addCountry({ ...row });
+									}}
+								>
+									{row.country}
+								</Dropdown.Item>
+							))}
+						</Dropdown.Menu>
+					</Dropdown>
+					<Dropdown>
+						<Dropdown.Toggle
+							className="btn-light-bordered btn-light-bordered-group-left btn-light-bordered-group-right"
+							variant="foo"
+							id="dropdown-countries-reset"
+						>
+							Reset
+						</Dropdown.Toggle>
+
+						<Dropdown.Menu>
+							<Dropdown.Item
+								onClick={async () => {
+									setInfoState(formatPlayerBioInfoState(undefined, defaults));
+								}}
+							>
+								Default
+							</Dropdown.Item>
+							<Dropdown.Item
+								onClick={() => {
+									setInfoState((data) => ({
+										...data,
+										countries: [],
+									}));
+								}}
+							>
+								Clear
+							</Dropdown.Item>
+							<Dropdown.Item
+								onClick={() => {
+									setInfoState((data) => ({
+										...data,
+										countries: data.countries.map((row) => {
+											return {
+												...row,
+												frequency: "1",
+											};
+										}),
+									}));
+								}}
+							>
+								Set all frequencies to 1
+							</Dropdown.Item>
+						</Dropdown.Menu>
+					</Dropdown>
+					<PlayerBioInfoSortButton
+						type="countries"
+						onClick={(field, direction) => {
+							let countries: (typeof infoState)["countries"];
+							if (field === "country") {
+								countries = orderBy(infoState.countries, field, direction);
+							} else {
+								countries = orderBy(
+									infoState.countries,
+									(row) => Number.parseInt(row.frequency),
+									direction,
+								);
+							}
+							setInfoState((data) => ({
+								...data,
+								countries,
+							}));
+						}}
+					/>
+				</div>
+				<div className="btn-group ms-auto me-2">
+					<ImportButton
+						defaults={defaults}
+						setErrorMessage={setImportErrorMessage}
+						setInfoState={setInfoState}
+					/>
+					<ExportButton defaults={defaults} infoState={infoState} />
+				</div>
+				<HelpPopover>
+					See{" "}
+					<a
+						href={`https://${WEBSITE_ROOT}/manual/customization/names-countries-colleges/`}
+						target="_blank"
+					>
+						the manual
+					</a>{" "}
+					for more info on editing a player bio info file.
+				</HelpPopover>
+			</div>
+
+			{importErrorMessage ? (
+				<div className="text-danger mt-3">{importErrorMessage}</div>
+			) : null}
+		</>
+	);
+};
+
+export const CountriesEditor = ({
+	defaults,
+	defaultsState,
+	handleCancel,
+	handleChange,
+	handleSave,
+	onSetDefault,
+	onSetNone,
+	infoState,
+	setInfoState,
+	setPageInfo,
+	countriesScroll,
+	setCountriesScroll,
+}: {
+	defaults: Defaults;
+	defaultsState: PlayerBioInfoState;
+	handleCancel: any;
+	handleChange: any;
+	handleSave: any;
+	onSetDefault: (
+		type: "colleges" | "flag" | "names" | "races",
+		i: number,
+	) => void;
+	onSetNone: (type: "flag", i: number) => void;
+	infoState: PlayerBioInfoState;
+	setInfoState: SetInfoState;
+	setPageInfo: (pageInfo: PageInfo) => void;
+	countriesScroll: number;
+	setCountriesScroll: (scrollTop: number) => void;
+}) => {
+	const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+	const setPageInfoWrapper = (pageInfo: PageInfo) => {
+		setPageInfo(pageInfo);
+		setCountriesScroll(wrapperRef.current?.scrollTop ?? 0);
+	};
+
+	useEffect(() => {
+		if (wrapperRef.current && countriesScroll !== 0) {
+			wrapperRef.current.scrollTop = countriesScroll;
+			setCountriesScroll(0);
+		}
+	}, [countriesScroll, setCountriesScroll, wrapperRef]);
+
+	return (
+		<>
+			<Modal.Body ref={wrapperRef}>
+				<p>
+					By default, leagues can have players from any of the built-in
+					countries. Each built-in country comes with built-in names and races,
+					and they all share the same default colleges list. Here you can edit
+					any of that, or add custom countries.
+				</p>
+				<p>
+					The probability of a new player being from a certain country being
+					selected is its "frequency" value divided by the sum of all
+					frequencies. Names, colleges, and races work the same way.
+				</p>
+
+				<div className="mb-3">
+					<button
+						className="btn btn-secondary me-2"
+						onClick={() => {
+							setPageInfoWrapper({
+								name: "colleges",
+								index: "default",
+							});
+						}}
+					>
+						Edit default colleges
+					</button>
+					<button
+						className="btn btn-secondary"
+						onClick={() => {
+							setPageInfoWrapper({
+								name: "races",
+								index: "default",
+							});
+						}}
+					>
+						Edit default races
+					</button>
+				</div>
+
+				<Controls
+					defaults={defaults}
+					defaultsState={defaultsState}
+					position="top"
+					infoState={infoState}
+					setInfoState={setInfoState}
+				/>
+
+				{infoState.countries.length > 0 ? (
+					<form onSubmit={handleSave} className="my-3">
+						<input type="submit" className="d-none" />
+						<div className="d-flex fw-bold" style={{ marginRight: 78 }}>
+							<div className="flex-grow-1">Country</div>
+							<div style={smallColStyle}>Frequency</div>
+							<div style={smallColStyle}>Names</div>
+							<div style={smallColStyle}>Colleges</div>
+							<div style={smallColStyle}>Races</div>
+							<div style={smallColStyle}>Flag</div>
+						</div>
+						{infoState.countries.map((country, i) => (
+							<div key={country.id} className="d-flex">
+								<div className="d-flex mt-2 flex-grow-1">
+									<div className="flex-grow-1">
+										<input
+											type="text"
+											className="form-control"
+											value={country.country}
+											onChange={handleChange("country", i)}
+										/>
+									</div>
+									<div style={smallColStyle}>
+										<input
+											type="text"
+											className={clsx("form-control", {
+												"is-invalid": isInvalidNumber(
+													helpers.localeParseFloat(country.frequency),
+												),
+											})}
+											value={country.frequency}
+											onChange={handleChange("frequency", i)}
+										/>
+									</div>
+									{(["names", "colleges", "races", "flag"] as const).map(
+										(key) => {
+											const onClickCustom = () => {
+												setPageInfoWrapper({
+													name: key,
+													index: i,
+												});
+											};
+
+											if (key === "names" && !country.builtIn) {
+												// Non-built in countries have no default names
+
+												return (
+													<div style={smallColStyle} key={key}>
+														<button
+															className="btn btn-light-bordered w-100"
+															onClick={onClickCustom}
+														>
+															Custom
+														</button>
+													</div>
+												);
+											}
+
+											let currentText;
+											if (key === "flag") {
+												if (country.flag === undefined) {
+													currentText = "Default";
+												} else if (country.flag === "none") {
+													currentText = "None";
+												} else {
+													currentText = "Custom";
+												}
+											} else {
+												const isDefault =
+													country[
+														`default${helpers.upperCaseFirstLetter(
+															key,
+														)}` as const
+													];
+
+												currentText = isDefault ? "Default" : "Custom";
+											}
+
+											return (
+												<div style={smallColStyle} key={key}>
+													<Dropdown>
+														<Dropdown.Toggle
+															variant={
+																currentText === "Default"
+																	? "light-bordered"
+																	: "secondary"
+															}
+															id={`dropdown-${key}-${country.id}`}
+															className="w-100"
+														>
+															<span className="d-sm-none">
+																{currentText.charAt(0)}
+															</span>
+															<span className="d-none d-sm-inline">
+																{currentText}
+															</span>
+														</Dropdown.Toggle>
+
+														<Dropdown.Menu>
+															<Dropdown.Item
+																onClick={() => {
+																	onSetDefault(key, i);
+																}}
+															>
+																Default
+															</Dropdown.Item>
+															<Dropdown.Item onClick={onClickCustom}>
+																Custom
+															</Dropdown.Item>
+															{key === "flag" ? (
+																<Dropdown.Item
+																	onClick={() => {
+																		onSetNone(key, i);
+																	}}
+																>
+																	None
+																</Dropdown.Item>
+															) : null}
+														</Dropdown.Menu>
+													</Dropdown>
+												</div>
+											);
+										},
+									)}
+								</div>
+								<div className="ms-1 d-flex" style={{ width: 17 }}>
+									<CountryFlag
+										className="align-self-center"
+										country={country.country}
+										override={country.flag}
+										style={{ marginTop: 10 }}
+									/>
+								</div>
+								<PlayerBioInfoRowButton
+									className="text-reset"
+									onClick={() => {
+										setInfoState((data) => {
+											const countries = [...data.countries];
+
+											const newCountry = {
+												...country,
+												id: Math.random(),
+											};
+
+											countries.splice(i + 1, 0, newCountry);
+
+											return {
+												...data,
+												countries,
+											};
+										});
+									}}
+									title="Clone"
+									icon="glyphicon-plus"
+								/>
+								<PlayerBioInfoRowButton
+									className="text-danger"
+									onClick={() => {
+										setInfoState((data) => ({
+											...data,
+											countries: data.countries.filter(
+												(row) => row !== country,
+											),
+										}));
+									}}
+									title="Delete"
+									icon="glyphicon-remove"
+								/>
+							</div>
+						))}
+					</form>
+				) : (
+					<div className="mt-3 text-danger">
+						You must define at least one country.
+					</div>
+				)}
+
+				{infoState.countries.length > 0 ? (
+					<Controls
+						defaults={defaults}
+						defaultsState={defaultsState}
+						position="bottom"
+						infoState={infoState}
+						setInfoState={setInfoState}
+					/>
+				) : null}
+			</Modal.Body>
+			<Modal.Footer>
+				<button className="btn btn-secondary" onClick={handleCancel}>
+					Cancel
+				</button>
+				<button
+					className="btn btn-primary"
+					onClick={handleSave}
+					disabled={infoState.countries.length === 0}
+				>
+					Save
+				</button>
+			</Modal.Footer>
+		</>
+	);
+};

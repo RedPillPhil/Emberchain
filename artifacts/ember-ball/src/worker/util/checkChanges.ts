@@ -1,0 +1,101 @@
+import { idb } from "../db/index.ts";
+import logEvent from "./logEvent.ts";
+import type { Conditions } from "../../common/types.ts";
+import { SUBREDDIT_NAME } from "../../common/constants.ts";
+import { fetchWrapper } from "../../common/fetchWrapper.ts";
+import { env } from "./env.ts";
+
+const LAST_VERSION_BEFORE_THIS_EXISTED = "2021.05.25.0919";
+const MAX_NUM_TO_SHOW = 3;
+
+// Keep in sync with changelog.php
+const FETCH_LIMIT = 10;
+
+export const checkChanges = async (conditions: Conditions) => {
+	// Fall back to LAST_VERSION_BEFORE_THIS_EXISTED if data doesn't exist - must be a user from before then
+	const lastChangesVersion =
+		((await idb.meta.get(
+			"attributes",
+			"lastChangesVersion",
+		)) as unknown as string) ?? LAST_VERSION_BEFORE_THIS_EXISTED;
+
+	if (env.bbgmVersion > lastChangesVersion) {
+		const changes = (await fetchWrapper({
+			url: "https://zengm.com/changelog.php",
+			method: "GET",
+			data: {
+				since: lastChangesVersion,
+				current: env.bbgmVersion,
+				sport: process.env.SPORT,
+				limit: String(FETCH_LIMIT),
+			},
+		})) as unknown as {
+			version: string;
+			text: string;
+
+			// Currently returns null, but making this field just not present would be better
+			links: string[] | null;
+		}[];
+
+		if (changes && changes.length > 0) {
+			let text = "";
+
+			for (const [i, change] of changes.entries()) {
+				text += `<p class="mt-1 mb-0"><strong>v${change.version}</strong>: ${change.text}`;
+
+				const links = change.links;
+				if (links) {
+					const link =
+						links.find((link) => link.startsWith("/blog/")) ??
+						links.find((link) => link.includes(SUBREDDIT_NAME)) ??
+						links[0];
+					if (link) {
+						let url;
+						if (link.startsWith("/basketball/")) {
+							url = link.replace("/basketball/", "https://basketball-gm.com/");
+						} else if (link.startsWith("/football/")) {
+							url = link.replace("/football/", "https://football-gm.com/");
+						} else if (link.startsWith("/")) {
+							url = link.replace("/", "https://zengm.com/");
+						} else {
+							url = link;
+						}
+
+						text += ` <a href="${url}" target="_blank">More details</a>`;
+					}
+				}
+				text += "</p>";
+
+				if (i >= MAX_NUM_TO_SHOW - 1) {
+					break;
+				}
+			}
+
+			let moreText;
+			const numMore = changes.length - MAX_NUM_TO_SHOW;
+			if (numMore === 1) {
+				moreText = "...and 1 more change";
+			} else if (numMore >= FETCH_LIMIT - MAX_NUM_TO_SHOW) {
+				moreText = "...and many more changes";
+			} else if (numMore > 1) {
+				moreText = `...and ${numMore} more changes`;
+			} else {
+				moreText = "View all changes";
+			}
+			text += `<p class="mt-1 mb-0"><a href="https://zengm.com/changelog/" target="_blank">${moreText}</a></p>`;
+
+			logEvent(
+				{
+					extraClass: "",
+					persistent: true,
+					type: "changes",
+					text,
+					saveToDb: false,
+				},
+				conditions,
+			);
+		}
+
+		await idb.meta.put("attributes", env.bbgmVersion, "lastChangesVersion");
+	}
+};

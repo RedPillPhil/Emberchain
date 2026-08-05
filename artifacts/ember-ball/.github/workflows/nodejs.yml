@@ -1,0 +1,27 @@
+name: Node CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+          cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.x"
+          cache: "pnpm"
+      - run: pnpm install
+      - run: pnpx playwright install --with-deps
+      - run: pnpm run lint-js
+      - run: pnpm run lint-ts
+      - run: pnpm test

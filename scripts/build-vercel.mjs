@@ -90,3 +90,5 @@ if (missing.length > 0 || stale.length > 0) {
 
 console.log('\n✓ Verified Ember Delta bundle:', mainBundle.name);
 console.log('✓ Staged at', stageDest);
+
+run('Build Ember Ball', 'node scripts/build-ember-ball.mjs');

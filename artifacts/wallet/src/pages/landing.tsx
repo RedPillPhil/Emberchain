@@ -52,6 +52,7 @@ export default function LandingPage() {
           Emberchain
         </a>
         <div className="landing-nav-links">
+          <a href="#games">Games</a>
           <a href="#about">About</a>
           <a href="#tokens">Token</a>
           <a href="#how-it-works">Technology</a>
@@ -114,6 +115,41 @@ export default function LandingPage() {
               <span>Pending txs</span>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="landing-section" id="games">
+        <p className="landing-kicker">Games</p>
+        <h2 className="landing-section-title">Play on Emberchain</h2>
+        <p className="landing-body">
+          Emberchain ships native arcade and simulation games inside the web wallet.
+          Chain Invaders is live today; Embermon and Ember Ball are actively in development.
+        </p>
+        <div className="landing-games-grid">
+          <Link href="/chain-invaders" className="landing-game-card">
+            <span className="landing-game-badge landing-game-badge-live">Live</span>
+            <h4>Chain Invaders</h4>
+            <p>
+              Daily EMBR tournament arcade — practice anytime, enter for the jackpot during
+              16:00–24:00 UTC.
+            </p>
+          </Link>
+          <Link href="/embermon" className="landing-game-card">
+            <span className="landing-game-badge landing-game-badge-dev">In Development</span>
+            <h4>Embermon</h4>
+            <p>
+              Catch, battle, and collect on-chain monsters in an Emberchain-native MMO with
+              retro handheld and TV shells.
+            </p>
+          </Link>
+          <a href="/ember-ball/" className="landing-game-card">
+            <span className="landing-game-badge landing-game-badge-dev">In Development</span>
+            <h4>Ember Ball</h4>
+            <p>
+              Crypto basketball GM — wallet-connected leagues, GMbucks economy, and
+              Emberchain-backed league fees.
+            </p>
+          </a>
         </div>
       </section>
 

@@ -1,0 +1,832 @@
+import { PHASE } from "../../../common/constants.ts";
+import { draft, player, team, trade } from "../index.ts";
+import { idb } from "../../db/index.ts";
+import { g, helpers, local } from "../../util/index.ts";
+import type {
+	TradePickValues,
+	PlayerContract,
+	PlayerInjury,
+	DraftPick,
+} from "../../../common/types.ts";
+import { getNumPicksPerRound } from "../trade/getPickValues.ts";
+import { bySport } from "../../../common/sportFunctions.ts";
+import { groupByUnique, last } from "../../../common/utils.ts";
+
+type Asset =
+	| {
+			type: "player";
+			value: number;
+			contractValue: number;
+			injury: PlayerInjury;
+			age: number;
+			justDrafted: boolean;
+	  }
+	| {
+			type: "pick";
+			value: number;
+			contractValue: number;
+			injury: PlayerInjury;
+			age: number;
+			dp: DraftPick;
+			draftPick: number;
+			draftYear: number;
+	  };
+
+const zscore = (value: number) =>
+	(value - local.playerOvrMean) / local.playerOvrStd;
+
+const ovrIndexToEstWinPercent = (teamOvrIndex: number) => {
+	return (
+		0.25 +
+		(0.5 * (g.get("numActiveTeams") - 1 - teamOvrIndex)) /
+			(g.get("numActiveTeams") - 1)
+	);
+};
+
+const MIN_VALUE = bySport({
+	baseball: -0.75,
+	basketball: -0.5,
+	football: -1,
+	hockey: -0.5,
+});
+const MAX_VALUE = bySport({
+	baseball: 2.5,
+	basketball: 2,
+	football: 3,
+	hockey: 2,
+});
+const getContractValue = (
+	contract: PlayerContract,
+	normalizedValue: number,
+) => {
+	const season = g.get("season");
+	const phase = g.get("phase");
+	if (
+		contract.exp === season ||
+		(phase > PHASE.PLAYOFFS && contract.exp === season + 1)
+	) {
+		// Don't care about expiring contracts
+		return 0;
+	}
+
+	const salaryCap = g.get("salaryCap");
+	const normalizedContractAmount = contract.amount / salaryCap;
+
+	const slope =
+		(g.get("maxContract") / salaryCap - g.get("minContract") / salaryCap) /
+		(MAX_VALUE - MIN_VALUE);
+
+	const expectedAmount = slope * (normalizedValue - MIN_VALUE);
+
+	const contractValue = expectedAmount - normalizedContractAmount;
+
+	// Don't let contract value exceed 0.1, it's just a small boost or a big penalty
+	return Math.min(contractValue, 0.1);
+};
+
+const getPlayers = async ({
+	add,
+	remove,
+	roster,
+	pidsAdd,
+	pidsRemove,
+	tid,
+	tradingPartnerTid,
+}: {
+	add: Asset[];
+	remove: Asset[];
+	roster: Asset[];
+	pidsAdd: number[];
+	pidsRemove: number[];
+	tid: number;
+	tradingPartnerTid?: number;
+}) => {
+	const season = g.get("season");
+	const phase = g.get("phase");
+	const difficultyFudgeFactor = helpers.bound(
+		1 + 0.1 * g.get("difficulty"),
+		0,
+		Infinity,
+	); // 2.5% bonus for easy, 2.5% penalty for hard, 10% penalty for insane
+
+	// Fudge factor for AI overvaluing its own players
+	const fudgeFactor =
+		(tid !== g.get("userTid") && tradingPartnerTid !== g.get("userTid")
+			? 1.05
+			: 1) * difficultyFudgeFactor;
+
+	// Get roster and players to remove
+	const players = await idb.cache.players.indexGetAll("playersByTid", tid);
+
+	for (const p of players) {
+		const value = zscore(p.value);
+		if (!pidsRemove.includes(p.pid)) {
+			roster.push({
+				type: "player",
+				value,
+				contractValue: getContractValue(p.contract, value),
+				injury: p.injury,
+				age: g.get("season") - p.born.year,
+				justDrafted: helpers.justDrafted(p, phase, season),
+			});
+		} else {
+			// Only apply fudge factor to positive assets
+			let fudgedValue = value;
+			if (fudgedValue > 0) {
+				fudgedValue *= fudgeFactor;
+			}
+
+			remove.push({
+				type: "player",
+				value: fudgedValue,
+				contractValue: getContractValue(p.contract, value),
+				injury: p.injury,
+				age: g.get("season") - p.born.year,
+				justDrafted: helpers.justDrafted(p, phase, season),
+			});
+		}
+	}
+
+	// Get players to add
+	for (const pid of pidsAdd) {
+		const p = await idb.cache.players.get(pid);
+		if (p) {
+			const value = zscore(p.value);
+
+			add.push({
+				type: "player",
+				value,
+				contractValue: getContractValue(p.contract, value),
+				injury: p.injury,
+				age: g.get("season") - p.born.year,
+				justDrafted: helpers.justDrafted(p, phase, season),
+			});
+		}
+	}
+};
+
+const getPickNumber = async (
+	cache: ValueChangeCache,
+	dp: DraftPick,
+	season: number,
+	pidsAdd: number[],
+	pidsRemove: number[],
+	tid: number,
+	tradingPartnerTid?: number,
+) => {
+	const numPicksPerRound = getNumPicksPerRound();
+
+	let estPick: number;
+	if (dp.pick > 0) {
+		estPick = dp.pick;
+	} else {
+		let temp = cache.estPicks[dp.originalTid];
+
+		// Used to know when to overvalue own pick
+		const tradeWithUser = tradingPartnerTid === g.get("userTid");
+
+		// if trading with the user, make sure the AI pick is accurately judged
+		// based on what players are outgoing in the trade
+		// and just use the cached estimated pick if no players are being exchanged
+		if (
+			tid !== g.get("userTid") &&
+			dp.originalTid === tid &&
+			tradeWithUser &&
+			pidsAdd.length + pidsRemove.length > 0
+		) {
+			temp = await getModifiedPickRank(cache, tid, pidsAdd, pidsRemove);
+		}
+		estPick = temp !== undefined ? temp : numPicksPerRound / 2;
+
+		// tid rather than originalTid, because it's about what the user can control
+		const usersPick = dp.tid === g.get("userTid");
+
+		// For future draft picks, add some uncertainty.
+		const regressionTarget = (usersPick ? 0.75 : 0.25) * numPicksPerRound;
+
+		// Never let this improve the future projection of user's picks
+		let seasons = helpers.bound(season - g.get("season"), 0, 5);
+		if (tradeWithUser && seasons > 0) {
+			// When trading with the user, expect things to change rapidly
+			seasons = helpers.bound(seasons + 1, 0, 5);
+		}
+
+		if (seasons === 0 && g.get("phase") < PHASE.PLAYOFFS) {
+			// Would be better to base on fraction of season completed, but oh well
+			seasons += 0.5;
+		}
+
+		// Weighted average of estPicks and regressionTarget
+		estPick = Math.round(
+			(estPick * (5 - seasons)) / 5 + (regressionTarget * seasons) / 5,
+		);
+
+		if (tradeWithUser && seasons > 0) {
+			if (usersPick) {
+				// Penalty for user draft picks
+				const difficultyFactor = 1 + 1.5 * g.get("difficulty");
+				estPick = helpers.bound(
+					Math.round((estPick + numPicksPerRound / 3.5) * difficultyFactor),
+					1,
+					numPicksPerRound,
+				);
+			} else {
+				// Bonus for AI draft picks
+				estPick = helpers.bound(
+					Math.round(estPick - numPicksPerRound / 3.5),
+					1,
+					numPicksPerRound,
+				);
+			}
+		}
+	}
+
+	estPick += numPicksPerRound * (dp.round - 1);
+
+	return estPick;
+};
+
+const getPickInfo = async (
+	cache: ValueChangeCache,
+	dp: DraftPick,
+	rookieSalaries: any,
+	pidsAdd: number[],
+	pidsRemove: number[],
+	tid: number,
+	tradingPartnerTid?: number,
+): Promise<Asset> => {
+	const season =
+		dp.season === "fantasy" || dp.season === "expansion"
+			? g.get("season")
+			: dp.season;
+
+	const estPick = await getPickNumber(
+		cache,
+		dp,
+		season,
+		pidsAdd,
+		pidsRemove,
+		tid,
+		tradingPartnerTid,
+	);
+
+	let value;
+	const valuesTemp = cache.estValues[season];
+	if (valuesTemp) {
+		value = valuesTemp[estPick - 1];
+	}
+	if (value === undefined) {
+		value = cache.estValues.default[estPick - 1];
+	}
+	if (value === undefined) {
+		value = cache.estValues.default.at(-1);
+	}
+	if (value === undefined) {
+		value = 20;
+	}
+
+	value = zscore(value);
+
+	let contractValue = getContractValue(
+		{
+			amount: rookieSalaries[estPick - 1],
+			exp: season + 2,
+		},
+		value,
+	);
+
+	// Since rookies can be cut after the draft, value of a draft pick can't be negative
+	value = Math.max(0.1, value);
+	contractValue = Math.max(0, contractValue);
+
+	// Ensure there are no tied pick values
+	value -= estPick * 1e-10;
+
+	return {
+		type: "pick",
+		value,
+		contractValue,
+		injury: {
+			type: "Healthy",
+			gamesRemaining: 0,
+		},
+		dp,
+
+		// Would be better to store age in estValues, but oh well
+		age: 20,
+		draftPick: estPick,
+		draftYear: season,
+	};
+};
+
+const getPicks = async ({
+	cache,
+	add,
+	remove,
+	pidsAdd,
+	pidsRemove,
+	dpidsAdd,
+	dpidsRemove,
+	tid,
+	tradingPartnerTid,
+}: {
+	cache: ValueChangeCache;
+	add: Asset[];
+	remove: Asset[];
+	pidsAdd: number[];
+	pidsRemove: number[];
+	dpidsAdd: number[];
+	dpidsRemove: number[];
+	tid: number;
+	tradingPartnerTid?: number;
+}) => {
+	// For each draft pick, estimate its value based on the recent performance of the team
+	if (dpidsAdd.length > 0 || dpidsRemove.length > 0) {
+		const rookieSalaries = draft.getRookieSalaries();
+
+		for (const dpid of dpidsAdd) {
+			const dp = await idb.cache.draftPicks.get(dpid);
+			if (!dp) {
+				continue;
+			}
+
+			const pickInfo = await getPickInfo(
+				cache,
+				dp,
+				rookieSalaries,
+				pidsAdd,
+				pidsRemove,
+				tid,
+				tradingPartnerTid,
+			);
+			add.push(pickInfo);
+		}
+
+		for (const dpid of dpidsRemove) {
+			const dp = await idb.cache.draftPicks.get(dpid);
+			if (!dp) {
+				continue;
+			}
+
+			const pickInfo = await getPickInfo(
+				cache,
+				dp,
+				rookieSalaries,
+				pidsAdd,
+				pidsRemove,
+				tid,
+				tradingPartnerTid,
+			);
+			remove.push(pickInfo);
+		}
+
+		// Be wary about giving away too many 1st round draft picks!
+		if (remove.length > 0) {
+			// More value for individual players in basketball, similar to EXPONENT
+			const SPORT_FACTOR = bySport({
+				baseball: 2.5,
+				basketball: 5,
+				hockey: 2.5,
+				football: 2.5,
+			});
+
+			const firstRoundPicks = [];
+			const otherPicks = [];
+			for (const asset of remove) {
+				if (asset.type === "pick") {
+					if (asset.dp.round === 1) {
+						firstRoundPicks.push(asset);
+					} else {
+						otherPicks.push(asset);
+					}
+				}
+			}
+
+			// If there are more than 2 picks in the trade, make them a bit more valuable to the AI
+			const numBeyond2 = firstRoundPicks.length - 2;
+			if (numBeyond2 > 0) {
+				for (const pick of firstRoundPicks) {
+					if (pick.value > 0) {
+						pick.value *= 1 + numBeyond2 / SPORT_FACTOR;
+					}
+				}
+			}
+
+			// Similar but less extreme for other picks
+			const numBeyond2Other = otherPicks.length - 2;
+			if (numBeyond2Other > 0) {
+				for (const pick of otherPicks) {
+					if (pick.value > 0) {
+						pick.value *= 1 + numBeyond2 / (SPORT_FACTOR * pick.dp.round);
+					}
+				}
+			}
+		}
+	}
+};
+
+const EXPONENT = bySport({
+	baseball: 3,
+	basketball: 7,
+	football: 3,
+	hockey: 3.5,
+});
+
+const sumValues = (
+	players: Asset[],
+	strategy: string,
+	tid: number,
+	includeInjuries = false,
+) => {
+	if (players.length === 0) {
+		return 0;
+	}
+
+	const season = g.get("season");
+	const phase = g.get("phase");
+
+	return players.reduce((memo, p) => {
+		let playerValue = p.value;
+
+		const treatAsFutureDraftPick =
+			p.type === "pick" && (season !== p.draftYear || phase <= PHASE.PLAYOFFS);
+
+		// These factors don't make sense for negative value players!!!
+		if (strategy === "rebuilding") {
+			// Value young/cheap players and draft picks more. Penalize expensive/old players
+			if (treatAsFutureDraftPick) {
+				playerValue *= 1.1;
+			} else if (p.age <= 19) {
+				playerValue *= 1.075;
+			} else if (p.age === 20) {
+				playerValue *= 1.05;
+			} else if (p.age === 21) {
+				playerValue *= 1.0375;
+			} else if (p.age === 22) {
+				playerValue *= 1.025;
+			} else if (p.age === 23) {
+				playerValue *= 1.0125;
+			} else if (p.age === 27) {
+				playerValue *= 0.975;
+			} else if (p.age === 28) {
+				playerValue *= 0.95;
+			} else if (p.age >= 29) {
+				playerValue *= 0.9;
+			}
+		} else if (strategy === "contending") {
+			// Much of the value for these players comes from potential, which we don't really care about
+			if (treatAsFutureDraftPick) {
+				playerValue *= 0.825;
+			} else if (p.age <= 19) {
+				playerValue *= 0.8;
+			} else if (p.age === 20) {
+				playerValue *= 0.825;
+			} else if (p.age === 21) {
+				playerValue *= 0.85;
+			} else if (p.age === 22) {
+				playerValue *= 0.875;
+			} else if (p.age === 23) {
+				playerValue *= 0.925;
+			} else if (p.age === 24) {
+				playerValue *= 0.95;
+			}
+		}
+
+		// Normalize for injuries
+		if (includeInjuries && tid !== g.get("userTid")) {
+			if (p.injury.gamesRemaining > 75) {
+				playerValue -= playerValue * 0.75;
+			} else {
+				playerValue -= (playerValue * p.injury.gamesRemaining) / 100;
+			}
+		}
+
+		// Really bad players will just get no PT, but don't to count them as 0 because then AI thinks it can't find a trade
+		if (playerValue < 0) {
+			playerValue /= 20;
+		}
+
+		const contractsFactor = strategy === "rebuilding" ? 2 : 0.5;
+		playerValue += contractsFactor * p.contractValue;
+
+		// if a player was just drafted and can be released, they shouldn't have negative value
+		if (p.type == "player" && p.justDrafted) {
+			playerValue = Math.max(0, playerValue);
+		}
+
+		return memo + (playerValue > 1 ? playerValue ** EXPONENT : playerValue);
+	}, 0);
+};
+
+export const getEstPicks = async (
+	teamOvrsSorted: { ovr: number; tid: number }[],
+) => {
+	const teams = (await idb.cache.teams.getAll()).filter((t) => !t.disabled);
+
+	const allTeamSeasons = await idb.cache.teamSeasons.indexGetAll(
+		"teamSeasonsBySeasonTid",
+		[[g.get("season")], [g.get("season"), "Z"]],
+	);
+
+	let gp = 0;
+
+	// Estimate the order of the picks by team
+	const wps = teams.map((t) => {
+		let teamOvrIndex = teamOvrsSorted.findIndex((t2) => t2.tid === t.tid);
+		if (teamOvrIndex < 0) {
+			// This happens if a team has no players on it - just assume they are the worst
+			teamOvrIndex = teamOvrsSorted.length - 1;
+		}
+
+		// 25% to 75% based on rank
+		const teamOvrWinp = ovrIndexToEstWinPercent(teamOvrIndex);
+
+		const teamSeasons = allTeamSeasons.filter(
+			(teamSeason) => teamSeason.tid === t.tid,
+		);
+		let record: [number, number];
+
+		if (!teamSeasons[0]) {
+			// Expansion team?
+			record = [0, 0];
+		} else {
+			const teamSeason = teamSeasons[0];
+			record = [teamSeason.won, teamSeason.lost];
+		}
+
+		gp = record[0] + record[1];
+
+		const seasonFraction = gp / g.get("numGames");
+
+		return {
+			tid: t.tid,
+			// Weighted average of current season record and team rating, based on how much of the current season is complete
+			wp:
+				gp === 0
+					? teamOvrWinp
+					: seasonFraction * (record[0] / gp) +
+						(1 - seasonFraction) * teamOvrWinp,
+		};
+	});
+
+	// Get rank order of wps http://stackoverflow.com/a/14834599/786644
+	wps.sort((a, b) => a.wp - b.wp);
+
+	// For each team, what is their estimated draft position?
+	const estPicks: Record<number, number> = {};
+	for (const [i, wp] of wps.entries()) {
+		estPicks[wp.tid] = i + 1;
+	}
+
+	return {
+		estPicks,
+		wps,
+	};
+};
+
+type ValueChangeCache = {
+	estPicks: Record<number, number>;
+	estValues: TradePickValues;
+	teamOvrs: {
+		tid: number;
+		ovr: number;
+	}[];
+	wps: {
+		tid: number;
+		wp: number;
+	}[];
+};
+
+type ToUpdate = {
+	draft: boolean;
+
+	// false - no update. "all" - update all teams. number[] = update only these specific teams
+	teams: false | "all" | number[];
+};
+
+// tradingPartnerTid is currently just used to determine if this is a trade with the user, so additional fuzz can be applied
+export class ValueChangeCalculator {
+	private cache: ValueChangeCache | undefined;
+	private toUpdate: ToUpdate = {
+		draft: true,
+		teams: "all",
+	};
+
+	private async init() {
+		await player.updateOvrMeanStd();
+		return this.getUpdatedCache();
+	}
+
+	private async getUpdatedCache() {
+		const toUpdate = { ...this.toUpdate };
+		this.toUpdate = { draft: false, teams: false };
+
+		const estValues =
+			toUpdate.draft || !this.cache
+				? await trade.getPickValues()
+				: this.cache.estValues;
+
+		if (toUpdate.teams || !this.cache) {
+			const playersByTid = Map.groupBy(
+				await idb.cache.players.indexGetAll("playersByTid", [0, Infinity]),
+				(p) => p.tid,
+			);
+			const teamOvrs: {
+				tid: number;
+				ovr: number;
+			}[] = [];
+			let prevTeamOvrsByTid;
+			for (const [tid, players] of playersByTid) {
+				let row;
+				if (
+					this.cache &&
+					Array.isArray(toUpdate.teams) &&
+					!toUpdate.teams.includes(tid)
+				) {
+					if (!prevTeamOvrsByTid) {
+						prevTeamOvrsByTid = groupByUnique(this.cache.teamOvrs, "tid");
+					}
+					row = prevTeamOvrsByTid[tid];
+				}
+
+				if (row === undefined) {
+					const ovr = team.ovr(
+						players.map((p) => ({
+							pid: p.pid,
+							injury: p.injury,
+							value: p.value,
+							ratings: {
+								ovr: last(p.ratings).ovr,
+								ovrs: last(p.ratings).ovrs,
+								pos: last(p.ratings).pos,
+							},
+						})),
+					);
+
+					row = { tid, ovr };
+				}
+
+				teamOvrs.push(row);
+			}
+			teamOvrs.sort((a, b) => b.ovr - a.ovr);
+
+			const { estPicks, wps } = await getEstPicks(teamOvrs);
+
+			return {
+				estPicks,
+				estValues,
+				teamOvrs,
+				wps,
+			};
+		} else {
+			return {
+				...this.cache,
+				estValues,
+			};
+		}
+	}
+
+	invalidateCache(toUpdate: Partial<ToUpdate>) {
+		// Merge with existing this.toUpdate - probably never matters vs overwriting, but just to be sure
+		if (toUpdate.draft !== undefined) {
+			this.toUpdate.draft = this.toUpdate.draft || toUpdate.draft;
+		}
+		if (toUpdate.teams === "all") {
+			this.toUpdate.teams = "all";
+		} else if (Array.isArray(toUpdate.teams)) {
+			if (Array.isArray(this.toUpdate.teams)) {
+				this.toUpdate.teams = Array.from(
+					new Set([...this.toUpdate.teams, ...toUpdate.teams]),
+				);
+			} else if (this.toUpdate.teams === false) {
+				this.toUpdate.teams = toUpdate.teams;
+			}
+		}
+	}
+
+	async evaluate({
+		tid,
+		pidsAdd,
+		pidsRemove,
+		dpidsAdd,
+		dpidsRemove,
+		tradingPartnerTid,
+	}: {
+		tid: number;
+		pidsAdd: number[];
+		pidsRemove: number[];
+		dpidsAdd: number[];
+		dpidsRemove: number[];
+		tradingPartnerTid: number | undefined;
+	}): Promise<number> {
+		if (!this.cache) {
+			this.cache = await this.init();
+		} else if (this.toUpdate.draft || this.toUpdate.teams) {
+			this.cache = await this.getUpdatedCache();
+		}
+
+		// Get value and skills for each player on team or involved in the proposed transaction
+		const roster: Asset[] = [];
+		const add: Asset[] = [];
+		const remove: Asset[] = [];
+		const t = await idb.cache.teams.get(tid);
+
+		if (!t) {
+			throw new Error("Invalid team");
+		}
+
+		const strategy = t.strategy;
+
+		await getPlayers({
+			add,
+			remove,
+			roster,
+			pidsAdd,
+			pidsRemove,
+			tid,
+			tradingPartnerTid,
+		});
+		await getPicks({
+			cache: this.cache,
+			add,
+			remove,
+			pidsAdd,
+			pidsRemove,
+			dpidsAdd,
+			dpidsRemove,
+			tid,
+			tradingPartnerTid,
+		});
+
+		// console.log("ADD");
+		const valuesAdd = sumValues(add, strategy, tid, true);
+		// console.log("Total", valuesAdd);
+
+		// console.log("REMOVE");
+		const valuesRemove = sumValues(remove, strategy, tid);
+		// console.log("Total", valuesRemove);
+
+		return valuesAdd - valuesRemove;
+	}
+}
+
+const getModifiedPickRank = async (
+	cache: ValueChangeCache,
+	tid: number,
+	pidsAdd: number[],
+	pidsRemove: number[],
+) => {
+	// later we need to find the new ranks of this team's ovr/estimated win%
+	// it's cleaner to determine this by temporarily removing the old team info from the cached lists
+	const newTeamOvrs = cache.teamOvrs.filter((t) => t.tid !== tid);
+	const newWps = cache.wps.filter((w) => w.tid !== tid);
+
+	const teamSeason = await idb.cache.teamSeasons.indexGet(
+		"teamSeasonsBySeasonTid",
+		[g.get("season"), tid],
+	);
+	const gp = teamSeason ? helpers.getTeamSeasonGp(teamSeason) : 0;
+	const seasonFraction = gp / g.get("numGames");
+
+	const players = await idb.cache.players.indexGetAll("playersByTid", tid);
+	const playersAfterTrade = players.filter((p) => !pidsRemove.includes(p.pid));
+	for (const pid of pidsAdd) {
+		const p = await idb.cache.players.get(pid);
+		if (p) {
+			playersAfterTrade.push(p);
+		}
+	}
+	const playerRatings = playersAfterTrade.map((p) => ({
+		pid: p.pid,
+		injury: p.injury,
+		value: p.value,
+		ratings: {
+			ovr: last(p.ratings).ovr,
+			ovrs: last(p.ratings).ovrs,
+			pos: last(p.ratings).pos,
+		},
+	}));
+
+	const newTeamOvr = team.ovr(playerRatings);
+	let newTeamOvrIndex = newTeamOvrs.findIndex((t) => t.ovr < newTeamOvr);
+	if (newTeamOvrIndex === -1) {
+		// Worst Team (no -1 because we already removed this team from newTeamOvrs)
+		newTeamOvrIndex = newTeamOvrs.length;
+	}
+
+	const newTeamOvrWinp = ovrIndexToEstWinPercent(newTeamOvrIndex);
+	const newWp =
+		gp === 0
+			? newTeamOvrWinp
+			: seasonFraction * ((teamSeason?.won ?? 0) / gp) +
+				(1 - seasonFraction) * newTeamOvrWinp;
+
+	let newRank = newWps.findIndex((w) => newWp < w.wp);
+	if (newRank === -1) {
+		// Best Team (no -1 because we already removed this team from newTeamOvrs)
+		newRank = newWps.length;
+	}
+	newRank += 1; // Index to rank
+
+	return newRank;
+};

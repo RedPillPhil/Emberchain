@@ -628,6 +628,77 @@
   color: var(--landing-muted);
 }
 
+/* Games */
+.landing-games-grid {
+  display: grid;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+@media (min-width: 640px) {
+  .landing-games-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (min-width: 900px) {
+  .landing-games-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+.landing-game-card {
+  position: relative;
+  padding: 1.25rem;
+  background: var(--landing-card);
+  border: 1px solid var(--landing-border);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.2s, transform 0.2s;
+  min-height: 9.5rem;
+}
+
+.landing-game-card:hover {
+  border-color: var(--landing-primary);
+  transform: translateY(-2px);
+}
+
+.landing-game-card h4 {
+  font-family: var(--landing-font-display);
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  color: var(--landing-primary);
+  margin-bottom: 0.5rem;
+  padding-right: 5.5rem;
+}
+
+.landing-game-card p {
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--landing-muted);
+}
+
+.landing-game-badge {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.45rem;
+  border-radius: 2px;
+  border: 1px solid transparent;
+}
+
+.landing-game-badge-live {
+  color: #7dffb0;
+  background: rgba(40, 120, 70, 0.25);
+  border-color: rgba(125, 255, 176, 0.35);
+}
+
+.landing-game-badge-dev {
+  color: #ffb020;
+  background: rgba(255, 176, 32, 0.12);
+  border-color: rgba(255, 176, 32, 0.35);
+}
+
 /* Team / contact */
 .landing-team-grid {
   display: grid;

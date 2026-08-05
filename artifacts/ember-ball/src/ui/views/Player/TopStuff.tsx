@@ -1,0 +1,764 @@
+import { Fragment, useState } from "react";
+import type { ReactNode } from "react";
+import { WatchBlock } from "../../components/WatchBlock.tsx";
+import { helpers } from "../../util/helpers.ts";
+import { toWorker } from "../../util/toWorker.ts";
+import type {
+	GameAttributesLeague,
+	Phase,
+	Player,
+	View,
+} from "../../../common/types.ts";
+import { PHASE, PLAYER } from "../../../common/constants.ts";
+import clsx from "clsx";
+import { AwardsSummary } from "./AwardsSummary.tsx";
+import { RatingsOverview } from "./RatingsOverview.tsx";
+import Note from "./Note.tsx";
+import { ButtonGroup, Dropdown, DropdownButton } from "react-bootstrap";
+import { CountryFlag } from "../../components/CountryFlag.tsx";
+import { InjuryIcon } from "../../components/InjuryIcon.tsx";
+import { SkillsBlock } from "../../components/SkillsBlock.tsx";
+import { Mood } from "../../components/Mood.tsx";
+import { PlayerPicture } from "../../components/PlayerPicture.tsx";
+import { JerseyNumber } from "../../components/JerseyNumber.tsx";
+import { Height } from "../../components/Height.tsx";
+import { Weight } from "../../components/Weight.tsx";
+import { confirm } from "../../util/confirm.tsx";
+import { realtimeUpdate } from "../../util/realtimeUpdate.ts";
+import { getCols } from "../../../common/getCols.ts";
+import { bySport, isSport } from "../../../common/sportFunctions.ts";
+import {
+	NegotiationModal,
+	useNegotiaionModal,
+} from "../../components/NegotiationModal.tsx";
+import { useLocal } from "../../util/local.ts";
+
+const Relatives = ({
+	gender,
+	pid,
+	relatives,
+}: {
+	gender: GameAttributesLeague["gender"];
+	pid: number;
+	relatives: Player["relatives"];
+}) => {
+	const [showAll, setShowAll] = useState(false);
+
+	if (relatives.length === 0) {
+		return null;
+	}
+
+	const numToShow = showAll || relatives.length <= 3 ? relatives.length : 2;
+	const numToHide = relatives.length - numToShow;
+
+	return (
+		<>
+			{relatives.slice(0, numToShow).map((rel) => {
+				return (
+					<Fragment key={rel.pid}>
+						{helpers.getRelativeType(gender, rel.type)}:{" "}
+						<a href={helpers.leagueUrl(["player", rel.pid])}>{rel.name}</a>
+						<br />
+					</Fragment>
+				);
+			})}
+			{numToHide > 0 ? (
+				<>
+					<button
+						className="btn btn-link p-0 m-0 border-0"
+						onClick={() => {
+							setShowAll(true);
+						}}
+					>
+						...show {numToHide} more relatives
+					</button>
+					<br />
+				</>
+			) : null}
+			<a href={helpers.leagueUrl(["frivolities", "relatives", pid])}>
+				(Family details)
+			</a>
+			<br />
+		</>
+	);
+};
+
+const StatsSummary = ({
+	name,
+	onlyShowIf,
+	p,
+	phase,
+	position,
+	currentSeason,
+	season,
+	stats,
+}: {
+	name: string;
+	onlyShowIf?: string[];
+	p: View<"player">["player"];
+	phase: Phase;
+	position: string;
+	currentSeason: number;
+	season?: number;
+	stats: string[];
+}) => {
+	if (onlyShowIf !== undefined) {
+		if (!onlyShowIf.includes(position)) {
+			return null;
+		}
+	}
+
+	let ps: (typeof p)["stats"][number] | undefined;
+	if (season !== undefined) {
+		// Specific season was requested
+		const playerStats = p.stats.filter(
+			(ps) => !ps.playoffs && ps.season === season,
+		);
+		ps = playerStats.at(-1);
+	}
+
+	if (!ps) {
+		if (p.tid === PLAYER.RETIRED) {
+			// Find best season for retired player
+			let maxValue = -Infinity;
+			for (const row of p.stats) {
+				if (row.playoffs) {
+					continue;
+				}
+
+				const value = bySport({
+					baseball: row.war,
+					basketball: row.ws,
+					football: row.av,
+					hockey: row.ps,
+				})!;
+				if (value > maxValue) {
+					ps = row;
+					maxValue = value;
+				}
+			}
+		} else {
+			// Find current season for active player
+			const playerStats = p.stats.filter(
+				(ps) =>
+					!ps.playoffs &&
+					(ps.season === currentSeason ||
+						(ps.season === currentSeason - 1 && phase === PHASE.PRESEASON)),
+			);
+			ps = playerStats.at(-1);
+		}
+	}
+
+	const cols = getCols(["Summary", ...stats.map((stat) => `stat:${stat}`)]);
+
+	if (name === "Shot Locations") {
+		cols.at(-3)!.title = "M";
+		cols.at(-2)!.title = "A";
+		cols.at(-1)!.title = "%";
+	}
+
+	const separatorAfter = bySport({
+		baseball: onlyShowIf?.includes("SP") ? [0, 4, 7] : [0, 5, 8],
+		basketball: [0, 5, 9],
+		football: [0, 2],
+		hockey: onlyShowIf?.includes("G") ? [0, 3] : [0, 5],
+	});
+
+	const showPeakSeason = p.tid === PLAYER.RETIRED && season === undefined;
+
+	return (
+		<div className="player-stats-summary small-scrollbar">
+			<table className="table table-sm table-borderless border-top-0 table-nonfluid text-center mt-3 mb-0">
+				<thead>
+					<tr>
+						{cols.map((col, i) => {
+							return (
+								<th
+									key={i}
+									title={col.desc}
+									className={clsx({
+										"table-separator-right": separatorAfter.includes(i),
+										"table-separator-left": separatorAfter.includes(i - 1),
+										"text-start": i === 0,
+									})}
+								>
+									{col.title}
+								</th>
+							);
+						})}
+					</tr>
+				</thead>
+				{ps ? (
+					<tbody>
+						<tr>
+							<th
+								className="table-separator-right text-start"
+								title={showPeakSeason ? String(ps.season) : undefined}
+							>
+								{showPeakSeason ? "Peak" : ps.season}
+							</th>
+							{stats.map((stat, i) => {
+								return (
+									<td
+										key={stat}
+										className={clsx({
+											"table-separator-right": separatorAfter.includes(i + 1),
+											"table-separator-left": separatorAfter.includes(i),
+										})}
+									>
+										{helpers.roundStat((ps as any)[stat], stat)}
+									</td>
+								);
+							})}
+						</tr>
+					</tbody>
+				) : null}
+
+				<tfoot>
+					<tr>
+						<th className="table-separator-right text-start">Career</th>
+						{stats.map((stat, i) => {
+							return (
+								<td
+									key={stat}
+									className={clsx({
+										"table-separator-right": separatorAfter.includes(i + 1),
+										"table-separator-left": separatorAfter.includes(i),
+									})}
+								>
+									{helpers.roundStat(p.careerStats[stat]!, stat)}
+								</td>
+							);
+						})}
+					</tr>
+				</tfoot>
+			</table>
+		</div>
+	);
+};
+
+const ComparePlayerButton = ({
+	pid,
+	randomDebutsForeverPids,
+	season,
+}: {
+	pid: number;
+	randomDebutsForeverPids: number[] | undefined;
+	season: number | "career";
+}) => {
+	const normalCompareUrl = helpers.leagueUrl([
+		"compare_players",
+		`${pid}-${season}-r`,
+	]);
+
+	if (randomDebutsForeverPids) {
+		return (
+			<DropdownButton
+				as={ButtonGroup}
+				variant="light-bordered"
+				title="Compare player"
+			>
+				<Dropdown.Item href={normalCompareUrl}>Alone</Dropdown.Item>
+				<Dropdown.Item
+					href={helpers.leagueUrl([
+						"compare_players",
+						randomDebutsForeverPids.map((pid) => `${pid}-career-r`).join(","),
+					])}
+				>
+					With random debuts forever versions
+				</Dropdown.Item>
+			</DropdownButton>
+		);
+	}
+
+	return (
+		<a className="btn btn-light-bordered" href={normalCompareUrl}>
+			Compare player
+		</a>
+	);
+};
+
+const TopStuff = ({
+	bestPos,
+	currentSeason,
+	jerseyNumberInfos,
+	player,
+	randomDebutsForeverPids,
+	retired,
+	season,
+	showRatings,
+	statSummary,
+	teamColors,
+	teamJersey,
+	teamName,
+	teamURL,
+	willingToSign,
+}: Pick<
+	View<"player">,
+	| "bestPos"
+	| "jerseyNumberInfos"
+	| "player"
+	| "randomDebutsForeverPids"
+	| "retired"
+	| "statSummary"
+	| "teamColors"
+	| "teamJersey"
+	| "teamName"
+	| "teamURL"
+	| "willingToSign"
+> & {
+	currentSeason: number;
+	season?: number;
+	showRatings: boolean;
+}) => {
+	const { gender, godMode, phase, spectator, userTid } = useLocal([
+		"gender",
+		"godMode",
+		"phase",
+		"spectator",
+		"userTid",
+	]);
+
+	const freeAgent = player.tid === PLAYER.FREE_AGENT;
+	const injured = player.injury.gamesRemaining > 0;
+	const showContract =
+		player.tid !== PLAYER.UNDRAFTED &&
+		player.tid !== PLAYER.UNDRAFTED_FANTASY_TEMP &&
+		player.tid !== PLAYER.RETIRED;
+	const showTradeFor = player.tid !== userTid && player.tid >= 0;
+	const showTradingBlock = player.tid === userTid;
+
+	let draftInfo: ReactNode = null;
+	if (player.draft.round > 0) {
+		draftInfo = (
+			<>
+				Draft:{" "}
+				<a href={helpers.leagueUrl(["draft_history", player.draft.year])}>
+					{player.draft.year}
+				</a>{" "}
+				- Round {player.draft.round} (Pick {player.draft.pick}) by{" "}
+				<a
+					href={helpers.leagueUrl([
+						"draft_team_history",
+						`${player.draft.abbrev}_${player.draft.tid}`,
+					])}
+				>
+					{player.draft.abbrev}
+				</a>
+				<br />
+			</>
+		);
+	} else {
+		draftInfo = (
+			<>
+				Undrafted:{" "}
+				<a href={helpers.leagueUrl(["draft_history", player.draft.year])}>
+					{player.draft.year}
+				</a>
+				<br />
+			</>
+		);
+	}
+
+	let contractInfo: ReactNode = null;
+	if (season !== undefined || showContract) {
+		let amount;
+		let exp;
+		if (season === undefined || season === currentSeason) {
+			amount = player.contract.amount;
+			exp = player.contract.exp;
+		} else {
+			amount = player.salaries.findLast((row) => row.season === season)?.amount;
+		}
+
+		contractInfo = (
+			<>
+				{freeAgent ? "Asking for" : "Contract"}:{" "}
+				{amount !== undefined ? helpers.formatCurrency(amount, "M") : "???"}/yr
+				{exp !== undefined ? ` thru ${exp}` : null}
+				<br />
+			</>
+		);
+	}
+
+	let statusInfo: ReactNode = null;
+	if (retired && season === undefined) {
+		statusInfo = (
+			<div className="d-flex align-items-center">
+				<WatchBlock
+					className="ms-0"
+					pid={player.pid}
+					defaultWatch={player.watch}
+				/>
+			</div>
+		);
+	} else {
+		let skills;
+		if (season !== undefined) {
+			skills = player.ratings.find((row) => row.season === season)?.skills;
+		}
+		if (!skills) {
+			skills = player.ratings.at(-1)!.skills;
+		}
+
+		statusInfo = (
+			<div className="d-flex align-items-center">
+				{injured ? (
+					<InjuryIcon className="ms-0" injury={player.injury} />
+				) : null}
+				<SkillsBlock
+					className={injured ? undefined : "skills-alone"}
+					skills={skills}
+				/>
+				<WatchBlock
+					className="ms-2"
+					pid={player.pid}
+					defaultWatch={player.watch}
+				/>
+				{player.tid === PLAYER.FREE_AGENT ||
+				player.tid === PLAYER.UNDRAFTED ||
+				player.tid >= PLAYER.FREE_AGENT ? (
+					<Mood
+						className="ms-2"
+						defaultType={
+							player.tid === PLAYER.FREE_AGENT ||
+							player.tid === PLAYER.UNDRAFTED
+								? "user"
+								: "current"
+						}
+						p={player}
+					/>
+				) : null}
+			</div>
+		);
+	}
+
+	const height = <Height inches={player.hgt} />;
+
+	const weight = <Weight pounds={player.weight} />;
+
+	const college =
+		player.college && player.college !== "" ? player.college : "None";
+
+	const negotiationModal = useNegotiaionModal();
+
+	const buttonsAvailableOutsideGodMode = (
+		<>
+			{!spectator && (showTradeFor || showTradingBlock) ? (
+				<button
+					className="btn btn-light-bordered"
+					disabled={player.untradable}
+					onClick={() => {
+						if (showTradeFor) {
+							toWorker("actions", "tradeFor", { pid: player.pid });
+						} else {
+							toWorker("actions", "addToTradingBlock", { pids: [player.pid] });
+						}
+					}}
+					title={player.untradableMsg}
+				>
+					{showTradeFor ? "Trade for" : "Add to trading block"}
+				</button>
+			) : null}
+			{!spectator && freeAgent ? (
+				<button
+					className="btn btn-light-bordered"
+					disabled={!willingToSign}
+					onClick={async () => {
+						await negotiationModal.negotiate(player.pid);
+					}}
+					title={
+						willingToSign
+							? undefined
+							: `${player.name} refuses to negotiate with you`
+					}
+				>
+					Negotiate contract
+				</button>
+			) : null}
+			<ComparePlayerButton
+				pid={player.pid}
+				randomDebutsForeverPids={randomDebutsForeverPids}
+				season={retired ? "career" : player.ratings.at(-1)!.season}
+			/>
+		</>
+	);
+
+	const showRatingsOverview = (!retired || season !== undefined) && showRatings;
+
+	// Without this, vertical scrollbar shows if there are no jerseys, due to some weirdness with the negative marginTop values in RatingsOverview
+	const PLACEHOLDER = <div style={{ height: 2 }}></div>;
+
+	return (
+		<div className="mb-3">
+			<div className="d-sm-flex align-items-start">
+				<div className="player-bio">
+					<div className="d-flex">
+						<div
+							className="player-picture"
+							style={{
+								marginTop: player.imgURL ? 0 : -20,
+							}}
+						>
+							<PlayerPicture
+								face={player.face}
+								imgURL={player.imgURL}
+								colors={teamColors}
+								jersey={teamJersey}
+							/>
+						</div>
+						<div>
+							<strong>
+								{bestPos},{" "}
+								{teamURL ? <a href={teamURL}>{teamName}</a> : teamName}
+								{player.jerseyNumber ? (
+									<>
+										,{" "}
+										<a
+											href={helpers.leagueUrl([
+												"frivolities",
+												"most",
+												"jersey_number",
+												player.jerseyNumber,
+											])}
+										>
+											#{player.jerseyNumber}
+										</a>
+									</>
+								) : null}
+							</strong>
+							<br />
+							{height}, {weight}
+							{player.srID && !player.srID.startsWith("dp_") ? (
+								<>
+									{" "}
+									-{" "}
+									<a
+										href={`https://www.basketball-reference.com/players/${player.srID[0]}/${player.srID}.html`}
+									>
+										BBRef
+									</a>
+								</>
+							) : null}
+							<br />
+							Born: {player.born.year} -{" "}
+							<a
+								href={helpers.leagueUrl([
+									"frivolities",
+									"most",
+									"country",
+									window.encodeURIComponent(
+										helpers.getCountry(player.born.loc),
+									),
+								])}
+							>
+								{player.born.loc}
+								<CountryFlag className="ms-1" country={player.born.loc} />
+							</a>
+							<br />
+							{player.ageAtDeath === null || season !== undefined ? (
+								<>
+									Age: {player.age}
+									<br />
+								</>
+							) : (
+								<>
+									Died: {player.diedYear} ({player.ageAtDeath} years old)
+									<br />
+								</>
+							)}
+							<Relatives
+								gender={gender}
+								pid={player.pid}
+								relatives={player.relatives}
+							/>
+							{draftInfo}
+							{isSport("hockey") && college === "None" ? null : (
+								<>
+									College:{" "}
+									<a
+										href={helpers.leagueUrl([
+											"frivolities",
+											"most",
+											"college",
+											window.encodeURIComponent(college),
+										])}
+									>
+										{college}
+									</a>
+									<br />
+								</>
+							)}
+							Experience:{" "}
+							{player.experience === 0
+								? "none"
+								: `${player.experience} year${
+										player.experience > 1 ? "s" : ""
+									}`}
+							<br />
+							{contractInfo}
+							{statusInfo}
+						</div>
+					</div>
+
+					<div className="btn-group mt-2">
+						<a
+							href={helpers.leagueUrl(["customize_player", player.pid])}
+							className={clsx(
+								"btn",
+								godMode ? "btn-outline-god-mode" : "btn-light-bordered",
+							)}
+						>
+							Edit
+						</a>
+						{godMode ? (
+							<button
+								className="btn btn-outline-god-mode"
+								onClick={async () => {
+									const proceed = await confirm(
+										`Are you sure you want to delete ${player.name}?`,
+										{
+											okText: "Delete player",
+										},
+									);
+									if (proceed) {
+										await toWorker("main", "removePlayers", [player.pid]);
+
+										realtimeUpdate([], helpers.leagueUrl([]));
+									}
+								}}
+							>
+								Delete
+							</button>
+						) : null}
+						{godMode ? (
+							<a
+								href={helpers.leagueUrl([
+									"customize_player",
+									player.pid,
+									"clone",
+								])}
+								className="btn btn-outline-god-mode"
+							>
+								Clone
+							</a>
+						) : null}
+						{godMode && injured ? (
+							<button
+								className="btn btn-outline-god-mode"
+								onClick={async () => {
+									await toWorker("main", "clearInjuries", [player.pid]);
+								}}
+							>
+								Heal injury
+							</button>
+						) : null}
+						{!godMode ? buttonsAvailableOutsideGodMode : null}
+					</div>
+					{godMode ? (
+						<div className="mt-2">
+							<div className="btn-group">{buttonsAvailableOutsideGodMode}</div>
+						</div>
+					) : null}
+					{player.careerStats.gp! > 0 ? (
+						<>
+							{statSummary.map(({ name, onlyShowIf, stats }) => (
+								<StatsSummary
+									key={name}
+									name={name}
+									onlyShowIf={onlyShowIf}
+									position={player.ratings.at(-1)!.pos}
+									phase={phase}
+									currentSeason={currentSeason}
+									season={season}
+									stats={stats}
+									p={player}
+								/>
+							))}
+						</>
+					) : null}
+				</div>
+
+				<div className="mt-3 mt-sm-0 text-nowrap overflow-auto small-scrollbar">
+					{showRatingsOverview ? (
+						<RatingsOverview ratings={player.ratings} season={season} />
+					) : null}
+					{jerseyNumberInfos.length > 0 ? (
+						<div
+							className={clsx("d-flex flex-wrap", {
+								"mt-2": showRatingsOverview || player.awards.length > 0,
+							})}
+							style={{
+								gap: "0.5em",
+							}}
+						>
+							{jerseyNumberInfos.map((info, i) => {
+								let onClick;
+								let extraText;
+								const t = info.t;
+								if (t && (t.tid === userTid || godMode)) {
+									const isCurrentTeamAndNumber =
+										info.end >= currentSeason && t.tid === player.tid;
+
+									// Don't allow retiring current number, cause it behaves weirdly
+									if (!isCurrentTeamAndNumber) {
+										onClick = async () => {
+											if (info.retiredIndex >= 0) {
+												await toWorker("main", "retiredJerseyNumberDelete", {
+													tid: t.tid,
+													i: info.retiredIndex,
+												});
+											} else {
+												await toWorker("main", "retiredJerseyNumberUpsert", {
+													tid: t.tid,
+													info: {
+														number: info.number,
+														seasonRetired: currentSeason,
+														seasonTeamInfo: info.end,
+														pid: player.pid,
+														text: "",
+													},
+												});
+											}
+										};
+										extraText = `click to ${
+											info.retiredIndex >= 0 ? "unretire" : "retire"
+										} jersey`;
+									}
+								}
+								return (
+									<JerseyNumber
+										key={i}
+										onClick={onClick}
+										extraText={extraText}
+										retired={info.retiredIndex >= 0}
+										{...info}
+									/>
+								);
+							})}
+						</div>
+					) : (
+						PLACEHOLDER
+					)}
+				</div>
+			</div>
+
+			<AwardsSummary awards={player.awards} />
+
+			<div className="mt-3">
+				<Note
+					key={player.pid}
+					note={player.note}
+					info={{
+						type: "player",
+						pid: player.pid,
+					}}
+				/>
+			</div>
+
+			<NegotiationModal {...negotiationModal.props} />
+		</div>
+	);
+};
+
+export default TopStuff;
