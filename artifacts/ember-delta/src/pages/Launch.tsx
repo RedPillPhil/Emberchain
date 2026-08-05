@@ -666,7 +666,7 @@ function LaunchContent() {
     if (step1.chainType === 'evm') {
       setStep2(s => ({ ...s, cryptography: 'secp256k1', addressFormat: 'hex', utxoNetwork: '' }));
     } else if (step1.chainType === 'utxo') {
-      setStep2(s => ({ ...s, cryptography: 'secp256k1', addressFormat: s.addressFormat || 'base58' }));
+      setStep2(s => ({ ...s, cryptography: 'secp256k1', addressFormat: s.addressFormat || 'base58', decimals: s.decimals === '18' ? '8' : s.decimals }));
     } else if (step1.chainType === 'privacy') {
       setStep2(s => ({ ...s, cryptography: 'ed25519', addressFormat: s.addressFormat || 'base58', utxoNetwork: '' }));
     }

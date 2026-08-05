@@ -38,20 +38,33 @@ export function isAcceptedLaunchFeeRecipient(address: string): boolean {
   return getAcceptedLaunchFeeRecipients().some((a) => a === target);
 }
 
-/** Warn at startup if legacy fee address diverges from relayer (fees won't reach LP). */
+/** Warn at startup if launch prerequisites are missing. */
 export function validateLaunchFeeRouting(): void {
   const relayer = getLaunchFeeRecipientAddress()?.toLowerCase();
   const legacy = (process.env["TOKEN_LAUNCH_FEE_ADDRESS"] ?? "").toLowerCase();
+  const utxoKey = (process.env["BRIDGE_UTXO_PRIVATE_KEY"] ?? "").replace(/^0x/, "");
+  const universalBridge = process.env["UNIVERSAL_BRIDGE_ADDRESS"] ?? "";
+
   if (!relayer) {
-    logger.warn("[launch-fee] BRIDGE_RELAYER_PRIVATE_KEY not set — launch fees and LP disabled");
-    return;
-  }
-  if (legacy && legacy !== relayer) {
+    logger.warn("[launch-fee] BRIDGE_RELAYER_PRIVATE_KEY not set — launch deploy and bridge mint disabled");
+  } else if (legacy && legacy !== relayer) {
     logger.warn(
       { relayer, legacyFeeAddress: legacy },
-      "[launch-fee] TOKEN_LAUNCH_FEE_ADDRESS != relayer wallet — set TOKEN_LAUNCH_FEE_ADDRESS to relayer address or unset it. Fees sent to legacy address will NOT fund wEMBR/ETH LP.",
+      "[launch-fee] TOKEN_LAUNCH_FEE_ADDRESS != relayer wallet — fees sent to legacy address will NOT fund wEMBR/ETH LP",
     );
   } else {
     logger.info({ relayer }, "[launch-fee] listing fees route to relayer → wEMBR/ETH LP");
+  }
+
+  if (!utxoKey || utxoKey.length !== 64) {
+    logger.warn("[launch-fee] BRIDGE_UTXO_PRIVATE_KEY must be 32-byte hex — escrow address derivation disabled");
+  }
+
+  if (!universalBridge) {
+    logger.warn("[launch-fee] UNIVERSAL_BRIDGE_ADDRESS not set — wTOKEN deploy disabled");
+  }
+
+  if (!process.env["BASE_RPC_URL"]) {
+    logger.warn("[launch-fee] BASE_RPC_URL not set — Base operations disabled");
   }
 }

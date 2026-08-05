@@ -35,6 +35,15 @@ export CI=true
 pnpm install --frozen-lockfile --config.confirmModulesPurge=false 2>/dev/null \
   || pnpm install --config.confirmModulesPurge=false
 
+echo "→ compile launch contracts (WrappedToken bytecode)"
+(
+  cd contracts/emberswap
+  if [[ ! -d node_modules ]]; then
+    pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+  fi
+  pnpm exec hardhat compile
+)
+
 echo "→ build api-server"
 pnpm --filter @workspace/api-server run build
 

@@ -82,7 +82,10 @@ export async function createLaunchDeposit(data: {
 
 export async function updateLaunchDeposit(
   id: string,
-  patch: Partial<Pick<LaunchDeposit, "status" | "bridge_in_tx_hash" | "bridge_in_nonce" | "error_msg">>,
+  patch: Partial<Pick<LaunchDeposit, "status" | "bridge_in_tx_hash" | "bridge_in_nonce">> & {
+    error_msg?: string | null;
+    base_recipient?: string;
+  },
 ): Promise<void> {
   const sets = ["updated_at = NOW()"];
   const vals: unknown[] = [id];

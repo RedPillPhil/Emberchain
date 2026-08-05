@@ -9,6 +9,9 @@
  */
 
 import { ethers } from "ethers";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { logger } from "./logger";
 import { getBaseProvider } from "./base-provider";
 import {
@@ -43,6 +46,7 @@ const WRAPPED_TOKEN_ABI = [
 
 const UNIVERSAL_BRIDGE_ABI = [
   "function registerToken(address token) external",
+  "function supportedTokens(address token) external view returns (bool)",
 ];
 
 const UNISWAP_ROUTER_ABI = [
@@ -63,15 +67,30 @@ function getRelayerWallet(provider: ethers.JsonRpcProvider): ethers.Wallet | nul
   return new ethers.Wallet(key.startsWith("0x") ? key : "0x" + key, provider);
 }
 
+function wrappedTokenArtifactPath(): string | null {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(here, "../../../contracts/emberswap/artifacts/contracts/WrappedToken.sol/WrappedToken.json"),
+    path.resolve(here, "../../../../contracts/emberswap/artifacts/contracts/WrappedToken.sol/WrappedToken.json"),
+  ];
+  return candidates.find((p) => existsSync(p)) ?? null;
+}
+
 async function deployWrappedToken(
   launch: TokenLaunch,
   wallet: ethers.Wallet,
 ): Promise<string | null> {
   try {
-    // Load compiled artifact (available after `pnpm --filter @emberchain/contracts compile`)
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const artifact = require("../../../../contracts/emberswap/artifacts/contracts/WrappedToken.sol/WrappedToken.json") as {
-      abi: unknown[];
+    const artifactPath = wrappedTokenArtifactPath();
+    if (!artifactPath) {
+      logger.error(
+        "[launch-processor] WrappedToken artifact missing — run: cd contracts/emberswap && pnpm exec hardhat compile",
+      );
+      return null;
+    }
+
+    const artifact = JSON.parse(readFileSync(artifactPath, "utf8")) as {
+      abi: ethers.InterfaceAbi;
       bytecode: string;
     };
 
@@ -106,6 +125,12 @@ async function registerOnUniversalBridge(
     if (!bridgeAddr) return false;
 
     const bridge = new ethers.Contract(bridgeAddr, UNIVERSAL_BRIDGE_ABI, wallet);
+    const already = await bridge.supportedTokens(wrappedTokenAddress);
+    if (already) {
+      logger.info({ wrappedTokenAddress }, "[launch-processor] token already registered on UniversalBridge");
+      return true;
+    }
+
     const tx = await bridge.registerToken(wrappedTokenAddress);
     await tx.wait(1);
     return true;
@@ -311,8 +336,14 @@ async function handleDeploying(launch: TokenLaunch): Promise<void> {
 
   logger.info({ id: launch.id, wrappedTokenAddress }, "[launch-processor] wrapped token deployed");
 
-  // Register on UniversalBridge
-  await registerOnUniversalBridge(wrappedTokenAddress, wallet);
+  // Register on UniversalBridge (required for bridgeIn minting)
+  const registered = await registerOnUniversalBridge(wrappedTokenAddress, wallet);
+  if (!registered) {
+    await updateLaunchStatus(launch.id, "failed", {
+      error_msg: "Failed to register wrapped token on UniversalBridge — check relayer is contract owner.",
+    });
+    return;
+  }
 
   const balanceAfter = await baseProvider.getBalance(wallet.address);
   const deployGasSpentWei = balanceBefore > balanceAfter ? balanceBefore - balanceAfter : 0n;

@@ -1211,9 +1211,9 @@ function EvmTokenBridgeForm({
   );
 }
 
-// ── Non-EVM Launched Token Bridge Form ────────────────────────────────────────
+// ── Launched token bridge (escrow deposit + claim mint on Base) ───────────────
 
-function NonEvmTokenBridgeForm({
+function EscrowTokenBridgeForm({
   listing, address, isConnected, chainId, connectWallet, showToast, setInflight, pollStatus,
 }: {
   listing: TokenListing;
@@ -1620,9 +1620,9 @@ export default function Bridge() {
               setInflight={setInflight}
               startBridgePoll={startBridgePoll}
             />
-          ) : (
-            <NonEvmTokenBridgeForm
-              listing={listing!}
+          ) : listing ? (
+            <EscrowTokenBridgeForm
+              listing={listing}
               address={address}
               isConnected={isConnected}
               chainId={chainId}
@@ -1631,6 +1631,10 @@ export default function Bridge() {
               setInflight={setInflight}
               pollStatus={pollStatus}
             />
+          ) : (
+            <div className="text-center text-muted-foreground text-sm py-8 border border-dashed border-border rounded-lg">
+              Select a launched token to bridge
+            </div>
           )}
 
           {/* In-flight status */}

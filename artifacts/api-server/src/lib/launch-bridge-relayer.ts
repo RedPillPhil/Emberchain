@@ -3,11 +3,12 @@
  * tokens on Base via UniversalBridge.bridgeIn.
  */
 
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { ethers } from "ethers";
 import { logger } from "./logger";
 import { getBaseProvider } from "./base-provider";
 import { type TokenLaunch } from "./launch-db";
+import { verifyLaunchDeposit } from "./launch-deposit-verifier";
 import {
   createLaunchDeposit,
   getDepositByNativeTx,
@@ -24,75 +25,13 @@ function getRelayerWallet(provider: ethers.JsonRpcProvider): ethers.Wallet | nul
   return new ethers.Wallet(key.startsWith("0x") ? key : "0x" + key, provider);
 }
 
-async function verifyEvmDeposit(
+async function mintWrappedOnBase(
   launch: TokenLaunch,
-  nativeTxHash: string,
-): Promise<{ from: string; amount: bigint }> {
-  if (!launch.rpc_url) throw new Error("Launch RPC URL not configured");
-  if (!launch.bridge_wallet_address) throw new Error("Escrow address not assigned");
-
-  const provider = new ethers.JsonRpcProvider(launch.rpc_url);
-  const receipt = await provider.getTransactionReceipt(nativeTxHash);
-  if (!receipt) throw new Error("Native transaction not found — wait for confirmations and retry");
-  if (receipt.status !== 1) throw new Error("Native transaction failed on-chain");
-
-  const tx = await provider.getTransaction(nativeTxHash);
-  if (!tx) throw new Error("Could not load native transaction");
-
-  const escrow = launch.bridge_wallet_address.toLowerCase();
-  if (!tx.to || tx.to.toLowerCase() !== escrow) {
-    throw new Error("Transaction was not sent to this token's escrow bridge address");
-  }
-
-  if (tx.value <= 0n) throw new Error("Transaction did not transfer native coin");
-
-  const requiredConf = launch.confirmations_req ?? 6;
-  const latest = await provider.getBlockNumber();
-  const conf = latest - receipt.blockNumber + 1;
-  if (conf < requiredConf) {
-    throw new Error(`Waiting for confirmations (${conf}/${requiredConf}) — retry shortly`);
-  }
-
-  return { from: receipt.from.toLowerCase(), amount: tx.value };
-}
-
-export async function processLaunchBridgeClaim(
-  launch: TokenLaunch,
-  nativeTxHash: string,
+  depositId: string,
+  amount: bigint,
   baseRecipient: string,
-): Promise<{ depositId: string; bridgeInTxHash?: string }> {
-  if (launch.status !== "live") {
-    throw new Error("Token is not live yet — wait for launch to complete");
-  }
-  if (!launch.wrapped_token_address) {
-    throw new Error("Wrapped token not deployed on Base");
-  }
-  if (!/^0x[0-9a-fA-F]{40}$/.test(baseRecipient)) {
-    throw new Error("Invalid Base recipient address");
-  }
-
-  const existing = await getDepositByNativeTx(nativeTxHash);
-  if (existing?.status === "minted") {
-    return { depositId: existing.id, bridgeInTxHash: existing.bridge_in_tx_hash };
-  }
-  if (existing?.status === "pending") {
-    throw new Error("This deposit is already being processed");
-  }
-
-  const { from, amount } = await verifyEvmDeposit(launch, nativeTxHash);
-
-  const depositId = existing?.id ?? randomUUID();
-  if (!existing) {
-    await createLaunchDeposit({
-      id: depositId,
-      launch_id: launch.id,
-      native_tx_hash: nativeTxHash,
-      native_from: from,
-      gross_amount: amount.toString(),
-      base_recipient: baseRecipient,
-    });
-  }
-
+  nativeTxHash: string,
+): Promise<string> {
   const baseProvider = getBaseProvider();
   if (!baseProvider) throw new Error("BASE_RPC_URL not configured");
 
@@ -102,8 +41,18 @@ export async function processLaunchBridgeClaim(
   const bridgeAddr = launch.universal_bridge_address ?? process.env["UNIVERSAL_BRIDGE_ADDRESS"] ?? "";
   if (!bridgeAddr) throw new Error("UniversalBridge address not configured");
 
+  if (!launch.wrapped_token_address) {
+    throw new Error("Wrapped token not deployed on Base");
+  }
+
   const bridge = new ethers.Contract(bridgeAddr, UNIVERSAL_BRIDGE_ABI, relayer);
-  const nonce = BigInt(Date.now());
+  const nonce = BigInt(
+    "0x" +
+      createHash("sha256")
+        .update(`${launch.id}:${nativeTxHash.toLowerCase()}`)
+        .digest("hex")
+        .slice(0, 16),
+  );
 
   try {
     const tx = await bridge.bridgeIn(
@@ -131,7 +80,7 @@ export async function processLaunchBridgeClaim(
       "[launch-bridge-relayer] bridgeIn complete",
     );
 
-    return { depositId, bridgeInTxHash: receipt.hash };
+    return receipt.hash;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await updateLaunchDeposit(depositId, { status: "failed", error_msg: msg });
@@ -139,17 +88,64 @@ export async function processLaunchBridgeClaim(
   }
 }
 
-/** Non-EVM / UTXO: verify via explorer or manual queue — MVP returns helpful error. */
+export async function processLaunchBridgeClaim(
+  launch: TokenLaunch,
+  nativeTxHash: string,
+  baseRecipient: string,
+): Promise<{ depositId: string; bridgeInTxHash?: string }> {
+  if (launch.status !== "live") {
+    throw new Error("Token is not live yet — wait for launch to complete");
+  }
+  if (!/^0x[0-9a-fA-F]{40}$/.test(baseRecipient)) {
+    throw new Error("Invalid Base recipient address");
+  }
+
+  const normalizedTx = nativeTxHash.trim();
+  const existing = await getDepositByNativeTx(normalizedTx);
+  if (existing?.status === "minted") {
+    return { depositId: existing.id, bridgeInTxHash: existing.bridge_in_tx_hash };
+  }
+  if (existing?.status === "pending") {
+    throw new Error("This deposit is already being processed — retry in a minute");
+  }
+
+  const { from, amount } = await verifyLaunchDeposit(launch, normalizedTx);
+  if (amount <= 0n) throw new Error("Deposit amount must be greater than zero");
+
+  const depositId = existing?.id ?? randomUUID();
+  if (!existing) {
+    await createLaunchDeposit({
+      id: depositId,
+      launch_id: launch.id,
+      native_tx_hash: normalizedTx,
+      native_from: from,
+      gross_amount: amount.toString(),
+      base_recipient: baseRecipient.toLowerCase(),
+    });
+  } else if (existing.status === "failed") {
+    await updateLaunchDeposit(depositId, {
+      status: "pending",
+      error_msg: null,
+      base_recipient: baseRecipient.toLowerCase(),
+    });
+  }
+
+  const bridgeInTxHash = await mintWrappedOnBase(
+    launch,
+    depositId,
+    amount,
+    baseRecipient,
+    normalizedTx,
+  );
+
+  return { depositId, bridgeInTxHash };
+}
+
+/** All chain types — verification routed by launch chain config. */
 export async function processLaunchBridgeClaimGeneric(
   launch: TokenLaunch,
   nativeTxHash: string,
   baseRecipient: string,
 ): Promise<{ depositId: string; bridgeInTxHash?: string }> {
-  if (launch.chain_type === "evm" || launch.address_format === "hex") {
-    return processLaunchBridgeClaim(launch, nativeTxHash, baseRecipient);
-  }
-
-  throw new Error(
-    "Automatic minting for this chain type is coming soon. Contact support with your native tx hash and Base address.",
-  );
+  return processLaunchBridgeClaim(launch, nativeTxHash, baseRecipient);
 }
