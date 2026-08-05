@@ -34,7 +34,9 @@ echo "→ clear stale dist (frees space before vite write)"
 rm -rf "${REPO_ROOT}/artifacts/wallet/dist" "${REPO_ROOT}/artifacts/ember-delta/dist"
 
 echo "→ pnpm install"
-pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+export CI=true
+pnpm install --frozen-lockfile --config.confirmModulesPurge=false 2>/dev/null \
+  || pnpm install --config.confirmModulesPurge=false
 
 echo "→ build wallet + ember-delta"
 node scripts/build-vercel.mjs

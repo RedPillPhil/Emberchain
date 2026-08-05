@@ -31,7 +31,9 @@ if ! compose -f scripts/deploy-vm/docker-compose.yml ps postgres 2>/dev/null | g
 fi
 
 echo "→ pnpm install"
-pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+export CI=true
+pnpm install --frozen-lockfile --config.confirmModulesPurge=false 2>/dev/null \
+  || pnpm install --config.confirmModulesPurge=false
 
 echo "→ build api-server"
 pnpm --filter @workspace/api-server run build

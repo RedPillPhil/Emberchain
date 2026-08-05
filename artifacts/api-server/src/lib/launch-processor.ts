@@ -3,20 +3,9 @@
  *
  * Background loop that advances token launches through their lifecycle:
  *
- *   payment_confirmed
- *     → derive bridge wallet
- *     → EVM chains:     pending_gas  (wait for user to fund gas)
- *     → non-EVM chains: deploying    (escrow wallet only, no native contract)
+ *   payment_confirmed → deploying → live
  *
- *   pending_gas
- *     → check if bridge wallet has gas on native chain
- *     → if funded: deploying
- *
- *   deploying
- *     → deploy WrappedToken on Base
- *     → register on UniversalBridge
- *     → EVM chains: deploy NativeBridge on native chain
- *     → live
+ * All chains use a unique server-side escrow address (no NativeBridge deploy).
  */
 
 import { ethers } from "ethers";
@@ -27,8 +16,11 @@ import {
   updateLaunchStatus,
   type TokenLaunch,
 } from "./launch-db";
-import { getStaticBridgeAddress } from "./chain-adapters/index";
+import { deriveLaunchBridgeWallet } from "./launch-wallet";
 import { upsertContractRecord } from "./contract-registry";
+import {
+  validateLaunchFeeRouting,
+} from "./launch-fee-recipient";
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -137,23 +129,46 @@ async function registerOnUniversalBridge(
 async function addWEMBRLiquidity(
   launch: TokenLaunch,
   wallet: ethers.Wallet,
+  deployGasSpentWei: bigint,
 ): Promise<void> {
   try {
     const provider = wallet.provider!;
     const balance = await provider.getBalance(wallet.address);
-
-    // Keep a gas reserve for future relayer operations
     const gasReserve = ethers.parseEther(GAS_RESERVE_ETH.toString());
-    if (balance <= gasReserve) {
+
+    // Use this launch's verified fee amount — not the entire relayer wallet balance.
+    let feeWei = 0n;
+    if (launch.fee_amount_eth && launch.fee_amount_eth !== "dev" && launch.fee_amount_eth !== "unknown") {
+      try {
+        feeWei = ethers.parseEther(launch.fee_amount_eth);
+      } catch {
+        logger.warn({ id: launch.id, fee: launch.fee_amount_eth }, "[launch-processor] invalid fee_amount_eth");
+      }
+    }
+
+    let liquidityEthTotal: bigint;
+    if (feeWei > 0n) {
+      const afterDeploy = feeWei > deployGasSpentWei ? feeWei - deployGasSpentWei : 0n;
+      const maxFromBalance = balance > gasReserve ? balance - gasReserve : 0n;
+      liquidityEthTotal = afterDeploy < maxFromBalance ? afterDeploy : maxFromBalance;
+    } else {
+      liquidityEthTotal = balance > gasReserve ? balance - gasReserve : 0n;
+    }
+
+    // Need enough for swap + LP (roughly 0.002 ETH minimum on Base)
+    const minLp = ethers.parseEther("0.002");
+    if (liquidityEthTotal < minLp) {
       logger.warn(
-        { id: launch.id, balance: balance.toString() },
-        "[launch-processor] server balance too low for wEMBR liquidity — skipping",
+        {
+          id: launch.id,
+          liquidityEthTotal: liquidityEthTotal.toString(),
+          feeWei: feeWei.toString(),
+          deployGasSpentWei: deployGasSpentWei.toString(),
+        },
+        "[launch-processor] fee too small for wEMBR/ETH LP after deploy gas — skipping",
       );
       return;
     }
-
-    // Total ETH available for liquidity (wallet balance minus gas reserve)
-    const liquidityEthTotal = balance - gasReserve;
 
     // Split 50/50: half buys wEMBR, half stays as ETH for the LP pair
     const ethForSwap = liquidityEthTotal / 2n;
@@ -218,64 +233,49 @@ async function addWEMBRLiquidity(
 // ── Step handlers ─────────────────────────────────────────────────────────────
 
 async function handlePaymentConfirmed(launch: TokenLaunch): Promise<void> {
-  let wallet;
-  try {
-    wallet = getStaticBridgeAddress(
-      launch.chain_type,
-      launch.cryptography ?? "secp256k1",
-      launch.address_format ?? "hex",
-      launch.utxo_network ?? "bitcoin",
-    );
-  } catch (err) {
-    logger.error({ err, id: launch.id }, "[launch-processor] static bridge address lookup failed");
-    await updateLaunchStatus(launch.id, "failed", {
-      error_msg: err instanceof Error ? err.message : String(err),
+  if (!launch.bridge_wallet_address) {
+    try {
+      const wallet = deriveLaunchBridgeWallet({
+        launchId: launch.id,
+        chainType: launch.chain_type,
+        cryptography: launch.cryptography,
+        addressFormat: launch.address_format,
+        utxoNetwork: launch.utxo_network,
+      });
+      await updateLaunchStatus(launch.id, "deploying", {
+        bridge_wallet_address: wallet.address,
+        bridge_wallet_type: wallet.type,
+        bridge_private_key_encrypted: wallet.privateKeyEncrypted,
+        native_bridge_address: wallet.address,
+      });
+      logger.info({ id: launch.id, wallet: wallet.address }, "[launch-processor] escrow wallet derived");
+      launch = { ...launch, bridge_wallet_address: wallet.address, native_bridge_address: wallet.address };
+    } catch (err) {
+      logger.error({ err, id: launch.id }, "[launch-processor] escrow wallet derivation failed");
+      await updateLaunchStatus(launch.id, "failed", {
+        error_msg: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+  } else if (!launch.native_bridge_address) {
+    await updateLaunchStatus(launch.id, "deploying", {
+      native_bridge_address: launch.bridge_wallet_address,
     });
-    return;
+  } else {
+    await updateLaunchStatus(launch.id, "deploying");
   }
 
-  const nextStatus = launch.chain_type === "evm" ? "pending_gas" : "deploying";
-
-  // For non-EVM chains the bridge wallet IS the deposit address — set it
-  // immediately so the UI can display it without waiting for handleDeploying.
-  // For EVM chains native_bridge_address is the NativeBridge contract address
-  // (deployed later), so we don't pre-populate it here.
-  const nativeBridgeAddress = launch.chain_type !== "evm" ? wallet.address : undefined;
-
-  await updateLaunchStatus(launch.id, nextStatus, {
-    bridge_wallet_address: wallet.address,
-    bridge_wallet_type: wallet.type,
-    native_bridge_address: nativeBridgeAddress,
-  });
-
   logger.info(
-    {
-      id: launch.id,
-      wallet: wallet.address,
-      type: wallet.type,
-      status: nextStatus,
-      native_bridge_address: nativeBridgeAddress,
-    },
-    "[launch-processor] static bridge address assigned",
+    { id: launch.id, escrow: launch.bridge_wallet_address, status: "deploying" },
+    "[launch-processor] advancing to deploy wrapped token on Base",
   );
 }
 
 async function handlePendingGas(launch: TokenLaunch): Promise<void> {
-  if (!launch.rpc_url || !launch.bridge_wallet_address) return;
-
-  try {
-    const provider = new ethers.JsonRpcProvider(launch.rpc_url);
-    const balance = await provider.getBalance(launch.bridge_wallet_address);
-
-    // Require at least 0.01 native coins for gas
-    const MIN_GAS = ethers.parseEther("0.01");
-    if (balance >= MIN_GAS) {
-      await updateLaunchStatus(launch.id, "deploying");
-      logger.info({ id: launch.id }, "[launch-processor] gas funded → deploying");
-    }
-  } catch (err) {
-    logger.warn({ err, id: launch.id }, "[launch-processor] gas check failed (will retry)");
-  }
+  await updateLaunchStatus(launch.id, "deploying", {
+    native_bridge_address: launch.bridge_wallet_address ?? launch.native_bridge_address,
+  });
+  logger.info({ id: launch.id }, "[launch-processor] legacy pending_gas → deploying (escrow model)");
 }
 
 async function handleDeploying(launch: TokenLaunch): Promise<void> {
@@ -290,6 +290,8 @@ async function handleDeploying(launch: TokenLaunch): Promise<void> {
     logger.warn("[launch-processor] BRIDGE_RELAYER_PRIVATE_KEY not set — cannot deploy");
     return;
   }
+
+  const balanceBefore = await baseProvider.getBalance(wallet.address);
 
   const universalBridgeAddress = process.env["UNIVERSAL_BRIDGE_ADDRESS"] ?? "";
   if (!universalBridgeAddress) {
@@ -312,22 +314,19 @@ async function handleDeploying(launch: TokenLaunch): Promise<void> {
   // Register on UniversalBridge
   await registerOnUniversalBridge(wrappedTokenAddress, wallet);
 
-  // Use fee ETH to add wEMBR/ETH liquidity — benefits the EMBR ecosystem
-  await addWEMBRLiquidity(launch, wallet);
+  const balanceAfter = await baseProvider.getBalance(wallet.address);
+  const deployGasSpentWei = balanceBefore > balanceAfter ? balanceBefore - balanceAfter : 0n;
 
-  // For non-EVM chains the native deposit address is the bridge wallet that was
-  // assigned in handlePaymentConfirmed.  Re-assert it here so the field is
-  // always populated on the final record even if the earlier step pre-dated
-  // this logic (e.g. launches that were already in deploying state).
-  const nativeBridgeAddress =
-    launch.chain_type !== "evm"
-      ? (launch.native_bridge_address ?? launch.bridge_wallet_address ?? undefined)
-      : undefined;
+  // Listing fee ETH → wEMBR/ETH Uniswap V2 LP (same relayer wallet that received the fee)
+  await addWEMBRLiquidity(launch, wallet, deployGasSpentWei);
+
+  const escrowAddress = launch.bridge_wallet_address ?? launch.native_bridge_address;
 
   await updateLaunchStatus(launch.id, "live", {
     wrapped_token_address: wrappedTokenAddress,
     universal_bridge_address: universalBridgeAddress,
-    native_bridge_address: nativeBridgeAddress,
+    native_bridge_address: escrowAddress,
+    bridge_wallet_address: escrowAddress,
   });
 
   // Register the wrapped token in the DEX token registry so it auto-appears
@@ -370,6 +369,7 @@ async function runOnce(): Promise<void> {
 }
 
 export function startLaunchProcessor(): void {
+  validateLaunchFeeRouting();
   logger.info("[launch-processor] starting");
   void runOnce();
   setInterval(() => { void runOnce(); }, POLL_INTERVAL_MS);

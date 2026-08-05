@@ -215,8 +215,41 @@ export function getStaticAddrs(): Partial<Record<StaticAddrKey, string>> {
 
 export interface BridgeWallet {
   address: string;
-  type: "evm_static" | "utxo_static" | "ed25519_static" | "unknown";
+  type: "evm_static" | "utxo_static" | "ed25519_static" | "evm_derived" | "utxo_derived" | "ed25519_derived" | "unknown";
   note: string;
+}
+
+/** Encode a secp256k1 private key into a native deposit address. */
+export function encodeSecp256k1DepositAddress(
+  privateKeyHex: string,
+  addressFormat: string,
+  utxoNetwork: string,
+): string {
+  const sk = new SigningKey("0x" + privateKeyHex.replace(/^0x/, ""));
+  const pkh = hash160(sk.compressedPublicKey);
+
+  if (addressFormat === "hex") {
+    return computeAddress(sk.publicKey);
+  }
+
+  if (addressFormat === "bech32") {
+    const net = ["bitcoin", "litecoin"].includes(utxoNetwork) ? utxoNetwork : "other";
+    const hrp = UTXO_BECH32_HRPS[net] ?? "bc";
+    return bech32P2WPKH(hrp, pkh);
+  }
+
+  const net = Object.keys(UTXO_NETWORK_VERSIONS).includes(utxoNetwork) ? utxoNetwork : "other";
+  const versions = UTXO_NETWORK_VERSIONS[net] ?? [0x00];
+  return base58Check(Buffer.concat([Buffer.from(versions), pkh]));
+}
+
+/** Encode an ed25519 seed into a deposit address (hex pubkey or Solana-style base58). */
+export function encodeEd25519DepositAddress(seedHex: string, addressFormat: string): string {
+  const pubHex = ed25519PubKey(seedHex);
+  if (addressFormat === "base58") {
+    return base58Encode(Buffer.from(pubHex, "hex"));
+  }
+  return pubHex;
 }
 
 /**

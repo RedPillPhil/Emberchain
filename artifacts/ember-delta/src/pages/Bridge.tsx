@@ -1229,10 +1229,51 @@ function NonEvmTokenBridgeForm({
   const [direction, setDirection] = useState<TokenDirection>('native_to_base');
   const [amount, setAmount] = useState('');
   const [nativeRecipient, setNativeRecipient] = useState('');
+  const [baseRecipient, setBaseRecipient] = useState(address ?? '');
+  const [nativeTxHash, setNativeTxHash] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStep, setSubmitStep] = useState('');
 
   const isOnBase = chainId === BASE_CHAIN_ID;
+  const depositAddress = listing.native_bridge_address;
+  const nativeChainId = listing.chain_id ? parseInt(listing.chain_id) : null;
+  const isOnNativeChain = nativeChainId ? chainId === nativeChainId : false;
+
+  useEffect(() => { if (address) setBaseRecipient(address); }, [address]);
+
+  const claimNativeDeposit = async () => {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(baseRecipient)) {
+      showToast('Enter a valid Base recipient address (0x…)', 'error');
+      return;
+    }
+    if (!nativeTxHash.trim()) {
+      showToast('Paste the native-chain transaction hash after sending', 'error');
+      return;
+    }
+    setIsSubmitting(true);
+    setSubmitStep('Verifying deposit and minting on Base…');
+    try {
+      const r = await fetch(`${getApiBase()}/api/token-launch/${listing.id}/claim-bridge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          native_tx_hash: nativeTxHash.trim(),
+          base_recipient: baseRecipient.trim(),
+        }),
+      });
+      const data = await r.json() as { error?: string; bridgeInTxHash?: string };
+      if (!r.ok) throw new Error(data.error ?? 'Claim failed');
+      setInflight({ nonce: nativeTxHash, status: 'confirmed', txHash: data.bridgeInTxHash });
+      setNativeTxHash('');
+      showToast(`w${listing.symbol} minted on Base!`, 'success');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      showToast(msg, 'error');
+    } finally {
+      setIsSubmitting(false);
+      setSubmitStep('');
+    }
+  };
 
   // Base → Native: same UniversalBridge.bridgeOut call as EVM tokens
   const bridgeBaseToNative = async () => {
@@ -1301,30 +1342,45 @@ function NonEvmTokenBridgeForm({
       </div>
 
       {direction === 'native_to_base' ? (
-        /* Manual send instructions for non-EVM */
         <div className="bg-card border border-border rounded-xl p-5 space-y-4">
           <div className="flex items-start gap-2 text-xs text-yellow-300 bg-yellow-500/10 border border-yellow-500/20 rounded px-3 py-2">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-            {listing.chain_name} is not EVM-compatible. Send {listing.symbol} manually to the bridge address below. The relayer will mint w{listing.symbol} on Base after {listing.chain_name ?? 'network'} confirmations.
+            Send {listing.symbol} to the escrow address below on {listing.chain_name}, then paste your transaction hash to mint w{listing.symbol} on Base.
           </div>
 
-          {listing.native_bridge_address ? (
+          {depositAddress ? (
             <div className="space-y-2">
-              <div className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Bridge Deposit Address ({listing.chain_name})</div>
+              <div className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Escrow Deposit Address ({listing.chain_name})</div>
               <div className="flex items-start gap-2 bg-secondary/60 border border-border rounded-lg p-3">
-                <span className="font-mono text-white text-sm break-all flex-1">{listing.native_bridge_address}</span>
-                <CopyButton text={listing.native_bridge_address} />
+                <span className="font-mono text-white text-sm break-all flex-1">{depositAddress}</span>
+                <CopyButton text={depositAddress} />
               </div>
-              <p className="text-[10px] text-muted-foreground">
-                Send exactly the amount you want to bridge. Include your <strong className="text-white">Base address</strong> in the memo/message field if supported by {listing.chain_name}.
-              </p>
             </div>
           ) : (
             <div className="flex items-start gap-2 text-xs bg-orange-500/10 border border-orange-500/20 text-orange-300 rounded px-3 py-2">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-              Bridge deposit address is being assigned. Check back soon.
+              Escrow address is being assigned. Refresh in a moment.
             </div>
           )}
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Base recipient (0x…)</label>
+            <input type="text" placeholder="0x…" value={baseRecipient} onChange={e => setBaseRecipient(e.target.value)}
+              className="w-full bg-input border border-border rounded px-4 py-2 text-sm font-mono text-white focus:outline-none focus:border-primary transition-all" />
+            <p className="text-[10px] text-muted-foreground">w{listing.symbol} will be minted to this address on Base (0.5% fee applied).</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Native transaction hash</label>
+            <input type="text" placeholder="Paste tx hash after sending…" value={nativeTxHash} onChange={e => setNativeTxHash(e.target.value)}
+              className="w-full bg-input border border-border rounded px-4 py-2 text-sm font-mono text-white focus:outline-none focus:border-primary transition-all" />
+          </div>
+
+          <button onClick={claimNativeDeposit} disabled={isSubmitting || !depositAddress}
+            className="w-full py-4 bg-primary text-primary-foreground font-bold uppercase tracking-wider rounded text-sm hover:bg-primary/90 transition-all disabled:opacity-60 flex items-center justify-center gap-2">
+            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+            {isSubmitting ? (submitStep || 'Processing…') : `Claim w${listing.symbol} on Base`}
+          </button>
 
           {listing.wrapped_token_address && (
             <div className="space-y-1">
@@ -1563,17 +1619,6 @@ export default function Bridge() {
               showToast={showToast}
               setInflight={setInflight}
               startBridgePoll={startBridgePoll}
-            />
-          ) : isEvm(listing!) ? (
-            <EvmTokenBridgeForm
-              listing={listing!}
-              address={address}
-              isConnected={isConnected}
-              chainId={chainId}
-              connectWallet={connectWallet}
-              showToast={showToast}
-              setInflight={setInflight}
-              pollStatus={pollStatus}
             />
           ) : (
             <NonEvmTokenBridgeForm

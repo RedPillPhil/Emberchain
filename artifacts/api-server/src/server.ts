@@ -19,6 +19,7 @@ import { ensureCommunityTables } from "./lib/community-db";
 import { ensureBridgeTables } from "./lib/bridge-db";
 import { ensureDexOrdersTable } from "./lib/dex-orders-db";
 import { ensureLaunchTable } from "./lib/launch-db";
+import { ensureLaunchDepositTable } from "./lib/launch-deposit-db";
 import { startBridgeRelayer, stopBridgeRelayer } from "./lib/bridge-relayer";
 import { startLaunchProcessor } from "./lib/launch-processor";
 import { startMiningStatusPoller } from "./lib/mining-status-cache";
@@ -59,6 +60,7 @@ export async function startServer(port: number): Promise<ServerHandle> {
     ensureBridgeTables(),
     ensureDexOrdersTable(),
     ensureLaunchTable(),
+    ensureLaunchDepositTable(),
   ])
     .catch((err) => logger.warn({ err }, "DB tables unavailable — running without DB persistence"))
     .then(() => {

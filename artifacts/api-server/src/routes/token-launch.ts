@@ -21,7 +21,13 @@ import {
   type TokenLaunch,
 } from "../lib/launch-db";
 import { getBaseProvider } from "../lib/base-provider";
-import { getStaticBridgeAddress } from "../lib/chain-adapters/index";
+import { deriveLaunchBridgeWallet, validateLaunchWalletParams } from "../lib/launch-wallet";
+import { processLaunchBridgeClaimGeneric } from "../lib/launch-bridge-relayer";
+import { getDepositsForLaunch } from "../lib/launch-deposit-db";
+import {
+  getLaunchFeeRecipientAddress,
+  isAcceptedLaunchFeeRecipient,
+} from "../lib/launch-fee-recipient";
 import { logger } from "../lib/logger";
 
 /**
@@ -74,11 +80,13 @@ router.get("/token-launch/fee", async (_req, res) => {
     const ethAmount = TARGET_USD / ethPrice;
     const ethAmountStr = ethAmount.toFixed(6);
     const weiAmount = ethers.parseEther(ethAmountStr).toString();
+    const feeRecipientAddress = getLaunchFeeRecipientAddress();
     res.json({
       usdAmount: TARGET_USD,
       ethPrice,
       ethAmount: ethAmountStr,
       weiAmount,
+      feeRecipientAddress,
     });
   } catch (err) {
     logger.error({ err }, "[token-launch] /fee error");
@@ -91,7 +99,10 @@ router.get("/token-launch/fee", async (_req, res) => {
 router.get("/token-launch/listings", async (_req, res) => {
   try {
     const listings = await getLiveLaunches();
-    res.json(listings.map(sanitizeLaunch));
+    res.json(listings.map((l) => sanitizeLaunch({
+      ...l,
+      native_bridge_address: l.native_bridge_address ?? l.bridge_wallet_address,
+    })));
   } catch (err) {
     logger.error({ err }, "[token-launch] /listings error");
     res.status(500).json({ error: "Failed to fetch listings" });
@@ -132,8 +143,29 @@ router.post("/token-launch/submit", async (req, res) => {
       return res.status(400).json({ error: "Symbol must be 1–10 alphanumeric characters" });
     }
 
-    const id = randomUUID();
     const normalizedChainType = chain_type.toLowerCase();
+    let normalizedCrypto = cryptography || (normalizedChainType === "evm" ? "secp256k1" : cryptography);
+    let normalizedFormat = address_format || (normalizedChainType === "evm" ? "hex" : address_format);
+    if (normalizedChainType === "privacy") {
+      normalizedCrypto = "ed25519";
+      normalizedFormat = normalizedFormat || "base58";
+    }
+    if (normalizedChainType === "utxo" && !normalizedCrypto) {
+      normalizedCrypto = "secp256k1";
+    }
+
+    const validationError = validateLaunchWalletParams({
+      launchId: "preview",
+      chainType: normalizedChainType,
+      cryptography: normalizedCrypto,
+      addressFormat: normalizedFormat,
+      utxoNetwork: utxo_network,
+    });
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
+    const id = randomUUID();
     const launch = await createLaunch({
       id,
       symbol: sym,
@@ -154,28 +186,31 @@ router.post("/token-launch/submit", async (req, res) => {
       submitter_address: submitter_address.toLowerCase(),
     });
 
-    // For non-EVM chains the deposit address is deterministic — populate it
-    // immediately so the Bridge page can show it without waiting for payment.
-    if (normalizedChainType !== "evm") {
-      try {
-        const bridgeWallet = getStaticBridgeAddress(
-          normalizedChainType,
-          cryptography || "secp256k1",
-          address_format || "hex",
-          utxo_network || "bitcoin",
-        );
-        await updateLaunchStatus(launch.id, "pending_payment", {
-          bridge_wallet_address: bridgeWallet.address,
-          bridge_wallet_type: bridgeWallet.type,
-          native_bridge_address: bridgeWallet.address,
-        });
-        launch.bridge_wallet_address = bridgeWallet.address;
-        launch.bridge_wallet_type = bridgeWallet.type;
-        launch.native_bridge_address = bridgeWallet.address;
-        logger.info({ id: launch.id, address: bridgeWallet.address }, "[token-launch] deposit address pre-assigned at submission");
-      } catch (err) {
-        logger.warn({ err, id: launch.id }, "[token-launch] could not pre-assign deposit address (will retry at payment confirmation)");
-      }
+    // Derive unique escrow address immediately for every chain type.
+    try {
+      const bridgeWallet = deriveLaunchBridgeWallet({
+        launchId: launch.id,
+        chainType: normalizedChainType,
+        cryptography: normalizedCrypto,
+        addressFormat: normalizedFormat,
+        utxoNetwork: utxo_network || "bitcoin",
+      });
+      await updateLaunchStatus(launch.id, "pending_payment", {
+        bridge_wallet_address: bridgeWallet.address,
+        bridge_wallet_type: bridgeWallet.type,
+        bridge_private_key_encrypted: bridgeWallet.privateKeyEncrypted,
+        native_bridge_address: bridgeWallet.address,
+      });
+      launch.bridge_wallet_address = bridgeWallet.address;
+      launch.bridge_wallet_type = bridgeWallet.type;
+      launch.native_bridge_address = bridgeWallet.address;
+      logger.info({ id: launch.id, address: bridgeWallet.address, type: bridgeWallet.type }, "[token-launch] escrow address assigned at submit");
+    } catch (err) {
+      logger.error({ err, id: launch.id }, "[token-launch] escrow derivation failed");
+      await updateLaunchStatus(launch.id, "failed", {
+        error_msg: err instanceof Error ? err.message : String(err),
+      });
+      return res.status(400).json({ error: err instanceof Error ? err.message : "Could not derive escrow address" });
     }
 
     res.status(201).json(sanitizeLaunch(launch));
@@ -199,8 +234,6 @@ router.get("/token-launch/:id", async (req, res) => {
 });
 
 // ── POST /token-launch/:id/verify-payment ─────────────────────────────────────
-
-const TOKEN_LAUNCH_FEE_ADDRESS = (process.env["TOKEN_LAUNCH_FEE_ADDRESS"] ?? "").toLowerCase();
 
 router.post("/token-launch/:id/verify-payment", async (req, res) => {
   try {
@@ -232,15 +265,35 @@ router.post("/token-launch/:id/verify-payment", async (req, res) => {
     if (!receipt) return res.status(422).json({ error: "Transaction not found on Base" });
     if (receipt.status !== 1) return res.status(422).json({ error: "Transaction failed on-chain" });
 
-    // Verify destination is the fee contract (if address is configured)
-    if (TOKEN_LAUNCH_FEE_ADDRESS && receipt.to) {
-      if (receipt.to.toLowerCase() !== TOKEN_LAUNCH_FEE_ADDRESS) {
-        return res.status(422).json({ error: "Transaction was not sent to the launch fee contract" });
-      }
+    const feeRecipient = getLaunchFeeRecipientAddress();
+    if (!feeRecipient) {
+      return res.status(503).json({ error: "Launch fee recipient not configured (BRIDGE_RELAYER_PRIVATE_KEY)" });
+    }
+
+    if (receipt.to && !isAcceptedLaunchFeeRecipient(receipt.to)) {
+      return res.status(422).json({
+        error: "Transaction was not sent to the launch fee recipient",
+        expectedRecipient: feeRecipient,
+      });
     }
 
     const tx = await provider.getTransaction(tx_hash);
-    const ethAmount = tx?.value ? ethers.formatEther(tx.value) : "unknown";
+    if (!tx?.value) {
+      return res.status(422).json({ error: "Transaction has no ETH value" });
+    }
+
+    const ethPrice = await getEthUsdPrice();
+    const expectedWei = ethers.parseEther((TARGET_USD / ethPrice).toFixed(6));
+    const minWei = (expectedWei * 95n) / 100n; // 5% tolerance for price drift
+    if (tx.value < minWei) {
+      return res.status(422).json({
+        error: "Payment amount below launch fee",
+        expectedEth: ethers.formatEther(expectedWei),
+        receivedEth: ethers.formatEther(tx.value),
+      });
+    }
+
+    const ethAmount = ethers.formatEther(tx.value);
 
     await updateLaunchStatus(launch.id, "payment_confirmed", {
       fee_tx_hash: tx_hash,
@@ -252,6 +305,56 @@ router.post("/token-launch/:id/verify-payment", async (req, res) => {
   } catch (err) {
     logger.error({ err }, "[token-launch] /verify-payment error");
     res.status(500).json({ error: "Verification failed" });
+  }
+});
+
+// ── POST /token-launch/:id/claim-bridge ───────────────────────────────────────
+
+router.post("/token-launch/:id/claim-bridge", async (req, res) => {
+  try {
+    const launch = await getLaunch(req.params.id);
+    if (!launch) return res.status(404).json({ error: "Launch not found" });
+
+    const { native_tx_hash, base_recipient } = req.body as {
+      native_tx_hash?: string;
+      base_recipient?: string;
+    };
+    if (!native_tx_hash || !base_recipient) {
+      return res.status(400).json({ error: "native_tx_hash and base_recipient required" });
+    }
+
+    const result = await processLaunchBridgeClaimGeneric(
+      launch,
+      native_tx_hash.trim(),
+      base_recipient.trim(),
+    );
+
+    res.json({
+      ok: true,
+      depositId: result.depositId,
+      bridgeInTxHash: result.bridgeInTxHash,
+      message: result.bridgeInTxHash
+        ? "Wrapped tokens minted on Base."
+        : "Deposit recorded.",
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn({ err: msg, id: req.params.id }, "[token-launch] claim-bridge failed");
+    res.status(422).json({ error: msg });
+  }
+});
+
+// ── GET /token-launch/:id/deposits ────────────────────────────────────────────
+
+router.get("/token-launch/:id/deposits", async (req, res) => {
+  try {
+    const launch = await getLaunch(req.params.id);
+    if (!launch) return res.status(404).json({ error: "Launch not found" });
+    const deposits = await getDepositsForLaunch(launch.id);
+    res.json(deposits);
+  } catch (err) {
+    logger.error({ err }, "[token-launch] /deposits error");
+    res.status(500).json({ error: "Failed to fetch deposits" });
   }
 });
 

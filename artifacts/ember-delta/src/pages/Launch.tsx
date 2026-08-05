@@ -17,11 +17,18 @@ const TOKEN_LAUNCH_DOWN = import.meta.env.VITE_TOKEN_LAUNCH_DOWN === 'true';
 
 type ChainType = 'evm' | 'utxo' | 'privacy' | 'custom';
 
-interface FeeInfo { usdAmount: number; ethPrice: number; ethAmount: string; weiAmount: string }
+interface FeeInfo {
+  usdAmount: number;
+  ethPrice: number;
+  ethAmount: string;
+  weiAmount: string;
+  feeRecipientAddress: string | null;
+}
 interface LaunchRecord {
   id: string; status: string; symbol: string; wrapped_symbol: string;
   token_name: string; chain_name: string; chain_type: string;
   bridge_wallet_address?: string; bridge_wallet_type?: string;
+  native_bridge_address?: string;
   wrapped_token_address?: string; universal_bridge_address?: string;
   error_msg?: string;
 }
@@ -189,33 +196,43 @@ function Step2({ data, onChange, chainType }: { data: Step2Data; onChange: (d: S
       {!isEvm && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Signing Curve" hint="The cryptographic curve used to sign transactions — determines which bridge wallet format the server uses.">
+            <Field label="Signing Curve" hint="Determines how we derive your unique escrow deposit address.">
               <select className={selectCls} value={data.cryptography}
-                onChange={e => onChange({ ...data, cryptography: e.target.value, utxoNetwork: '' })}>
+                onChange={e => onChange({ ...data, cryptography: e.target.value, addressFormat: '', utxoNetwork: '' })}>
                 <option value="">Select…</option>
                 <option value="secp256k1">secp256k1 — Bitcoin / Ethereum family</option>
-                <option value="ed25519">ed25519 — Monero / Solana / Stellar family</option>
-                <option value="other">Other / Custom</option>
+                <option value="ed25519">ed25519 — Solana / Stellar family</option>
               </select>
             </Field>
 
-            <Field label="Address Format" hint="How native wallet addresses look on your chain.">
-              <select className={selectCls} value={data.addressFormat}
-                onChange={e => onChange({ ...data, addressFormat: e.target.value, utxoNetwork: '' })}>
-                <option value="">Select…</option>
-                <option value="hex">0x hex — Ethereum-style</option>
-                <option value="base58">Base58 — Bitcoin-style (1… L… D…)</option>
-                <option value="bech32">Bech32 — native SegWit (bc1… ltc1…)</option>
-                <option value="custom">Custom / Other</option>
-              </select>
-            </Field>
+            {data.cryptography === 'secp256k1' && (
+              <Field label="Address Format" hint="How native wallet addresses look on your chain.">
+                <select className={selectCls} value={data.addressFormat}
+                  onChange={e => onChange({ ...data, addressFormat: e.target.value, utxoNetwork: '' })}>
+                  <option value="">Select…</option>
+                  <option value="hex">0x hex — Ethereum-style</option>
+                  <option value="base58">Base58 — Bitcoin-style (1… L… D…)</option>
+                  <option value="bech32">Bech32 — native SegWit (bc1… ltc1…)</option>
+                </select>
+              </Field>
+            )}
+
+            {data.cryptography === 'ed25519' && (
+              <Field label="Address Format" hint="Solana and similar chains use base58 public keys.">
+                <select className={selectCls} value={data.addressFormat}
+                  onChange={e => onChange({ ...data, addressFormat: e.target.value })}>
+                  <option value="">Select…</option>
+                  <option value="base58">Base58 — Solana / Stellar style</option>
+                  <option value="hex">Hex public key (advanced)</option>
+                </select>
+              </Field>
+            )}
           </div>
 
-          {/* Show network selector only when we can pre-generate the right address */}
           {data.cryptography === 'secp256k1' && (data.addressFormat === 'base58' || data.addressFormat === 'bech32') && (
             <Field
               label="Which Network?"
-              hint="Selects the correct address prefix — the server already holds a pre-generated deposit address for each network below."
+              hint="Selects the correct address prefix for your UTXO chain."
             >
               <select className={selectCls} value={data.utxoNetwork}
                 onChange={e => onChange({ ...data, utxoNetwork: e.target.value })}>
@@ -268,9 +285,14 @@ function Step2({ data, onChange, chainType }: { data: Step2Data; onChange: (d: S
 
       {!isEvm && (
         <div className="bg-amber-500/10 border border-amber-500/20 rounded p-4 text-sm text-amber-200/80">
-          <strong className="text-amber-300">Non-EVM bridge note:</strong> For Bitcoin/UTXO and privacy chains,
-          the bridge uses a server-side escrow wallet. No smart contract is deployed on your chain.
-          Users send native coins to an escrow address; the server mints wrapped tokens on Base after confirmation.
+          <strong className="text-amber-300">Escrow bridge:</strong> A unique deposit address is created instantly when you submit.
+          Users send native coin there; after confirmations we mint w{`{symbol}`} on Base to their wallet.
+        </div>
+      )}
+      {isEvm && (
+        <div className="bg-blue-500/10 border border-blue-500/20 rounded p-4 text-sm text-blue-200/80">
+          <strong className="text-blue-300">EVM escrow:</strong> A unique 0x deposit address is created for your chain.
+          Users send native gas token there to receive wrapped tokens on Base — no contract deploy on your chain required.
         </div>
       )}
     </div>
@@ -293,17 +315,19 @@ function Step3({
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Launch fees go to the deployer address which funds auto-liquidity operations
-  const FEE_RECIPIENT = (import.meta.env.VITE_LAUNCH_FEE_ADDRESS as string | undefined) ?? '0x2Cf79aaf301a6c41F03eB7C2667564949F44c0ce';
+  const feeRecipient = feeInfo?.feeRecipientAddress as `0x${string}` | undefined;
 
   const TEST_ADDRESS = '0xa8f6efc25896c24ac6c9441f9f693c14517aa818';
   const isTestWallet = address?.toLowerCase() === TEST_ADDRESS;
 
   const handlePay = () => {
-    if (!feeInfo || !launchId) return;
+    if (!feeInfo || !launchId || !feeRecipient) {
+      if (!feeRecipient) setError('Fee recipient not configured on server. Try again in a moment.');
+      return;
+    }
     setError(null);
     sendTransaction({
-      to: FEE_RECIPIENT as `0x${string}`,
+      to: feeRecipient,
       value: isTestWallet ? 0n : BigInt(feeInfo.weiAmount),
       chainId: 8453,
     });
@@ -347,7 +371,7 @@ function Step3({
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Bridge setup</span>
-            <span className="text-white">{chainType === 'evm' ? 'Smart contract on your chain' : 'Server escrow wallet'}</span>
+            <span className="text-white">Unique escrow deposit address on your chain</span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">DEX listing</span>
@@ -355,8 +379,16 @@ function Step3({
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Surplus →</span>
-            <span className="text-white">EmberDelta liquidity treasury</span>
+            <span className="text-white">wEMBR / ETH liquidity pool</span>
           </div>
+          {feeRecipient && (
+            <div className="flex justify-between pt-2 border-t border-border/30">
+              <span className="text-muted-foreground">Fee recipient</span>
+              <span className="text-white font-mono text-xs truncate max-w-[180px]" title={feeRecipient}>
+                {feeRecipient.slice(0, 6)}…{feeRecipient.slice(-4)}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -388,7 +420,7 @@ function Step3({
           ) : (
             <button
               onClick={handlePay}
-              disabled={!feeInfo || isPending || isConfirming}
+              disabled={!feeInfo || !feeRecipient || isPending || isConfirming}
               className="w-full py-4 bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold uppercase tracking-widest rounded transition-all flex items-center justify-center gap-2"
             >
               {isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> Confirm in Wallet…</> :
@@ -405,12 +437,12 @@ function Step3({
 // ── Step 4: Status Tracker ────────────────────────────────────────────────────
 
 const STATUS_LABELS: Record<string, { label: string; desc: string; color: string }> = {
-  pending_payment:   { label: 'Awaiting Payment',      desc: 'Launch fee not yet received.',            color: 'text-amber-400' },
-  payment_confirmed: { label: 'Payment Confirmed',     desc: 'Deriving bridge wallet…',                 color: 'text-blue-400' },
-  pending_gas:       { label: 'Awaiting Bridge Gas',   desc: 'Send native gas to the bridge wallet on your chain so the server can deploy bridge contracts.',    color: 'text-amber-400' },
-  deploying:         { label: 'Deploying Contracts',   desc: 'Wrapped token &amp; bridge going live…',  color: 'text-blue-400' },
-  live:              { label: 'Live! 🎉',              desc: 'Your token is fully listed on EmberDelta.', color: 'text-green-400' },
-  failed:            { label: 'Failed',                desc: 'Something went wrong.',                   color: 'text-red-400' },
+  pending_payment:   { label: 'Awaiting Payment',      desc: 'Pay the launch fee on Base to continue.',            color: 'text-amber-400' },
+  payment_confirmed: { label: 'Payment Confirmed',     desc: 'Deploying wrapped token on Base…',                   color: 'text-blue-400' },
+  pending_gas:       { label: 'Deploying',             desc: 'Setting up wrapped token on Base…',                  color: 'text-blue-400' },
+  deploying:         { label: 'Deploying',             desc: 'Creating wTOKEN on Base and listing on EmberDelta…', color: 'text-blue-400' },
+  live:              { label: 'Live! 🎉',              desc: 'Your token is listed on EmberDelta and the Bridge.', color: 'text-green-400' },
+  failed:            { label: 'Failed',                desc: 'Something went wrong.',                              color: 'text-red-400' },
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -448,9 +480,9 @@ function Step4({ launchId, chainType }: { launchId: string; chainType: ChainType
   const info = STATUS_LABELS[status] ?? STATUS_LABELS['pending_payment'];
   const isLive = status === 'live';
   const isFailed = status === 'failed';
-  const isPendingGas = status === 'pending_gas';
+  const escrowAddress = launch?.native_bridge_address ?? launch?.bridge_wallet_address;
 
-  const statusOrder = ['pending_payment', 'payment_confirmed', 'pending_gas', 'deploying', 'live'];
+  const statusOrder = ['pending_payment', 'payment_confirmed', 'deploying', 'live'];
   const currentIdx = statusOrder.indexOf(status);
 
   return (
@@ -490,43 +522,19 @@ function Step4({ launchId, chainType }: { launchId: string; chainType: ChainType
         </div>
       )}
 
-      {/* Bridge wallet (gas funding) — EVM chains only */}
-      {isPendingGas && launch?.bridge_wallet_address && (
-        <div className="bg-amber-500/10 border border-amber-500/20 rounded p-5 space-y-3">
-          <h3 className="font-bold text-amber-300 flex items-center gap-2">
-            <Wallet className="w-4 h-4" /> Fund Bridge Wallet on {launch.chain_name}
+      {/* Escrow bridge address — shown as soon as assigned */}
+      {escrowAddress && !isFailed && (
+        <div className="bg-card border border-primary/30 rounded p-5 space-y-2">
+          <h3 className="font-bold text-primary flex items-center gap-2">
+            <Wallet className="w-4 h-4" /> Bridge Escrow Address
           </h3>
-
-          {/* Explainer box */}
-          <div className="bg-amber-500/5 border border-amber-500/15 rounded p-3 flex gap-2 text-xs text-amber-200/70">
-            <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-400" />
-            <span>
-              To deploy the bridge contract on <strong className="text-amber-300">{launch.chain_name}</strong>,
-              our server needs a small amount of <strong className="text-amber-300">{launch.symbol}</strong>{' '}
-              (the native gas coin of {launch.chain_name}) in its wallet.
-              This is a one-time cost to cover transaction fees on your chain — it is separate from the $20 listing fee you already paid on Base.
-            </span>
-          </div>
-
-          <p className="text-sm text-amber-200/80">
-            Send at least{' '}
-            <strong className="text-amber-300">0.01 {launch.symbol}</strong>{' '}
-            <span className="text-amber-200/60">(on {launch.chain_name})</span>{' '}
-            to this address:
+          <p className="text-xs text-muted-foreground">
+            Unique deposit address for {launch?.symbol ?? 'your token'} on {launch?.chain_name}.
+            Users send native coin here to receive w{launch?.symbol} on Base.
           </p>
-          <div className="bg-background/60 rounded border border-amber-500/20 p-3 font-mono text-sm text-white break-all flex items-start gap-2">
-            {launch.bridge_wallet_address}
-            <CopyButton text={launch.bridge_wallet_address} />
-          </div>
-          <p className="text-xs text-amber-200/60">
-            {launch.bridge_wallet_type === 'utxo_derived'
-              ? 'Address derived from the bridge relayer key using your chain\'s secp256k1 + Base58Check encoding.'
-              : launch.bridge_wallet_type === 'manual'
-              ? 'The team will provide your escrow address shortly — your chain requires a native wallet.'
-              : `This is the EmberChain bridge relayer address. Make sure you're sending on ${launch.chain_name}, not on Base or any other chain.`}
-          </p>
-          <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <Loader2 className="w-3 h-3 animate-spin" /> Monitoring {launch.chain_name} balance every 30 seconds…
+          <div className="font-mono text-sm text-white break-all flex items-start gap-2 bg-background/60 rounded p-3 border border-border">
+            {escrowAddress}
+            <CopyButton text={escrowAddress} />
           </div>
         </div>
       )}
@@ -568,7 +576,7 @@ function Step4({ launchId, chainType }: { launchId: string; chainType: ChainType
       )}
 
       {/* Status description */}
-      {!isFailed && !isLive && !isPendingGas && (
+      {!isFailed && !isLive && (
         <div className="flex items-start gap-3 p-4 bg-blue-500/10 border border-blue-500/20 rounded text-sm text-blue-200/80">
           <Clock className="w-4 h-4 shrink-0 mt-0.5 text-blue-400" />
           <span dangerouslySetInnerHTML={{ __html: info.desc }} />
@@ -658,7 +666,23 @@ function LaunchContent() {
   }, []);
 
   const canAdvanceStep1 = step1.symbol.trim() && step1.tokenName.trim() && step1.chainName.trim();
+
+  useEffect(() => {
+    if (step1.chainType === 'evm') {
+      setStep2(s => ({ ...s, cryptography: 'secp256k1', addressFormat: 'hex', utxoNetwork: '' }));
+    } else if (step1.chainType === 'utxo') {
+      setStep2(s => ({ ...s, cryptography: 'secp256k1', addressFormat: s.addressFormat || 'base58' }));
+    } else if (step1.chainType === 'privacy') {
+      setStep2(s => ({ ...s, cryptography: 'ed25519', addressFormat: s.addressFormat || 'base58', utxoNetwork: '' }));
+    }
+  }, [step1.chainType]);
+
   const canAdvanceStep2 = step2.rpcUrl.trim() &&
+    (step1.chainType === 'evm' || (
+      step2.cryptography &&
+      step2.addressFormat &&
+      (step2.cryptography !== 'secp256k1' || step2.addressFormat === 'hex' || step2.utxoNetwork)
+    )) &&
     (step1.chainType !== 'evm' || step2.chainId.trim());
 
   const handleSubmitLaunch = async () => {
