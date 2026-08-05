@@ -21,6 +21,7 @@ import {
 } from "./launch-db";
 import { deriveLaunchBridgeWallet } from "./launch-wallet";
 import { upsertContractRecord } from "./contract-registry";
+import { upsertFeaturedToken } from "./dex-featured-db";
 import {
   validateLaunchFeeRouting,
 } from "./launch-fee-recipient";
@@ -380,6 +381,18 @@ async function handleDeploying(launch: TokenLaunch): Promise<void> {
     logger.info({ id: launch.id, wrappedTokenAddress }, "[launch-processor] token registered in DEX registry");
   } catch (err) {
     logger.warn({ err, id: launch.id }, "[launch-processor] DEX registry upsert failed (non-fatal)");
+  }
+
+  try {
+    await upsertFeaturedToken({
+      address: wrappedTokenAddress,
+      symbol: launch.wrapped_symbol,
+      name: `Wrapped ${launch.token_name}`,
+      isOfficial: true,
+    });
+    logger.info({ id: launch.id, wrappedTokenAddress }, "[launch-processor] featured token listed for Ember Delta");
+  } catch (err) {
+    logger.warn({ err, id: launch.id }, "[launch-processor] featured token upsert failed (non-fatal)");
   }
 
   logger.info({ id: launch.id, wrappedTokenAddress }, "[launch-processor] launch is LIVE");

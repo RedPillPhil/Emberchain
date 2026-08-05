@@ -1,6 +1,6 @@
 /**
  * Token launch operator routes — manual escrow setup for Monero/custom chains.
- * Protected by x-admin-secret (CHAIN_NODE_INTERNAL_SECRET).
+ * Protected by relayer wallet signature or x-admin-secret (legacy).
  */
 
 import { Router } from "express";
@@ -16,18 +16,18 @@ import {
   parseBridgeAmount,
   processLaunchBridgeClaimManual,
 } from "../lib/launch-bridge-relayer";
+import {
+  deleteFeaturedToken,
+  listFeaturedTokens,
+  upsertFeaturedToken,
+} from "../lib/dex-featured-db";
+import { isOperator } from "../lib/operator-auth";
 import { logger } from "../lib/logger";
 
 const router = Router();
 
-function adminSecret(): string {
-  return process.env["CHAIN_NODE_INTERNAL_SECRET"] ?? process.env["SESSION_SECRET"] ?? "";
-}
-
 function isAdmin(req: { headers: Record<string, unknown> }): boolean {
-  const secret = adminSecret();
-  const auth = req.headers["x-admin-secret"];
-  return Boolean(secret && typeof auth === "string" && auth === secret);
+  return isOperator(req);
 }
 
 function sanitizeLaunch(launch: TokenLaunch): Omit<TokenLaunch, "bridge_private_key_encrypted"> {
@@ -203,6 +203,66 @@ router.post("/token-launch/admin/:id/claim", async (req, res) => {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn({ err: msg, id: req.params.id }, "[launch-admin] manual claim failed");
     res.status(422).json({ error: msg });
+  }
+});
+
+// GET /dex/featured-tokens — public curated Ember Delta market list
+router.get("/dex/featured-tokens", async (_req, res) => {
+  try {
+    const tokens = await listFeaturedTokens();
+    res.json(tokens);
+  } catch (err) {
+    logger.error({ err }, "[launch-admin] featured tokens list error");
+    res.status(500).json({ error: "Failed to load featured tokens" });
+  }
+});
+
+// POST /dex/admin/tokens — operator add/update featured token
+router.post("/dex/admin/tokens", async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const { address, symbol, name, is_official } = req.body as {
+      address?: string;
+      symbol?: string;
+      name?: string;
+      is_official?: boolean;
+    };
+    if (!address?.trim() || !/^0x[0-9a-fA-F]{40}$/.test(address.trim())) {
+      return res.status(400).json({ error: "Valid token address required" });
+    }
+    if (!symbol?.trim() || !name?.trim()) {
+      return res.status(400).json({ error: "symbol and name required" });
+    }
+
+    const token = await upsertFeaturedToken({
+      address: address.trim(),
+      symbol: symbol.trim(),
+      name: name.trim(),
+      isOfficial: is_official !== false,
+    });
+    res.json({ ok: true, token });
+  } catch (err) {
+    logger.error({ err }, "[launch-admin] featured token upsert error");
+    res.status(500).json({ error: "Failed to save token" });
+  }
+});
+
+// DELETE /dex/admin/tokens/:address — operator remove featured token
+router.delete("/dex/admin/tokens/:address", async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const addr = req.params.address;
+    if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) {
+      return res.status(400).json({ error: "Invalid address" });
+    }
+    const removed = await deleteFeaturedToken(addr);
+    if (!removed) return res.status(404).json({ error: "Token not in featured list" });
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "[launch-admin] featured token delete error");
+    res.status(500).json({ error: "Failed to remove token" });
   }
 });
 

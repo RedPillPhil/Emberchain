@@ -6,6 +6,7 @@
 
 import { Router } from "express";
 import pg from "pg";
+import { isOperator } from "../lib/operator-auth";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -17,11 +18,8 @@ const pool = new pg.Pool({
   connectionTimeoutMillis: 5_000,
 });
 
-const SECRET = process.env["CHAIN_NODE_INTERNAL_SECRET"] ?? process.env["SESSION_SECRET"] ?? "";
-
 router.post("/admin/cleanup", async (req, res) => {
-  const auth = req.headers["x-admin-secret"];
-  if (!SECRET || auth !== SECRET) {
+  if (!isOperator(req)) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 

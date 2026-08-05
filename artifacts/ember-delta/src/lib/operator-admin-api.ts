@@ -1,0 +1,33 @@
+import { Wallet } from 'ethers';
+import { getApiBase } from '@/lib/api';
+
+function normalizeKey(key: string): string {
+  const trimmed = key.trim();
+  return trimmed.startsWith('0x') ? trimmed : `0x${trimmed}`;
+}
+
+export async function operatorAdminHeaders(privateKey: string): Promise<Record<string, string>> {
+  const wallet = new Wallet(normalizeKey(privateKey));
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = await wallet.signMessage(`ember-operator:${timestamp}`);
+  return {
+    'x-relayer-address': wallet.address,
+    'x-relayer-timestamp': timestamp,
+    'x-relayer-signature': signature,
+  };
+}
+
+export async function operatorAdminFetch(
+  privateKey: string,
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const auth = await operatorAdminHeaders(privateKey);
+  const headers = new Headers(init.headers);
+  for (const [k, v] of Object.entries(auth)) headers.set(k, v);
+  if (init.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  const p = path.startsWith('/') ? path : `/${path}`;
+  return fetch(`${getApiBase()}${p}`, { ...init, headers });
+}

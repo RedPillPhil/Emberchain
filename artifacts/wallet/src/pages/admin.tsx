@@ -20,12 +20,12 @@ import {
 } from "@/lib/bridge-admin";
 import {
   deriveBridgeWallets,
-  fetchLaunchById,
-  fetchLaunchListings,
-  maskPrivateKey,
   resolveLaunchDepositAddress,
   type LaunchRecord,
 } from "@/lib/launch-admin";
+import { operatorAdminFetch } from "@/lib/operator-admin-api";
+import { BASE_RPC_URL } from "@/lib/bridge-contracts";
+import { Contract, JsonRpcProvider } from "ethers";
 import {
   fetchExchangeListings,
   formatListingTime,
@@ -33,7 +33,6 @@ import {
   manualFulfillListing,
 } from "@/lib/exchange-api";
 import type { ExchangeListing } from "@/hooks/use-exchange-listings";
-import { resolveApiServer } from "@/lib/config";
 import { useToast } from "@/hooks/use-toast";
 import {
   AlertTriangle,
@@ -72,8 +71,8 @@ function LoginPanel({ onLogin }: { onLogin: (key: string) => Promise<unknown> })
           Relayer Admin
         </CardTitle>
         <CardDescription>
-          Temporary operator portal. Your private key stays in this browser session only — it is never
-          sent to a backend.
+          Operator portal — one unlock with your bridge relayer private key covers Bridge, Exchange,
+          token launches, and Ember Delta token curation. Key stays in this browser only.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -417,34 +416,41 @@ function BridgeTable({
   );
 }
 
-function LaunchTab({ defaultDepositKey }: { defaultDepositKey: string }) {
-  const [depositKey, setDepositKey] = useState(defaultDepositKey);
-  const [launches, setLaunches] = useState<LaunchRecord[]>([]);
+function LaunchTab({ privateKey }: { privateKey: string }) {
+  const [queue, setQueue] = useState<{
+    awaiting_escrow: LaunchRecord[];
+    recent: LaunchRecord[];
+    counts: { awaiting_escrow: number; live: number; failed: number; in_progress: number };
+  } | null>(null);
   const [lookupId, setLookupId] = useState("");
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
-  const apiUrl = resolveApiServer();
 
   const wallets = useMemo(() => {
     try {
-      return deriveBridgeWallets(depositKey);
+      return deriveBridgeWallets(privateKey);
     } catch {
       return null;
     }
-  }, [depositKey]);
+  }, [privateKey]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      setLaunches(await fetchLaunchListings());
+      const r = await operatorAdminFetch(privateKey, "/api/token-launch/admin/queue");
+      const data = await r.json() as typeof queue & { error?: string };
+      if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
+      setQueue(data);
+    } catch (err) {
+      toast({
+        title: "Could not load launches",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    setDepositKey(defaultDepositKey);
-  }, [defaultDepositKey]);
+  }, [privateKey, toast]);
 
   useEffect(() => {
     void refresh();
@@ -454,12 +460,23 @@ function LaunchTab({ defaultDepositKey }: { defaultDepositKey: string }) {
     if (!lookupId.trim()) return;
     setLoading(true);
     try {
-      const row = await fetchLaunchById(lookupId.trim());
-      if (!row) {
-        toast({ title: "Launch not found", variant: "destructive" });
-        return;
-      }
-      setLaunches((prev) => (prev.some((p) => p.id === row.id) ? prev : [row, ...prev]));
+      const base = (await import("@/lib/config")).resolveApiServer();
+      const r = await fetch(`${base}/api/token-launch/${encodeURIComponent(lookupId.trim())}`);
+      if (!r.ok) throw new Error("Launch not found");
+      const row = await r.json() as LaunchRecord;
+      setQueue((prev) => {
+        const recent = prev?.recent ?? [];
+        if (recent.some((p) => p.id === row.id)) return prev;
+        return prev
+          ? { ...prev, recent: [row, ...recent] }
+          : { awaiting_escrow: [], recent: [row], counts: { awaiting_escrow: 0, live: 0, failed: 0, in_progress: 0 } };
+      });
+    } catch (err) {
+      toast({
+        title: "Lookup failed",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -467,112 +484,339 @@ function LaunchTab({ defaultDepositKey }: { defaultDepositKey: string }) {
 
   return (
     <div className="space-y-4">
-      <Card>
+      <Card className="border-border/60">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Deposit key (BRIDGE_UTXO_PRIVATE_KEY)</CardTitle>
+          <CardTitle className="text-base">Token launch queue</CardTitle>
           <CardDescription>
-            Launch portal addresses are derived from this key on the server — usually the same secp256k1
-            secret as the relayer, but paste the UTXO key here if yours differ.
+            Authenticated with your relayer key — no separate admin secret or deposit key required.
+            Escrow addresses for auto chains are derived server-side from{" "}
+            <code className="text-primary">BRIDGE_UTXO_PRIVATE_KEY</code>.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <Input
-            type="password"
-            value={depositKey}
-            onChange={(e) => setDepositKey(e.target.value)}
-            placeholder="32-byte hex (no 0x required)"
-            autoComplete="off"
-          />
-          {wallets && (
-            <div className="rounded-md bg-muted/40 p-3 text-xs font-mono space-y-3">
-              <div className="font-sans text-muted-foreground text-xs leading-relaxed">
-                One deposit address per chain style (derived from BRIDGE_UTXO_PRIVATE_KEY). Users only see
-                the public address during launch; the private key stays on the server and is shown here for
-                the operator.
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span>
-                  Private key: {maskPrivateKey(depositKey)}
-                </span>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copyText(depositKey)}>
-                  <Copy className="w-3 h-3" />
-                </Button>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span>EVM (Base fee + smart-contract bridges): {wallets.evm}</span>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copyText(wallets.evm)}>
-                  <Copy className="w-3 h-3" />
-                </Button>
-              </div>
-              {Object.entries(wallets.utxo).map(([net, addr]) => (
-                <div key={net}>UTXO P2PKH ({net}): {addr}</div>
-              ))}
-              {Object.entries(wallets.bech32).map(([net, addr]) => (
-                <div key={net}>UTXO SegWit ({net}): {addr}</div>
-              ))}
-              <p className="text-muted-foreground font-sans">{wallets.note}</p>
+        {queue && (
+          <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3 pb-4">
+            <div className="rounded border border-amber-500/30 p-2 text-center">
+              <div className="text-xl font-bold text-amber-600">{queue.counts.awaiting_escrow}</div>
+              <div className="text-xs text-muted-foreground">Awaiting escrow</div>
             </div>
-          )}
-        </CardContent>
+            <div className="rounded border p-2 text-center">
+              <div className="text-xl font-bold text-green-600">{queue.counts.live}</div>
+              <div className="text-xs text-muted-foreground">Live</div>
+            </div>
+            <div className="rounded border p-2 text-center">
+              <div className="text-xl font-bold">{queue.counts.in_progress}</div>
+              <div className="text-xs text-muted-foreground">In progress</div>
+            </div>
+            <div className="rounded border p-2 text-center">
+              <div className="text-xl font-bold text-destructive">{queue.counts.failed}</div>
+              <div className="text-xs text-muted-foreground">Failed</div>
+            </div>
+          </CardContent>
+        )}
       </Card>
-
-      {!apiUrl && (
-        <p className="text-sm text-amber-600 flex items-start gap-2">
-          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-          Set <code>VITE_API_URL</code> to load launches from Postgres. You can still derive deposit
-          addresses locally with the key above.
-        </p>
-      )}
 
       <div className="flex gap-2">
         <Input placeholder="Launch UUID lookup" value={lookupId} onChange={(e) => setLookupId(e.target.value)} />
-        <Button variant="outline" onClick={() => void lookupLaunch()} disabled={loading}>
-          Lookup
-        </Button>
+        <Button variant="outline" onClick={() => void lookupLaunch()} disabled={loading}>Lookup</Button>
         <Button variant="outline" onClick={() => void refresh()} disabled={loading}>
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />}
         </Button>
       </div>
 
-      {launches.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No launches loaded.</p>
-      ) : (
-        launches.map((launch) => {
-          const derived = wallets ? resolveLaunchDepositAddress(wallets, launch) : undefined;
-          const matches =
-            derived &&
-            launch.bridge_wallet_address &&
-            derived.toLowerCase() === launch.bridge_wallet_address.toLowerCase();
-          return (
-            <Card key={launch.id}>
-              <CardHeader className="pb-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <CardTitle className="text-base">{launch.symbol ?? launch.token_name ?? launch.id}</CardTitle>
-                  <Badge variant="outline">{launch.status}</Badge>
-                  {launch.chain_name && <Badge variant="secondary">{launch.chain_name}</Badge>}
-                </div>
-              </CardHeader>
-              <CardContent className="text-sm space-y-2 font-mono text-xs break-all">
-                <div>id: {launch.id}</div>
-                {launch.bridge_wallet_address && <div>DB deposit: {launch.bridge_wallet_address}</div>}
-                {derived && (
-                  <div className={matches ? "text-green-600" : "text-amber-600"}>
-                    Derived deposit: {derived} {matches ? "✓" : "(mismatch — check UTXO key)"}
-                  </div>
-                )}
-                {depositKey && (
-                  <div className="text-muted-foreground font-sans">
-                    Private key (session): {maskPrivateKey(depositKey)}
-                  </div>
-                )}
-                {launch.wrapped_token_address && <div>wToken: {launch.wrapped_token_address}</div>}
-                {launch.error_msg && <div className="text-destructive">{launch.error_msg}</div>}
-              </CardContent>
-            </Card>
-          );
-        })
+      {queue?.awaiting_escrow.map((launch) => (
+        <LaunchAdminCard key={launch.id} launch={launch} privateKey={privateKey} wallets={wallets} onSaved={refresh} highlight />
+      ))}
+
+      {!loading && queue && queue.awaiting_escrow.length === 0 && (
+        <p className="text-sm text-muted-foreground">No launches waiting for manual escrow.</p>
+      )}
+
+      {queue?.recent.slice(0, 30).map((launch) => (
+        <LaunchAdminCard key={launch.id} launch={launch} privateKey={privateKey} wallets={wallets} onSaved={refresh} />
+      ))}
+
+      {!loading && !queue && (
+        <p className="text-sm text-muted-foreground">No launches loaded — check api-server is running.</p>
       )}
     </div>
+  );
+}
+
+interface FeaturedTokenRow {
+  tokenAddress: string;
+  symbol: string;
+  name: string;
+  isOfficial?: boolean;
+}
+
+function TokensTab({ privateKey }: { privateKey: string }) {
+  const [tokens, setTokens] = useState<FeaturedTokenRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [newAddr, setNewAddr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const { toast } = useToast();
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const base = (await import("@/lib/config")).resolveApiServer();
+      const r = await fetch(`${base}/api/dex/featured-tokens`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setTokens(await r.json() as FeaturedTokenRow[]);
+    } catch (err) {
+      toast({
+        title: "Could not load tokens",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function addToken() {
+    const addr = newAddr.trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) {
+      toast({ title: "Invalid address", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      const provider = new JsonRpcProvider(BASE_RPC_URL);
+      const erc20 = new Contract(addr, [
+        "function symbol() view returns (string)",
+        "function name() view returns (string)",
+      ], provider);
+      const [symbol, name] = await Promise.all([
+        erc20.symbol() as Promise<string>,
+        erc20.name().catch(() => addr) as Promise<string>,
+      ]);
+      const r = await operatorAdminFetch(privateKey, "/api/dex/admin/tokens", {
+        method: "POST",
+        body: JSON.stringify({ address: addr, symbol, name, is_official: true }),
+      });
+      const data = await r.json() as { error?: string };
+      if (!r.ok) throw new Error(data.error ?? "Save failed");
+      toast({ title: `Added ${symbol} to Ember Delta markets` });
+      setNewAddr("");
+      await refresh();
+    } catch (err) {
+      toast({
+        title: "Add failed",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeToken(address: string) {
+    setBusy(true);
+    try {
+      const r = await operatorAdminFetch(
+        privateKey,
+        `/api/dex/admin/tokens/${encodeURIComponent(address)}`,
+        { method: "DELETE" },
+      );
+      const data = await r.json() as { error?: string };
+      if (!r.ok) throw new Error(data.error ?? "Remove failed");
+      toast({ title: "Token removed from featured list" });
+      await refresh();
+    } catch (err) {
+      toast({
+        title: "Remove failed",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Ember Delta featured tokens</CardTitle>
+          <CardDescription>
+            Tokens you add here appear in the Ember Delta pair selector and Token Markets page for all users.
+            Launched wTOKENs are added automatically when a launch goes live.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex gap-2">
+          <Input
+            placeholder="0x… ERC-20 on Base"
+            value={newAddr}
+            onChange={(e) => setNewAddr(e.target.value)}
+            className="font-mono text-xs"
+          />
+          <Button onClick={() => void addToken()} disabled={busy || !newAddr.trim()}>
+            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add token"}
+          </Button>
+          <Button variant="outline" onClick={() => void refresh()} disabled={loading}>
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {tokens.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No featured tokens yet (wEMBR is always built-in).</p>
+      ) : (
+        tokens.map((t) => (
+          <Card key={t.tokenAddress}>
+            <CardContent className="py-4 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="font-semibold">{t.symbol}</div>
+                <div className="text-xs text-muted-foreground">{t.name}</div>
+                <div className="font-mono text-xs break-all">{t.tokenAddress}</div>
+              </div>
+              <Button variant="destructive" size="sm" disabled={busy} onClick={() => void removeToken(t.tokenAddress)}>
+                Remove
+              </Button>
+            </CardContent>
+          </Card>
+        ))
+      )}
+    </div>
+  );
+}
+
+function LaunchAdminCard({
+  launch,
+  privateKey,
+  wallets,
+  onSaved,
+  highlight,
+}: {
+  launch: LaunchRecord & {
+    wallet_download_url?: string;
+    admin_notes?: string;
+    decimals?: number;
+    escrow_mode?: string;
+  };
+  privateKey: string;
+  wallets: ReturnType<typeof deriveBridgeWallets> | null;
+  onSaved: () => void;
+  highlight?: boolean;
+}) {
+  const [escrowAddr, setEscrowAddr] = useState(launch.bridge_wallet_address ?? "");
+  const [notes, setNotes] = useState(launch.admin_notes ?? "");
+  const [nativeTx, setNativeTx] = useState("");
+  const [recipient, setRecipient] = useState(launch.submitter_address ?? "");
+  const [amount, setAmount] = useState("");
+  const [busy, setBusy] = useState(false);
+  const { toast } = useToast();
+
+  const derived = wallets ? resolveLaunchDepositAddress(wallets, launch) : undefined;
+  const matches =
+    derived &&
+    launch.bridge_wallet_address &&
+    derived.toLowerCase() === launch.bridge_wallet_address.toLowerCase();
+
+  async function saveEscrow() {
+    if (!escrowAddr.trim()) return;
+    setBusy(true);
+    try {
+      const r = await operatorAdminFetch(privateKey, `/api/token-launch/admin/${launch.id}/escrow`, {
+        method: "PATCH",
+        body: JSON.stringify({ bridge_wallet_address: escrowAddr.trim(), admin_notes: notes.trim() || undefined, mark_live: true }),
+      });
+      const data = await r.json() as { error?: string };
+      if (!r.ok) throw new Error(data.error ?? "Save failed");
+      toast({ title: "Escrow saved — launch is live" });
+      onSaved();
+    } catch (err) {
+      toast({ title: "Save failed", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function manualClaim() {
+    if (!nativeTx.trim() || !recipient.trim() || !amount.trim()) {
+      toast({ title: "Tx id, recipient, and amount required", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await operatorAdminFetch(privateKey, `/api/token-launch/admin/${launch.id}/claim`, {
+        method: "POST",
+        body: JSON.stringify({
+          native_tx_hash: nativeTx.trim(),
+          base_recipient: recipient.trim(),
+          amount: amount.trim(),
+        }),
+      });
+      const data = await r.json() as { error?: string; bridgeInTxHash?: string };
+      if (!r.ok) throw new Error(data.error ?? "Claim failed");
+      toast({ title: "Minted", description: data.bridgeInTxHash?.slice(0, 18) });
+      setNativeTx("");
+      setAmount("");
+      onSaved();
+    } catch (err) {
+      toast({ title: "Claim failed", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className={highlight ? "border-amber-500/40" : undefined}>
+      <CardHeader className="pb-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <CardTitle className="text-base">{launch.symbol} → {launch.wrapped_symbol ?? `w${launch.symbol}`}</CardTitle>
+          <Badge variant="outline">{launch.status}</Badge>
+          {launch.chain_name && <Badge variant="secondary">{launch.chain_name}</Badge>}
+        </div>
+      </CardHeader>
+      <CardContent className="text-sm space-y-3 font-mono text-xs break-all">
+        <div>id: {launch.id}</div>
+        {launch.wallet_download_url && (
+          <div className="font-sans">
+            Wallet:{" "}
+            <a href={launch.wallet_download_url} target="_blank" rel="noreferrer" className="text-primary underline">
+              {launch.wallet_download_url}
+            </a>
+          </div>
+        )}
+        {launch.bridge_wallet_address && <div>Escrow: {launch.bridge_wallet_address}</div>}
+        {derived && (
+          <div className={matches ? "text-green-600" : "text-amber-600"}>
+            Derived (relayer key): {derived} {matches ? "✓" : "(may differ if UTXO key ≠ relayer on server)"}
+          </div>
+        )}
+        {launch.wrapped_token_address && <div>wToken: {launch.wrapped_token_address}</div>}
+        {launch.error_msg && <div className="text-destructive">{launch.error_msg}</div>}
+
+        {launch.status === "awaiting_escrow" && (
+          <div className="space-y-2 pt-2 border-t font-sans">
+            <Label>Escrow deposit address</Label>
+            <Input value={escrowAddr} onChange={(e) => setEscrowAddr(e.target.value)} className="font-mono" />
+            <Input placeholder="Operator notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <Button size="sm" disabled={busy} onClick={() => void saveEscrow()}>
+              Save escrow &amp; mark live
+            </Button>
+          </div>
+        )}
+
+        {launch.status === "live" && launch.bridge_wallet_address && (
+          <div className="space-y-2 pt-2 border-t font-sans">
+            <p className="text-xs text-muted-foreground">Manual bridge mint (Monero / custom / failed auto-claim)</p>
+            <Input placeholder="Native tx id" value={nativeTx} onChange={(e) => setNativeTx(e.target.value)} />
+            <Input placeholder="Base recipient 0x…" value={recipient} onChange={(e) => setRecipient(e.target.value)} />
+            <Input placeholder={`Amount in ${launch.symbol}`} value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => void manualClaim()}>
+              Mint wrapped tokens
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -789,6 +1033,7 @@ export default function AdminPage() {
               <TabsTrigger value="bridge">Bridge</TabsTrigger>
               <TabsTrigger value="exchange">Exchange</TabsTrigger>
               <TabsTrigger value="launches">Token launches</TabsTrigger>
+              <TabsTrigger value="tokens">Tokens</TabsTrigger>
             </TabsList>
             <TabsContent value="bridge" className="mt-4">
               <BridgeTab
@@ -801,7 +1046,10 @@ export default function AdminPage() {
               <ExchangeTab />
             </TabsContent>
             <TabsContent value="launches" className="mt-4">
-              <LaunchTab defaultDepositKey={session.privateKey} />
+              <LaunchTab privateKey={session.privateKey} />
+            </TabsContent>
+            <TabsContent value="tokens" className="mt-4">
+              <TokensTab privateKey={session.privateKey} />
             </TabsContent>
           </Tabs>
         </div>

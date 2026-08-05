@@ -34,6 +34,36 @@ export function getAllPairs(): TradingPair[] {
   return [...BUILT_IN_PAIRS, ...getCustomPairs()];
 }
 
+/** Merge server featured tokens with built-in + local custom pairs. */
+export async function getAllPairsWithFeatured(apiBase: string): Promise<TradingPair[]> {
+  let featured: TradingPair[] = [];
+  try {
+    const res = await fetch(`${apiBase.replace(/\/$/, '')}/api/dex/featured-tokens`);
+    if (res.ok) {
+      const rows = await res.json() as Array<{
+        tokenAddress: string;
+        symbol: string;
+        name: string;
+        isOfficial?: boolean;
+      }>;
+      featured = rows.map((r) => ({
+        tokenAddress: r.tokenAddress as `0x${string}`,
+        symbol: r.symbol,
+        name: r.name,
+        isOfficial: r.isOfficial !== false,
+      }));
+    }
+  } catch {
+    // offline — local pairs only
+  }
+
+  const byAddr = new Map<string, TradingPair>();
+  for (const p of [...BUILT_IN_PAIRS, ...featured, ...getCustomPairs()]) {
+    byAddr.set(p.tokenAddress.toLowerCase(), p);
+  }
+  return [...byAddr.values()];
+}
+
 export function addCustomPair(pair: TradingPair): void {
   const existing = getCustomPairs();
   const deduped = existing.filter(

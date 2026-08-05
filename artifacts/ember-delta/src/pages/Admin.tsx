@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Shell } from '@/components/layout/Shell';
 import { getApiBase } from '@/lib/api';
+import { operatorAdminFetch } from '@/lib/operator-admin-api';
 import { AlertCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw, Shield } from 'lucide-react';
 
-const SECRET_KEY = 'ember_delta_launch_admin_secret';
+const SECRET_KEY = 'ember_delta_launch_admin_key';
 
 interface LaunchRow {
   id: string;
@@ -65,11 +66,11 @@ function StatusBadge({ status }: { status: string }) {
 
 function EscrowForm({
   launch,
-  secret,
+  privateKey,
   onSaved,
 }: {
   launch: LaunchRow;
-  secret: string;
+  privateKey: string;
   onSaved: () => void;
 }) {
   const [address, setAddress] = useState(launch.bridge_wallet_address ?? '');
@@ -85,12 +86,8 @@ function EscrowForm({
     setBusy(true);
     setError(null);
     try {
-      const r = await fetch(`${getApiBase()}/api/token-launch/admin/${launch.id}/escrow`, {
+      const r = await operatorAdminFetch(privateKey, `/api/token-launch/admin/${launch.id}/escrow`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-secret': secret,
-        },
         body: JSON.stringify({
           bridge_wallet_address: address.trim(),
           admin_notes: notes.trim() || undefined,
@@ -142,11 +139,11 @@ function EscrowForm({
 
 function ManualClaimForm({
   launch,
-  secret,
+  privateKey,
   onSaved,
 }: {
   launch: LaunchRow;
-  secret: string;
+  privateKey: string;
   onSaved: () => void;
 }) {
   const [nativeTx, setNativeTx] = useState('');
@@ -163,15 +160,13 @@ function ManualClaimForm({
   const loadDeposits = useCallback(async () => {
     setLoadingDeposits(true);
     try {
-      const r = await fetch(`${getApiBase()}/api/token-launch/admin/${launch.id}/deposits`, {
-        headers: { 'x-admin-secret': secret },
-      });
+      const r = await operatorAdminFetch(privateKey, `/api/token-launch/admin/${launch.id}/deposits`);
       const data = await r.json() as { deposits?: DepositRow[]; error?: string };
       if (r.ok) setDeposits(data.deposits ?? []);
     } finally {
       setLoadingDeposits(false);
     }
-  }, [launch.id, secret]);
+  }, [launch.id, privateKey]);
 
   useEffect(() => {
     void loadDeposits();
@@ -186,12 +181,8 @@ function ManualClaimForm({
     setError(null);
     setSuccess(null);
     try {
-      const r = await fetch(`${getApiBase()}/api/token-launch/admin/${launch.id}/claim`, {
+      const r = await operatorAdminFetch(privateKey, `/api/token-launch/admin/${launch.id}/claim`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-secret': secret,
-        },
         body: JSON.stringify({
           native_tx_hash: nativeTx.trim(),
           base_recipient: recipient.trim(),
@@ -317,12 +308,12 @@ function ManualClaimForm({
 
 function LaunchCard({
   launch,
-  secret,
+  privateKey,
   onSaved,
   highlight,
 }: {
   launch: LaunchRow;
-  secret: string;
+  privateKey: string;
   onSaved: () => void;
   highlight?: boolean;
 }) {
@@ -358,35 +349,33 @@ function LaunchCard({
       )}
       {launch.error_msg && <p className="text-sm text-red-400">{launch.error_msg}</p>}
       {launch.status === 'awaiting_escrow' && (
-        <EscrowForm launch={launch} secret={secret} onSaved={onSaved} />
+        <EscrowForm launch={launch} privateKey={privateKey} onSaved={onSaved} />
       )}
       {launch.status === 'live' && launch.bridge_wallet_address && (
-        <ManualClaimForm launch={launch} secret={secret} onSaved={onSaved} />
+        <ManualClaimForm launch={launch} privateKey={privateKey} onSaved={onSaved} />
       )}
     </div>
   );
 }
 
 export default function Admin() {
-  const [secret, setSecret] = useState('');
-  const [inputSecret, setInputSecret] = useState('');
+  const [privateKey, setPrivateKey] = useState('');
+  const [inputKey, setInputKey] = useState('');
   const [queue, setQueue] = useState<QueueResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = sessionStorage.getItem(SECRET_KEY);
-    if (saved) setSecret(saved);
+    if (saved) setPrivateKey(saved);
   }, []);
 
   const load = useCallback(async () => {
-    if (!secret) return;
+    if (!privateKey) return;
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`${getApiBase()}/api/token-launch/admin/queue`, {
-        headers: { 'x-admin-secret': secret },
-      });
+      const r = await operatorAdminFetch(privateKey, '/api/token-launch/admin/queue');
       const data = await r.json() as QueueResponse & { error?: string };
       if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`);
       setQueue(data);
@@ -396,13 +385,13 @@ export default function Admin() {
     } finally {
       setLoading(false);
     }
-  }, [secret]);
+  }, [privateKey]);
 
   useEffect(() => {
-    if (secret) void load();
-  }, [secret, load]);
+    if (privateKey) void load();
+  }, [privateKey, load]);
 
-  if (!secret) {
+  if (!privateKey) {
     return (
       <Shell>
         <div className="h-full overflow-y-auto p-8 max-w-md mx-auto">
@@ -411,21 +400,22 @@ export default function Admin() {
               <Shield className="w-5 h-5 text-primary" /> Launch Admin
             </div>
             <p className="text-sm text-muted-foreground">
-              Operator panel for manual escrow setup and bridge mints. Not linked in the nav — bookmark <code className="text-primary">/admin</code>.
+              Same login as <code className="text-primary">emberchain.org/admin</code> — your bridge relayer
+              private key. Key stays in this browser only; the server verifies a signature, never the raw key.
             </p>
             <input
               type="password"
               className="w-full bg-background border border-border rounded px-3 py-2 text-sm"
-              placeholder="Admin secret (CHAIN_NODE_INTERNAL_SECRET)"
-              value={inputSecret}
-              onChange={(e) => setInputSecret(e.target.value)}
+              placeholder="Bridge relayer private key (0x…)"
+              value={inputKey}
+              onChange={(e) => setInputKey(e.target.value)}
             />
             <button
               type="button"
               className="w-full py-2 bg-primary text-white font-bold rounded"
               onClick={() => {
-                sessionStorage.setItem(SECRET_KEY, inputSecret.trim());
-                setSecret(inputSecret.trim());
+                sessionStorage.setItem(SECRET_KEY, inputKey.trim());
+                setPrivateKey(inputKey.trim());
               }}
             >
               Unlock
@@ -487,7 +477,7 @@ export default function Admin() {
               <AlertCircle className="w-5 h-5" /> Needs your action
             </h2>
             {queue.awaiting_escrow.map((l) => (
-              <LaunchCard key={l.id} launch={l} secret={secret} onSaved={load} highlight />
+              <LaunchCard key={l.id} launch={l} privateKey={privateKey} onSaved={load} highlight />
             ))}
           </section>
         )}
@@ -502,7 +492,7 @@ export default function Admin() {
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-white">Recent launches</h2>
             {queue.recent.slice(0, 20).map((l) => (
-              <LaunchCard key={l.id} launch={l} secret={secret} onSaved={load} />
+              <LaunchCard key={l.id} launch={l} privateKey={privateKey} onSaved={load} />
             ))}
           </section>
         )}
