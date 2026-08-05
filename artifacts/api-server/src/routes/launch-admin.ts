@@ -21,6 +21,7 @@ import {
   listFeaturedTokens,
   upsertFeaturedToken,
 } from "../lib/dex-featured-db";
+import { delistDexMarket, listDexMarkets } from "../lib/dex-markets";
 import { isOperator } from "../lib/operator-auth";
 import { logger } from "../lib/logger";
 
@@ -206,6 +207,17 @@ router.post("/token-launch/admin/:id/claim", async (req, res) => {
   }
 });
 
+// GET /dex/markets — public exchange pair list (respects operator delist)
+router.get("/dex/markets", async (_req, res) => {
+  try {
+    const markets = await listDexMarkets(false);
+    res.json(markets);
+  } catch (err) {
+    logger.error({ err }, "[launch-admin] markets list error");
+    res.status(500).json({ error: "Failed to load markets" });
+  }
+});
+
 // GET /dex/featured-tokens — public curated Ember Delta market list
 router.get("/dex/featured-tokens", async (_req, res) => {
   try {
@@ -263,6 +275,38 @@ router.delete("/dex/admin/tokens/:address", async (req, res) => {
   } catch (err) {
     logger.error({ err }, "[launch-admin] featured token delete error");
     res.status(500).json({ error: "Failed to remove token" });
+  }
+});
+
+// GET /dex/admin/markets — operator view (same as public list today)
+router.get("/dex/admin/markets", async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+  try {
+    const markets = await listDexMarkets(false);
+    res.json({ markets });
+  } catch (err) {
+    logger.error({ err }, "[launch-admin] admin markets error");
+    res.status(500).json({ error: "Failed to load markets" });
+  }
+});
+
+// POST /dex/admin/markets/delist — remove token from exchange for all users
+router.post("/dex/admin/markets/delist", async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const { address, reason } = req.body as { address?: string; reason?: string };
+    if (!address?.trim() || !/^0x[0-9a-fA-F]{40}$/.test(address.trim())) {
+      return res.status(400).json({ error: "Valid token address required" });
+    }
+
+    const result = await delistDexMarket(address.trim(), reason?.trim());
+    logger.info({ address: address.trim(), ...result }, "[launch-admin] market delisted");
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn({ err: msg }, "[launch-admin] delist failed");
+    res.status(422).json({ error: msg });
   }
 });
 

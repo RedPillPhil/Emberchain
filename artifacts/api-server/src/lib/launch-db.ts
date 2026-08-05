@@ -120,6 +120,7 @@ export type LaunchStatus =
   | "deploying"
   | "awaiting_escrow"
   | "live"
+  | "delisted"
   | "failed";
 
 export interface TokenLaunch {
@@ -195,6 +196,14 @@ export async function getLiveLaunches(): Promise<TokenLaunch[]> {
     "SELECT * FROM token_launches WHERE status = 'live' ORDER BY created_at DESC",
   );
   return res.rows;
+}
+
+export async function getLaunchByWrappedAddress(address: string): Promise<TokenLaunch | null> {
+  const res = await pool.query<TokenLaunch>(
+    "SELECT * FROM token_launches WHERE wrapped_token_address = $1 ORDER BY created_at DESC LIMIT 1",
+    [address.toLowerCase()],
+  );
+  return res.rows[0] ?? null;
 }
 
 export async function getLaunchesByStatus(status: LaunchStatus): Promise<TokenLaunch[]> {

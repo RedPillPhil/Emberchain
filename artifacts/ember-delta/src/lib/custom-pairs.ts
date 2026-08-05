@@ -34,34 +34,32 @@ export function getAllPairs(): TradingPair[] {
   return [...BUILT_IN_PAIRS, ...getCustomPairs()];
 }
 
-/** Merge server featured tokens with built-in + local custom pairs. */
-export async function getAllPairsWithFeatured(apiBase: string): Promise<TradingPair[]> {
-  let featured: TradingPair[] = [];
+/** Load server-curated markets (built-in wEMBR + featured + live launches, minus delisted). */
+export async function fetchDexMarkets(apiBase: string): Promise<TradingPair[]> {
   try {
-    const res = await fetch(`${apiBase.replace(/\/$/, '')}/api/dex/featured-tokens`);
-    if (res.ok) {
-      const rows = await res.json() as Array<{
-        tokenAddress: string;
-        symbol: string;
-        name: string;
-        isOfficial?: boolean;
-      }>;
-      featured = rows.map((r) => ({
-        tokenAddress: r.tokenAddress as `0x${string}`,
-        symbol: r.symbol,
-        name: r.name,
-        isOfficial: r.isOfficial !== false,
-      }));
-    }
+    const res = await fetch(`${apiBase.replace(/\/$/, '')}/api/dex/markets`);
+    if (!res.ok) return getAllPairs();
+    const rows = await res.json() as Array<{
+      tokenAddress: string;
+      symbol: string;
+      name: string;
+      source?: string;
+    }>;
+    return rows.map((r) => ({
+      tokenAddress: r.tokenAddress as `0x${string}`,
+      symbol: r.symbol,
+      name: r.name,
+      isBuiltIn: r.source === 'builtin',
+      isOfficial: r.source !== undefined,
+    }));
   } catch {
-    // offline — local pairs only
+    return getAllPairs();
   }
+}
 
-  const byAddr = new Map<string, TradingPair>();
-  for (const p of [...BUILT_IN_PAIRS, ...featured, ...getCustomPairs()]) {
-    byAddr.set(p.tokenAddress.toLowerCase(), p);
-  }
-  return [...byAddr.values()];
+/** @deprecated use fetchDexMarkets */
+export async function getAllPairsWithFeatured(apiBase: string): Promise<TradingPair[]> {
+  return fetchDexMarkets(apiBase);
 }
 
 export function addCustomPair(pair: TradingPair): void {

@@ -29,9 +29,48 @@ export async function ensureFeaturedTokensTable(): Promise<void> {
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dex_hidden_tokens (
+      address     TEXT PRIMARY KEY,
+      symbol      TEXT,
+      reason      TEXT,
+      hidden_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 }
 
-export async function listFeaturedTokens(): Promise<FeaturedToken[]> {
+export async function listHiddenAddresses(): Promise<Set<string>> {
+  const res = await pool.query<{ address: string }>(
+    "SELECT address FROM dex_hidden_tokens",
+  );
+  return new Set(res.rows.map((r) => r.address.toLowerCase()));
+}
+
+export async function hideToken(data: {
+  address: string;
+  symbol?: string;
+  reason?: string;
+}): Promise<void> {
+  await pool.query(
+    `INSERT INTO dex_hidden_tokens (address, symbol, reason)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (address) DO UPDATE SET
+       symbol = COALESCE(EXCLUDED.symbol, dex_hidden_tokens.symbol),
+       reason = COALESCE(EXCLUDED.reason, dex_hidden_tokens.reason),
+       hidden_at = NOW()`,
+    [data.address.toLowerCase(), data.symbol ?? null, data.reason ?? null],
+  );
+}
+
+export async function isTokenHidden(address: string): Promise<boolean> {
+  const res = await pool.query<{ address: string }>(
+    "SELECT address FROM dex_hidden_tokens WHERE address = $1",
+    [address.toLowerCase()],
+  );
+  return res.rows.length > 0;
+}
+
+export async function listFeaturedTokens(visibleOnly = true): Promise<FeaturedToken[]> {
   const res = await pool.query<{
     address: string;
     symbol: string;
@@ -39,7 +78,13 @@ export async function listFeaturedTokens(): Promise<FeaturedToken[]> {
     is_official: boolean;
     created_at: Date;
   }>(
-    "SELECT address, symbol, name, is_official, created_at FROM dex_featured_tokens ORDER BY created_at ASC",
+    visibleOnly
+      ? `SELECT f.address, f.symbol, f.name, f.is_official, f.created_at
+         FROM dex_featured_tokens f
+         LEFT JOIN dex_hidden_tokens h ON h.address = f.address
+         WHERE h.address IS NULL
+         ORDER BY f.created_at ASC`
+      : "SELECT address, symbol, name, is_official, created_at FROM dex_featured_tokens ORDER BY created_at ASC",
   );
   return res.rows.map((r) => ({
     tokenAddress: r.address,

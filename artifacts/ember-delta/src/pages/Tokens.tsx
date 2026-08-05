@@ -3,7 +3,8 @@ import { Shell } from '@/components/layout/Shell';
 import { TokenIcon } from '@/components/TokenIcon';
 import { cn } from '@/lib/utils';
 import { Search, Plus, Trash2, ExternalLink } from 'lucide-react';
-import { getAllPairs, addCustomPair, removeCustomPair, BUILT_IN_PAIRS, type TradingPair } from '@/lib/custom-pairs';
+import { getAllPairs, fetchDexMarkets, addCustomPair, removeCustomPair, BUILT_IN_PAIRS, type TradingPair } from '@/lib/custom-pairs';
+import { resolveApiServer } from '@/lib/config';
 import { usePublicClient } from 'wagmi';
 import { ERC20_ABI } from '@/lib/contracts';
 import { Link } from 'wouter';
@@ -17,7 +18,18 @@ export default function Tokens() {
   const [addLoading, setAddLoading] = useState(false);
   const [addError, setAddError] = useState('');
 
-  const refresh = () => setPairs(getAllPairs());
+  const refresh = () => {
+    const api = resolveApiServer();
+    if (api) {
+      void fetchDexMarkets(api).then(setPairs).catch(() => setPairs(getAllPairs()));
+    } else {
+      setPairs(getAllPairs());
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
 
   const filtered = pairs.filter(p =>
     p.symbol.toLowerCase().includes(search.toLowerCase()) ||

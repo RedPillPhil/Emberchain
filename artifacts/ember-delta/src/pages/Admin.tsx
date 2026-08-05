@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Shell } from '@/components/layout/Shell';
 import { getApiBase } from '@/lib/api';
 import { operatorAdminFetch } from '@/lib/operator-admin-api';
-import { AlertCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw, Shield } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw, Shield, Trash2 } from 'lucide-react';
 
 const SECRET_KEY = 'ember_delta_launch_admin_key';
 
@@ -48,6 +48,155 @@ interface QueueResponse {
     failed: number;
     in_progress: number;
   };
+}
+
+interface MarketRow {
+  tokenAddress: string;
+  symbol: string;
+  name: string;
+  source: 'builtin' | 'featured' | 'launch';
+  launchId?: string;
+  canRemove: boolean;
+}
+
+function ExchangeMarketsPanel({
+  privateKey,
+}: {
+  privateKey: string;
+}) {
+  const [markets, setMarkets] = useState<MarketRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busyAddr, setBusyAddr] = useState<string | null>(null);
+  const [newAddr, setNewAddr] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await operatorAdminFetch(privateKey, '/api/dex/admin/markets');
+      const data = await r.json() as { markets?: MarketRow[]; error?: string };
+      if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`);
+      setMarkets(data.markets ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setMarkets([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [privateKey]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const delist = async (m: MarketRow) => {
+    if (!m.canRemove) return;
+    if (!confirm(`Remove ${m.symbol} from Ember Delta for all users?`)) return;
+    setBusyAddr(m.tokenAddress);
+    setError(null);
+    try {
+      const r = await operatorAdminFetch(privateKey, '/api/dex/admin/markets/delist', {
+        method: 'POST',
+        body: JSON.stringify({ address: m.tokenAddress, reason: 'Removed via admin panel' }),
+      });
+      const data = await r.json() as { error?: string };
+      if (!r.ok) throw new Error(data.error ?? 'Delist failed');
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyAddr(null);
+    }
+  };
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-bold text-white">Exchange markets</h2>
+          <p className="text-xs text-muted-foreground">
+            Tokens shown in the pair selector and Token Markets page. Delist removes them globally (e.g. test launches wPOOP, wPEPE).
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={loading}
+          className="flex items-center gap-2 px-3 py-2 border border-border rounded text-sm text-white hover:bg-white/5"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded text-red-300 text-sm">
+          <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+        </div>
+      )}
+
+      {markets.length === 0 && !loading && (
+        <p className="text-sm text-muted-foreground">No markets loaded.</p>
+      )}
+
+      {markets.map((m) => (
+        <div key={m.tokenAddress} className="bg-card border border-border/40 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-bold text-white">{m.symbol}</span>
+              <span className="text-xs uppercase text-muted-foreground border border-border px-1.5 py-0.5 rounded">{m.source}</span>
+            </div>
+            <div className="text-sm text-muted-foreground">{m.name}</div>
+            <div className="text-xs font-mono break-all text-white/70">{m.tokenAddress}</div>
+            {m.launchId && <div className="text-xs font-mono text-muted-foreground">launch: {m.launchId}</div>}
+          </div>
+          {m.canRemove ? (
+            <button
+              type="button"
+              disabled={busyAddr === m.tokenAddress}
+              onClick={() => void delist(m)}
+              className="flex items-center gap-2 px-3 py-2 bg-red-600/80 hover:bg-red-600 text-white text-sm font-bold rounded disabled:opacity-50"
+            >
+              {busyAddr === m.tokenAddress ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              Remove
+            </button>
+          ) : (
+            <span className="text-xs text-muted-foreground">Built-in</span>
+          )}
+        </div>
+      ))}
+
+      <div className="bg-card border border-border/40 rounded-lg p-4 space-y-2">
+        <div className="text-sm font-semibold text-white">Delist by contract address</div>
+        <div className="flex gap-2">
+          <input
+            className="flex-1 bg-background border border-border rounded px-3 py-2 font-mono text-xs text-white"
+            placeholder="0x… if not listed above"
+            value={newAddr}
+            onChange={(e) => setNewAddr(e.target.value)}
+          />
+          <button
+            type="button"
+            disabled={!newAddr.trim() || busyAddr === newAddr.trim()}
+            className="px-4 py-2 bg-red-600/80 text-white text-sm font-bold rounded disabled:opacity-50"
+            onClick={() => void delist({
+              tokenAddress: newAddr.trim(),
+              symbol: '?',
+              name: 'Manual delist',
+              source: 'featured',
+              canRemove: true,
+            })}
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -431,8 +580,8 @@ export default function Admin() {
       <div className="h-full overflow-y-auto p-4 md:p-8 max-w-4xl mx-auto space-y-6">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-white">Token Launch Admin</h1>
-            <p className="text-sm text-muted-foreground">Manual escrow setup and bridge mints for privacy/custom chains</p>
+            <h1 className="text-2xl font-bold text-white">Ember Delta Admin</h1>
+            <p className="text-sm text-muted-foreground">Exchange markets, launches, escrow, and manual mints</p>
           </div>
           <button
             type="button"
@@ -470,6 +619,8 @@ export default function Admin() {
             </div>
           </div>
         )}
+
+        <ExchangeMarketsPanel privateKey={privateKey} />
 
         {queue && queue.awaiting_escrow.length > 0 && (
           <section className="space-y-3">

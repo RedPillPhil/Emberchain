@@ -4,7 +4,7 @@ import { ChevronDown, Wallet, Activity, ArrowRightLeft, Rocket, Menu, LogOut, Co
 import { cn } from '@/lib/utils';
 import { TokenIcon } from '@/components/TokenIcon';
 import { useWeb3 } from '@/lib/use-web3';
-import { getAllPairs, getAllPairsWithFeatured, addCustomPair, removeCustomPair, BUILT_IN_PAIRS, type TradingPair } from '@/lib/custom-pairs';
+import { getAllPairs, fetchDexMarkets, getCustomPairs, addCustomPair, removeCustomPair, BUILT_IN_PAIRS, type TradingPair } from '@/lib/custom-pairs';
 import { resolveApiServer } from '@/lib/config';
 import { usePublicClient } from 'wagmi';
 import { ERC20_ABI } from '@/lib/contracts';
@@ -31,35 +31,20 @@ export function Shell({ children, selectedPair, onPairChange }: ShellProps) {
   const [showTooltip, setShowTooltip] = useState(false);
   const [pairs, setPairs] = useState<TradingPair[]>(getAllPairs);
 
-  // Featured tokens (operator) + live launches from API
+  // Server market list (respects operator delist)
   useEffect(() => {
     const api = resolveApiServer();
     if (!api) return;
     void (async () => {
       try {
-        let merged = await getAllPairsWithFeatured(api);
-        const r = await fetch(`${api}/api/token-launch/listings`);
-        if (r.ok) {
-          const listings = await r.json() as Array<{
-            wrapped_token_address?: string;
-            wrapped_symbol?: string;
-            token_name?: string;
-            status?: string;
-          }>;
-          const byAddr = new Map(merged.map((p) => [p.tokenAddress.toLowerCase(), p]));
-          for (const l of listings) {
-            if (l.status === 'live' && l.wrapped_token_address && l.wrapped_symbol) {
-              byAddr.set(l.wrapped_token_address.toLowerCase(), {
-                tokenAddress: l.wrapped_token_address as `0x${string}`,
-                symbol: l.wrapped_symbol,
-                name: l.token_name ? `Wrapped ${l.token_name}` : l.wrapped_symbol,
-                isOfficial: true,
-              });
-            }
+        const merged = await fetchDexMarkets(api);
+        const byAddr = new Map(merged.map((p) => [p.tokenAddress.toLowerCase(), p]));
+        for (const p of getCustomPairs()) {
+          if (!byAddr.has(p.tokenAddress.toLowerCase())) {
+            byAddr.set(p.tokenAddress.toLowerCase(), p);
           }
-          merged = [...byAddr.values()];
         }
-        setPairs(merged);
+        setPairs([...byAddr.values()]);
       } catch {
         /* ignore */
       }

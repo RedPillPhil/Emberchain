@@ -23,6 +23,7 @@ import {
 import { getBaseProvider } from "../lib/base-provider";
 import { deriveLaunchBridgeWallet, validateLaunchWalletParams, requiresManualEscrowSetup } from "../lib/launch-wallet";
 import { processLaunchBridgeClaimGeneric } from "../lib/launch-bridge-relayer";
+import { listHiddenAddresses, filterLaunchesByHidden } from "../lib/dex-markets";
 import { getDepositsForLaunch } from "../lib/launch-deposit-db";
 import {
   getLaunchFeeRecipientAddress,
@@ -98,7 +99,8 @@ router.get("/token-launch/fee", async (_req, res) => {
 
 router.get("/token-launch/listings", async (_req, res) => {
   try {
-    const listings = await getLiveLaunches();
+    const hidden = await listHiddenAddresses();
+    const listings = filterLaunchesByHidden(await getLiveLaunches(), hidden);
     res.json(listings.map((l) => sanitizeLaunch({
       ...l,
       native_bridge_address: l.native_bridge_address ?? l.bridge_wallet_address,

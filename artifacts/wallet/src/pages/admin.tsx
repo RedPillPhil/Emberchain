@@ -546,7 +546,8 @@ interface FeaturedTokenRow {
   tokenAddress: string;
   symbol: string;
   name: string;
-  isOfficial?: boolean;
+  source?: string;
+  canRemove?: boolean;
 }
 
 function TokensTab({ privateKey }: { privateKey: string }) {
@@ -559,10 +560,10 @@ function TokensTab({ privateKey }: { privateKey: string }) {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const base = (await import("@/lib/config")).resolveApiServer();
-      const r = await fetch(`${base}/api/dex/featured-tokens`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      setTokens(await r.json() as FeaturedTokenRow[]);
+      const r = await operatorAdminFetch(privateKey, "/api/dex/admin/markets");
+      const data = await r.json() as { markets?: FeaturedTokenRow[]; error?: string };
+      if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`);
+      setTokens(data.markets ?? []);
     } catch (err) {
       toast({
         title: "Could not load tokens",
@@ -572,7 +573,7 @@ function TokensTab({ privateKey }: { privateKey: string }) {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [privateKey, toast]);
 
   useEffect(() => {
     void refresh();
@@ -618,14 +619,13 @@ function TokensTab({ privateKey }: { privateKey: string }) {
   async function removeToken(address: string) {
     setBusy(true);
     try {
-      const r = await operatorAdminFetch(
-        privateKey,
-        `/api/dex/admin/tokens/${encodeURIComponent(address)}`,
-        { method: "DELETE" },
-      );
+      const r = await operatorAdminFetch(privateKey, "/api/dex/admin/markets/delist", {
+        method: "POST",
+        body: JSON.stringify({ address, reason: "Removed via operator admin" }),
+      });
       const data = await r.json() as { error?: string };
       if (!r.ok) throw new Error(data.error ?? "Remove failed");
-      toast({ title: "Token removed from featured list" });
+      toast({ title: "Token removed from exchange" });
       await refresh();
     } catch (err) {
       toast({
@@ -642,10 +642,9 @@ function TokensTab({ privateKey }: { privateKey: string }) {
     <div className="space-y-4">
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Ember Delta featured tokens</CardTitle>
+          <CardTitle className="text-base">Ember Delta exchange markets</CardTitle>
           <CardDescription>
-            Tokens you add here appear in the Ember Delta pair selector and Token Markets page for all users.
-            Launched wTOKENs are added automatically when a launch goes live.
+            All tokens shown on Ember Delta. Remove delists globally and marks launches as delisted.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex gap-2">
@@ -672,10 +671,15 @@ function TokensTab({ privateKey }: { privateKey: string }) {
             <CardContent className="py-4 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div className="font-semibold">{t.symbol}</div>
-                <div className="text-xs text-muted-foreground">{t.name}</div>
+                <div className="text-xs text-muted-foreground">{t.name} · {t.source ?? "market"}</div>
                 <div className="font-mono text-xs break-all">{t.tokenAddress}</div>
               </div>
-              <Button variant="destructive" size="sm" disabled={busy} onClick={() => void removeToken(t.tokenAddress)}>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={busy || t.canRemove === false}
+                onClick={() => void removeToken(t.tokenAddress)}
+              >
                 Remove
               </Button>
             </CardContent>
