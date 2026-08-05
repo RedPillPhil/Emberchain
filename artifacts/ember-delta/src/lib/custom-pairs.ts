@@ -37,7 +37,7 @@ export function getAllPairs(): TradingPair[] {
 /** Load server-curated markets (built-in wEMBR + featured + live launches, minus delisted). */
 export async function fetchDexMarkets(apiBase: string): Promise<TradingPair[]> {
   try {
-    const res = await fetch(`${apiBase.replace(/\/$/, '')}/api/dex/markets`);
+    const res = await fetch(`${apiBase.replace(/\/$/, '')}/api/token-launch/markets`);
     if (!res.ok) return getAllPairs();
     const rows = await res.json() as Array<{
       tokenAddress: string;

@@ -560,7 +560,7 @@ function TokensTab({ privateKey }: { privateKey: string }) {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await operatorAdminFetch(privateKey, "/api/dex/admin/markets");
+      const r = await operatorAdminFetch(privateKey, "/api/token-launch/admin/markets");
       const data = await r.json() as { markets?: FeaturedTokenRow[]; error?: string };
       if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`);
       setTokens(data.markets ?? []);
@@ -619,7 +619,7 @@ function TokensTab({ privateKey }: { privateKey: string }) {
   async function removeToken(address: string) {
     setBusy(true);
     try {
-      const r = await operatorAdminFetch(privateKey, "/api/dex/admin/markets/delist", {
+      const r = await operatorAdminFetch(privateKey, "/api/token-launch/admin/markets/delist", {
         method: "POST",
         body: JSON.stringify({ address, reason: "Removed via operator admin" }),
       });

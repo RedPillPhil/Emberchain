@@ -56,6 +56,7 @@ interface MarketRow {
   name: string;
   source: 'builtin' | 'featured' | 'launch';
   launchId?: string;
+  launchStatus?: string;
   canRemove: boolean;
 }
 
@@ -74,7 +75,7 @@ function ExchangeMarketsPanel({
     setLoading(true);
     setError(null);
     try {
-      const r = await operatorAdminFetch(privateKey, '/api/dex/admin/markets');
+      const r = await operatorAdminFetch(privateKey, '/api/token-launch/admin/markets');
       const data = await r.json() as { markets?: MarketRow[]; error?: string };
       if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`);
       setMarkets(data.markets ?? []);
@@ -96,7 +97,7 @@ function ExchangeMarketsPanel({
     setBusyAddr(m.tokenAddress);
     setError(null);
     try {
-      const r = await operatorAdminFetch(privateKey, '/api/dex/admin/markets/delist', {
+      const r = await operatorAdminFetch(privateKey, '/api/token-launch/admin/markets/delist', {
         method: 'POST',
         body: JSON.stringify({ address: m.tokenAddress, reason: 'Removed via admin panel' }),
       });
@@ -145,6 +146,9 @@ function ExchangeMarketsPanel({
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-bold text-white">{m.symbol}</span>
               <span className="text-xs uppercase text-muted-foreground border border-border px-1.5 py-0.5 rounded">{m.source}</span>
+              {m.launchStatus && m.launchStatus !== 'live' && (
+                <span className="text-xs uppercase text-amber-400 border border-amber-500/40 px-1.5 py-0.5 rounded">{m.launchStatus}</span>
+              )}
             </div>
             <div className="text-sm text-muted-foreground">{m.name}</div>
             <div className="text-xs font-mono break-all text-white/70">{m.tokenAddress}</div>

@@ -6,6 +6,7 @@ import { listFeaturedTokens, listHiddenAddresses, hideToken, deleteFeaturedToken
 import {
   getLaunchByWrappedAddress,
   getLiveLaunches,
+  getAllLaunches,
   updateLaunchFields,
   type TokenLaunch,
 } from "./launch-db";
@@ -18,6 +19,7 @@ export interface DexMarketEntry {
   name: string;
   source: "builtin" | "featured" | "launch";
   launchId?: string;
+  launchStatus?: string;
   canRemove: boolean;
 }
 
@@ -61,6 +63,34 @@ export async function listDexMarkets(includeHidden = false): Promise<DexMarketEn
   }
 
   return [...byAddr.values()];
+}
+
+/** Operator view — includes deployed launch tokens even if not currently live on markets. */
+export async function listDexMarketsForAdmin(): Promise<DexMarketEntry[]> {
+  const hidden = await listHiddenAddresses();
+  const byAddr = new Map<string, DexMarketEntry>();
+
+  for (const m of await listDexMarkets(false)) {
+    byAddr.set(m.tokenAddress.toLowerCase(), m);
+  }
+
+  for (const launch of await getAllLaunches(200)) {
+    const addr = launch.wrapped_token_address?.toLowerCase();
+    if (!addr || addr === WEMBR_ADDRESS) continue;
+    if (byAddr.has(addr)) continue;
+
+    byAddr.set(addr, {
+      tokenAddress: addr,
+      symbol: launch.wrapped_symbol,
+      name: launch.token_name ? `Wrapped ${launch.token_name}` : launch.wrapped_symbol,
+      source: "launch",
+      launchId: launch.id,
+      launchStatus: launch.status,
+      canRemove: !hidden.has(addr),
+    });
+  }
+
+  return [...byAddr.values()].sort((a, b) => a.symbol.localeCompare(b.symbol));
 }
 
 /** Operator delist — hides from exchange UI for all users. */
