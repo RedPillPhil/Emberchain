@@ -30,7 +30,18 @@
   to = "/ember-delta/index.html"
   status = 200
 
-# Wallet SPA (must be after /ember-delta rules)
+# Ember Ball sub-app (ZenGM static build)
+[[redirects]]
+  from = "/ember-ball"
+  to = "/ember-ball/"
+  status = 301
+
+[[redirects]]
+  from = "/ember-ball/*"
+  to = "/ember-ball/index.html"
+  status = 200
+
+# Wallet SPA (must be after sub-app rules)
 [[redirects]]
   from = "/*"
   to = "/index.html"

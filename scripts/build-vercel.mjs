@@ -91,4 +91,14 @@ if (missing.length > 0 || stale.length > 0) {
 console.log('\n✓ Verified Ember Delta bundle:', mainBundle.name);
 console.log('✓ Staged at', stageDest);
 
-run('Build Ember Ball', 'node scripts/build-ember-ball.mjs');
+console.log('\n▶ Build Ember Ball (optional — wallet deploy continues if this fails)');
+const emberBall = spawnSync('node scripts/build-ember-ball.mjs', {
+  cwd: root,
+  stdio: 'inherit',
+  shell: true,
+  env: process.env,
+});
+if (emberBall.status !== 0) {
+  console.warn('\n⚠ Ember Ball build failed — wallet + Ember Delta still deployed.');
+  console.warn('  Fix artifacts/ember-ball on the server, then rerun: node scripts/build-ember-ball.mjs');
+}

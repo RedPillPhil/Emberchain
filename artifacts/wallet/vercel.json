@@ -8,6 +8,8 @@
     { "source": "/api/:path*", "destination": "https://emberchain.duckdns.org/api/:path*" },
     { "source": "/ember-delta", "destination": "/ember-delta/index.html" },
     { "source": "/ember-delta/:path*", "destination": "/ember-delta/index.html" },
+    { "source": "/ember-ball", "destination": "/ember-ball/index.html" },
+    { "source": "/ember-ball/:path*", "destination": "/ember-ball/index.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

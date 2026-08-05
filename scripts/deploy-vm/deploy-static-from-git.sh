@@ -19,7 +19,19 @@ echo "=== EmberChain static deploy (from git) ==="
 cd "$REPO_ROOT"
 
 echo "→ git pull"
-git pull origin main
+git fetch origin main
+BEFORE="$(git rev-parse HEAD)"
+git pull --ff-only origin main || {
+  echo ""
+  echo "✗ git pull failed — deploy aborted so we do not publish stale static files."
+  echo "  Current HEAD: $(git rev-parse --short HEAD)"
+  echo "  origin/main:  $(git rev-parse --short origin/main)"
+  echo "  Fix: cd $(pwd) && git fetch origin && git reset --hard origin/main"
+  echo "  (Back up artifacts/data/chain.json first if this repo runs chain-node.)"
+  exit 1
+}
+AFTER="$(git rev-parse HEAD)"
+echo "  HEAD ${BEFORE:0:7} → ${AFTER:0:7} ($(git log -1 --oneline))"
 
 echo "→ disk check"
 df -h / | tail -1
@@ -40,6 +52,18 @@ pnpm install --frozen-lockfile --config.confirmModulesPurge=false 2>/dev/null \
 
 echo "→ build wallet + ember-delta + ember-ball"
 node scripts/build-vercel.mjs
+
+echo "→ verify built wallet contains Games nav + sidebar"
+if ! grep -rq 'landing-games-grid\|Ember Ball' "${REPO_ROOT}/artifacts/wallet/dist/public/assets/"* 2>/dev/null; then
+  echo "✗ Built wallet bundle is missing the Games landing section — aborting publish"
+  exit 1
+fi
+
+if [[ -f "${REPO_ROOT}/artifacts/wallet/dist/public/ember-ball/index.html" ]]; then
+  echo "  ✓ Ember Ball staged ($(wc -c < "${REPO_ROOT}/artifacts/wallet/dist/public/ember-ball/index.html") bytes index.html)"
+else
+  echo "  ⚠ Ember Ball not staged — /ember-ball/ will 404 until build succeeds"
+fi
 
 echo "→ publish to ${WEB_ROOT}"
 mkdir -p "$WEB_ROOT"
