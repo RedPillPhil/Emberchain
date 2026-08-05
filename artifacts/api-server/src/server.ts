@@ -22,6 +22,7 @@ import { ensureLaunchTable } from "./lib/launch-db";
 import { startBridgeRelayer, stopBridgeRelayer } from "./lib/bridge-relayer";
 import { startLaunchProcessor } from "./lib/launch-processor";
 import { startMiningStatusPoller } from "./lib/mining-status-cache";
+import { startChainStatusPoller } from "./lib/chain-status-cache";
 import {
   startChainInvadersSettler,
   stopChainInvadersSettler,
@@ -69,6 +70,7 @@ export async function startServer(port: number): Promise<ServerHandle> {
   // Polls READ_NODE_URL every 15 s so /api/mining/status requests are served
   // from cache instead of hitting the already-loaded mining node per request.
   startMiningStatusPoller();
+  startChainStatusPoller();
   startChainInvadersSettler();
 
   const stop = (): Promise<void> => {

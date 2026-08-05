@@ -1,6 +1,8 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { proxyToNode, proxyReadToNode, proxyWriteToNode, proxyToLocalMining, proxyToLocalMiningRead } from "../lib/chain-proxy";
 import { getMiningStatusCached } from "../lib/mining-status-cache";
+import { getChainStatusCached } from "../lib/chain-status-cache";
+import { getWalletCached } from "../lib/wallet-read-cache";
 import healthRouter from "./health";
 import contractsRouter from "./contracts";  // registers /wallets/:address/tokens FIRST
 import privacyRouter from "./privacy";
@@ -67,8 +69,12 @@ router.get("/sync/blocks",                    proxyToNode);
 router.get("/sync/peers",                     proxyToNode);
 router.post("/sync/peers",                    proxyToNode);
 router.post("/sync/submit-block",             proxyToNode);
-// chain routes — reads go to the read replica when READ_NODE_URL is set
-router.get("/chain/status",                   proxyReadToNode);
+// chain routes — /chain/status is served from a background cache (see chain-status-cache.ts)
+router.get("/chain/status", (_req: Request, res: Response) => {
+  getChainStatusCached().then((data) => res.json(data)).catch(() =>
+    res.status(503).json({ error: "Chain status unavailable" })
+  );
+});
 router.get("/chain/blocks",                   proxyReadToNode);
 router.get("/chain/blocks/:number",           proxyReadToNode);
 // mining routes — proxied to local chain-node (server-side proxy, not redirect)
@@ -94,7 +100,19 @@ router.post("/mining/share",                  proxyToLocalMining);
 // POST stays on main node (create/register wallet); GETs go to read replica
 router.post("/wallets",                       proxyWriteToNode);
 router.get("/wallets",                        proxyReadToNode);
-router.get("/wallets/:address",               proxyReadToNode);
+router.get("/wallets/:address", async (req: Request, res: Response) => {
+  try {
+    const data = await getWalletCached(req.params["address"] ?? "");
+    res.json(data);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("HTTP 404")) {
+      res.status(404).json({ error: "Wallet not found" });
+      return;
+    }
+    res.status(503).json({ error: "Wallet unavailable" });
+  }
+});
 // transaction routes
 // POST goes to the canonical write node; GETs go to read replica
 router.post("/transactions",                  proxyWriteToNode);
