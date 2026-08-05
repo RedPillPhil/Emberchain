@@ -366,30 +366,25 @@ function Step3({
 
         <div className="bg-background/60 rounded border border-border/40 p-4 space-y-2 text-sm">
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Covers</span>
-            <span className="text-white">Wrapped token deployment on Base</span>
+            <span className="text-muted-foreground">Base deployment</span>
+            <span className="text-white">wTOKEN contract + bridge registration</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Bridge setup</span>
-            <span className="text-white">Unique escrow deposit address on your chain</span>
+            <span className="text-muted-foreground">Bridge escrow</span>
+            <span className="text-white">Unique deposit address on your chain</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">DEX listing</span>
-            <span className="text-white">w{'{symbol}'} / ETH &amp; w{'{symbol}'} / wEMBR</span>
+            <span className="text-muted-foreground">Listing</span>
+            <span className="text-white">EmberDelta swap + Bridge page</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Surplus →</span>
-            <span className="text-white">wEMBR / ETH liquidity pool</span>
+            <span className="text-muted-foreground">wEMBR / ETH LP</span>
+            <span className="text-white text-right max-w-[55%]">~99% of your fee — only pennies used for Base gas</span>
           </div>
-          {feeRecipient && (
-            <div className="flex justify-between pt-2 border-t border-border/30">
-              <span className="text-muted-foreground">Fee recipient</span>
-              <span className="text-white font-mono text-xs truncate max-w-[180px]" title={feeRecipient}>
-                {feeRecipient.slice(0, 6)}…{feeRecipient.slice(-4)}
-              </span>
-            </div>
-          )}
         </div>
+        <p className="text-xs text-muted-foreground text-center mt-3">
+          Your fee pays launch costs first, then the rest is swapped into wEMBR/ETH liquidity on Uniswap.
+        </p>
       </div>
 
       {!isConnected ? (
