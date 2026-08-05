@@ -80,8 +80,28 @@ export interface LaunchWalletParams {
   utxoNetwork?: string;
 }
 
+/** Chains where escrow address must be set manually by an operator (Monero, custom, etc.). */
+export function requiresManualEscrowSetup(params: {
+  chainType: string;
+  cryptography?: string;
+  addressFormat?: string;
+}): boolean {
+  const chainType = params.chainType.toLowerCase();
+  if (chainType === "privacy" || chainType === "custom") return true;
+  if (params.cryptography === "other" || params.addressFormat === "custom") return true;
+  return false;
+}
+
 /** Validate that we can derive a deposit address for this chain configuration. */
 export function validateLaunchWalletParams(params: LaunchWalletParams): string | null {
+  if (requiresManualEscrowSetup({
+    chainType: params.chainType,
+    cryptography: params.cryptography,
+    addressFormat: params.addressFormat,
+  })) {
+    return null;
+  }
+
   const crypto = params.cryptography ?? (params.chainType === "evm" ? "secp256k1" : "");
   const format = params.addressFormat ?? (params.chainType === "evm" ? "hex" : "");
 
@@ -94,7 +114,7 @@ export function validateLaunchWalletParams(params: LaunchWalletParams): string |
   if (!format) return "Select an address format for this chain.";
 
   if (crypto === "other" || format === "custom") {
-    return "Custom chains need manual review — choose a supported curve and address format, or contact support.";
+    return "Custom address formats need operator setup — choose privacy/custom chain type or a supported format.";
   }
 
   if (crypto === "secp256k1" && (format === "base58" || format === "bech32") && !params.utxoNetwork) {

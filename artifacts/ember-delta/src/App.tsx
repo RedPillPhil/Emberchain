@@ -12,6 +12,7 @@ import Tokens from '@/pages/Tokens';
 import Launch from '@/pages/Launch';
 import Bridge from '@/pages/Bridge';
 import Community from '@/pages/Community';
+import Admin from '@/pages/Admin';
 
 const queryClient = new QueryClient();
 
@@ -23,6 +24,7 @@ function Router() {
       <Route path="/launch" component={Launch} />
       <Route path="/bridge" component={Bridge} />
       <Route path="/community" component={Community} />
+      <Route path="/admin" component={Admin} />
       <Route component={NotFound} />
     </Switch>
   );

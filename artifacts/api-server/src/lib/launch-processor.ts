@@ -258,7 +258,9 @@ async function addWEMBRLiquidity(
 // ── Step handlers ─────────────────────────────────────────────────────────────
 
 async function handlePaymentConfirmed(launch: TokenLaunch): Promise<void> {
-  if (!launch.bridge_wallet_address) {
+  if (launch.escrow_mode === "manual") {
+    await updateLaunchStatus(launch.id, "deploying");
+  } else if (!launch.bridge_wallet_address) {
     try {
       const wallet = deriveLaunchBridgeWallet({
         launchId: launch.id,
@@ -352,12 +354,16 @@ async function handleDeploying(launch: TokenLaunch): Promise<void> {
   await addWEMBRLiquidity(launch, wallet, deployGasSpentWei);
 
   const escrowAddress = launch.bridge_wallet_address ?? launch.native_bridge_address;
+  const manualEscrow = launch.escrow_mode === "manual";
 
-  await updateLaunchStatus(launch.id, "live", {
+  await updateLaunchStatus(launch.id, manualEscrow ? "awaiting_escrow" : "live", {
     wrapped_token_address: wrappedTokenAddress,
     universal_bridge_address: universalBridgeAddress,
-    native_bridge_address: escrowAddress,
-    bridge_wallet_address: escrowAddress,
+    native_bridge_address: manualEscrow ? undefined : escrowAddress,
+    bridge_wallet_address: manualEscrow ? undefined : escrowAddress,
+    operator_message: manualEscrow
+      ? "wTOKEN is live on Base. Bridge escrow is being configured — check back soon."
+      : undefined,
   });
 
   // Register the wrapped token in the DEX token registry so it auto-appears

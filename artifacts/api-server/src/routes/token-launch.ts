@@ -21,7 +21,7 @@ import {
   type TokenLaunch,
 } from "../lib/launch-db";
 import { getBaseProvider } from "../lib/base-provider";
-import { deriveLaunchBridgeWallet, validateLaunchWalletParams } from "../lib/launch-wallet";
+import { deriveLaunchBridgeWallet, validateLaunchWalletParams, requiresManualEscrowSetup } from "../lib/launch-wallet";
 import { processLaunchBridgeClaimGeneric } from "../lib/launch-bridge-relayer";
 import { getDepositsForLaunch } from "../lib/launch-deposit-db";
 import {
@@ -130,7 +130,7 @@ router.post("/token-launch/submit", async (req, res) => {
       chain_id, rpc_url, explorer_url,
       consensus, cryptography, address_format, utxo_network, tx_model,
       decimals, confirmations_req,
-      submitter_address,
+      submitter_address, wallet_download_url,
     } = req.body as Record<string, string>;
 
     // Validate required fields
@@ -152,6 +152,18 @@ router.post("/token-launch/submit", async (req, res) => {
     }
     if (normalizedChainType === "utxo" && !normalizedCrypto) {
       normalizedCrypto = "secp256k1";
+    }
+
+    const manualEscrow = requiresManualEscrowSetup({
+      chainType: normalizedChainType,
+      cryptography: normalizedCrypto,
+      addressFormat: normalizedFormat,
+    });
+
+    if (manualEscrow && !wallet_download_url?.trim()) {
+      return res.status(400).json({
+        error: "Official wallet download link is required for privacy and custom chains (used by operators to create the bridge escrow address).",
+      });
     }
 
     const validationError = validateLaunchWalletParams({
@@ -184,9 +196,24 @@ router.post("/token-launch/submit", async (req, res) => {
       tx_model: tx_model || undefined,
       confirmations_req: parseInt(confirmations_req ?? "6", 10) || 6,
       submitter_address: submitter_address.toLowerCase(),
+      wallet_download_url: wallet_download_url?.trim() || undefined,
+      escrow_mode: manualEscrow ? "manual" : "auto",
     });
 
-    // Derive unique escrow address immediately for every chain type.
+    if (manualEscrow) {
+      await updateLaunchStatus(launch.id, "pending_payment", {
+        escrow_mode: "manual",
+        wallet_download_url: wallet_download_url?.trim(),
+        operator_message:
+          "After payment, wTOKEN deploys on Base automatically. Bridge escrow is configured manually by the Emberchain team (usually within 24h).",
+      });
+      launch.escrow_mode = "manual";
+      launch.wallet_download_url = wallet_download_url?.trim();
+      logger.info({ id: launch.id, chainType: normalizedChainType }, "[token-launch] manual escrow launch — awaiting operator after deploy");
+      return res.status(201).json(sanitizeLaunch(launch));
+    }
+
+    // Auto escrow: derive unique deposit address immediately.
     try {
       const bridgeWallet = deriveLaunchBridgeWallet({
         launchId: launch.id,
@@ -200,6 +227,7 @@ router.post("/token-launch/submit", async (req, res) => {
         bridge_wallet_type: bridgeWallet.type,
         bridge_private_key_encrypted: bridgeWallet.privateKeyEncrypted,
         native_bridge_address: bridgeWallet.address,
+        escrow_mode: "auto",
       });
       launch.bridge_wallet_address = bridgeWallet.address;
       launch.bridge_wallet_type = bridgeWallet.type;

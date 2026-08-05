@@ -68,8 +68,8 @@ export default function LandingPage() {
         <div className="landing-hero-inner">
           <p className="landing-kicker">Privacy-native · Mineable · EVM</p>
           <h1 className="landing-hero-title">
-            The blockchain<br />
-            <span>forged in fire</span>
+            Where privacy<br />
+            <span>meets smart contracts</span>
           </h1>
           <p className="landing-hero-sub">
             Emberchain is a proof-of-work smart contract chain with browser mining,

@@ -30,6 +30,9 @@ interface LaunchRecord {
   bridge_wallet_address?: string; bridge_wallet_type?: string;
   native_bridge_address?: string;
   wrapped_token_address?: string; universal_bridge_address?: string;
+  wallet_download_url?: string;
+  escrow_mode?: string;
+  operator_message?: string;
   error_msg?: string;
 }
 
@@ -173,10 +176,12 @@ interface Step2Data {
   rpcUrl: string; chainId: string; explorerUrl: string;
   consensus: string; cryptography: string; addressFormat: string;
   utxoNetwork: string; txModel: string; decimals: string; confirmationsReq: string;
+  walletDownloadUrl: string;
 }
 
 function Step2({ data, onChange, chainType }: { data: Step2Data; onChange: (d: Step2Data) => void; chainType: ChainType }) {
   const isEvm = chainType === 'evm';
+  const needsManualSetup = chainType === 'privacy' || chainType === 'custom';
 
   return (
     <div className="space-y-5">
@@ -283,7 +288,24 @@ function Step2({ data, onChange, chainType }: { data: Step2Data; onChange: (d: S
           onChange={e => onChange({ ...data, explorerUrl: e.target.value })} />
       </Field>
 
-      {!isEvm && (
+      {needsManualSetup && (
+        <>
+          <Field
+            label="Official Wallet Download Link"
+            hint="Required for privacy/custom chains — where operators download the native wallet to create your bridge escrow address."
+          >
+            <input type="url" className={inputCls} placeholder="https://example.org/download-wallet"
+              value={data.walletDownloadUrl}
+              onChange={e => onChange({ ...data, walletDownloadUrl: e.target.value })} />
+          </Field>
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded p-4 text-sm text-blue-200/90">
+            <strong className="text-blue-300">Manual bridge setup:</strong> wTOKEN still deploys on Base automatically after you pay.
+            The Emberchain team configures the native escrow address (Monero/custom chains need a real wallet — not auto-generated).
+          </div>
+        </>
+      )}
+
+      {!isEvm && !needsManualSetup && (
         <div className="bg-amber-500/10 border border-amber-500/20 rounded p-4 text-sm text-amber-200/80">
           <strong className="text-amber-300">Escrow bridge:</strong> A unique deposit address is created instantly when you submit.
           Users send native coin there; after confirmations we mint w{`{symbol}`} on Base to their wallet.
@@ -436,6 +458,7 @@ const STATUS_LABELS: Record<string, { label: string; desc: string; color: string
   payment_confirmed: { label: 'Payment Confirmed',     desc: 'Deploying wrapped token on Base…',                   color: 'text-blue-400' },
   pending_gas:       { label: 'Deploying',             desc: 'Setting up wrapped token on Base…',                  color: 'text-blue-400' },
   deploying:         { label: 'Deploying',             desc: 'Creating wTOKEN on Base and listing on EmberDelta…', color: 'text-blue-400' },
+  awaiting_escrow:   { label: 'Bridge Pending',        desc: 'wTOKEN is on Base — escrow address is being configured by the team.', color: 'text-amber-400' },
   live:              { label: 'Live! 🎉',              desc: 'Your token is listed on EmberDelta and the Bridge.', color: 'text-green-400' },
   failed:            { label: 'Failed',                desc: 'Something went wrong.',                              color: 'text-red-400' },
 };
@@ -475,9 +498,10 @@ function Step4({ launchId, chainType }: { launchId: string; chainType: ChainType
   const info = STATUS_LABELS[status] ?? STATUS_LABELS['pending_payment'];
   const isLive = status === 'live';
   const isFailed = status === 'failed';
+  const isAwaitingEscrow = status === 'awaiting_escrow';
   const escrowAddress = launch?.native_bridge_address ?? launch?.bridge_wallet_address;
 
-  const statusOrder = ['pending_payment', 'payment_confirmed', 'deploying', 'live'];
+  const statusOrder = ['pending_payment', 'payment_confirmed', 'deploying', 'awaiting_escrow', 'live'];
   const currentIdx = statusOrder.indexOf(status);
 
   return (
@@ -497,7 +521,7 @@ function Step4({ launchId, chainType }: { launchId: string; chainType: ChainType
           />
         </div>
         <div className="flex justify-between text-xs text-muted-foreground">
-          <span>Payment</span><span>Bridge wallet</span><span>Deploying</span><span>Live</span>
+          <span>Payment</span><span>Deploy</span><span>Escrow</span><span>Live</span>
         </div>
       </div>
 
@@ -531,6 +555,24 @@ function Step4({ launchId, chainType }: { launchId: string; chainType: ChainType
             {escrowAddress}
             <CopyButton text={escrowAddress} />
           </div>
+        </div>
+      )}
+
+      {/* Awaiting manual escrow */}
+      {isAwaitingEscrow && (
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-5 space-y-3">
+          <h3 className="font-bold text-amber-300 flex items-center gap-2">
+            <Clock className="w-5 h-5" /> wTOKEN deployed — bridge escrow pending
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            {launch?.operator_message ?? info.desc}
+          </p>
+          {launch?.wrapped_token_address && (
+            <div className="space-y-1">
+              <div className="text-xs text-muted-foreground uppercase font-semibold">Wrapped Token (Base) — already live</div>
+              <div className="font-mono text-sm text-white break-all">{launch.wrapped_token_address}</div>
+            </div>
+          )}
         </div>
       )}
 
@@ -649,7 +691,7 @@ function LaunchContent() {
   const [step2, setStep2] = useState<Step2Data>({
     rpcUrl: '', chainId: '', explorerUrl: '',
     consensus: '', cryptography: '', addressFormat: '', utxoNetwork: '', txModel: '',
-    decimals: '18', confirmationsReq: '6',
+    decimals: '18', confirmationsReq: '6', walletDownloadUrl: '',
   });
 
   // Fetch fee on load
@@ -672,8 +714,11 @@ function LaunchContent() {
     }
   }, [step1.chainType]);
 
+  const needsManualSetup = step1.chainType === 'privacy' || step1.chainType === 'custom';
+
   const canAdvanceStep2 = step2.rpcUrl.trim() &&
-    (step1.chainType === 'evm' || (
+    (!needsManualSetup || step2.walletDownloadUrl.trim()) &&
+    (step1.chainType === 'evm' || needsManualSetup || (
       step2.cryptography &&
       step2.addressFormat &&
       (step2.cryptography !== 'secp256k1' || step2.addressFormat === 'hex' || step2.utxoNetwork)
@@ -703,6 +748,7 @@ function LaunchContent() {
           tx_model: step2.txModel || undefined,
           decimals: step2.decimals || '18',
           confirmations_req: step2.confirmationsReq || '6',
+          wallet_download_url: step2.walletDownloadUrl || undefined,
           submitter_address: address,
         }),
       });

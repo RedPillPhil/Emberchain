@@ -93,6 +93,22 @@ export async function ensureLaunchTable(): Promise<void> {
     ALTER TABLE token_launches
       ADD COLUMN IF NOT EXISTS utxo_network TEXT
   `);
+  await pool.query(`
+    ALTER TABLE token_launches
+      ADD COLUMN IF NOT EXISTS wallet_download_url TEXT
+  `);
+  await pool.query(`
+    ALTER TABLE token_launches
+      ADD COLUMN IF NOT EXISTS escrow_mode TEXT DEFAULT 'auto'
+  `);
+  await pool.query(`
+    ALTER TABLE token_launches
+      ADD COLUMN IF NOT EXISTS admin_notes TEXT
+  `);
+  await pool.query(`
+    ALTER TABLE token_launches
+      ADD COLUMN IF NOT EXISTS operator_message TEXT
+  `);
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -102,6 +118,7 @@ export type LaunchStatus =
   | "payment_confirmed"
   | "pending_gas"
   | "deploying"
+  | "awaiting_escrow"
   | "live"
   | "failed";
 
@@ -133,6 +150,10 @@ export interface TokenLaunch {
   universal_bridge_address?: string;
   native_bridge_address?: string;
   submitter_address: string;
+  wallet_download_url?: string;
+  escrow_mode?: "auto" | "manual";
+  admin_notes?: string;
+  operator_message?: string;
   error_msg?: string;
   created_at: Date;
   updated_at: Date;
@@ -192,6 +213,51 @@ export async function getLaunchesBySubmitter(address: string): Promise<TokenLaun
   return res.rows;
 }
 
+export async function getAllLaunches(limit = 100): Promise<TokenLaunch[]> {
+  const res = await pool.query<TokenLaunch>(
+    "SELECT * FROM token_launches ORDER BY updated_at DESC LIMIT $1",
+    [limit],
+  );
+  return res.rows;
+}
+
+export async function getLaunchesAwaitingEscrow(): Promise<TokenLaunch[]> {
+  const res = await pool.query<TokenLaunch>(
+    "SELECT * FROM token_launches WHERE status = 'awaiting_escrow' ORDER BY created_at ASC",
+  );
+  return res.rows;
+}
+
+export async function updateLaunchFields(
+  id: string,
+  patch: Partial<Pick<TokenLaunch,
+    | "status"
+    | "fee_tx_hash" | "fee_payer" | "fee_amount_eth"
+    | "bridge_wallet_address" | "bridge_wallet_type" | "bridge_private_key_encrypted"
+    | "wrapped_token_address" | "universal_bridge_address" | "native_bridge_address"
+    | "wallet_download_url" | "escrow_mode" | "admin_notes" | "operator_message"
+    | "error_msg"
+  >>,
+): Promise<void> {
+  const sets: string[] = ["updated_at = NOW()"];
+  const vals: unknown[] = [id];
+  let idx = 2;
+
+  for (const [key, val] of Object.entries(patch)) {
+    if (val !== undefined) {
+      sets.push(`${key} = $${idx++}`);
+      vals.push(val);
+    }
+  }
+
+  if (sets.length === 1) return;
+
+  await pool.query(
+    `UPDATE token_launches SET ${sets.join(", ")} WHERE id = $1`,
+    vals,
+  );
+}
+
 export async function updateLaunchStatus(
   id: string,
   status: LaunchStatus,
@@ -199,22 +265,9 @@ export async function updateLaunchStatus(
     "fee_tx_hash" | "fee_payer" | "fee_amount_eth" |
     "bridge_wallet_address" | "bridge_wallet_type" | "bridge_private_key_encrypted" |
     "wrapped_token_address" | "universal_bridge_address" | "native_bridge_address" |
+    "wallet_download_url" | "escrow_mode" | "admin_notes" | "operator_message" |
     "error_msg"
   >> = {},
 ): Promise<void> {
-  const sets: string[] = ["status = $2", "updated_at = NOW()"];
-  const vals: unknown[] = [id, status];
-  let idx = 3;
-
-  for (const [key, val] of Object.entries(extra)) {
-    if (val !== undefined) {
-      sets.push(`${key} = $${idx++}`);
-      vals.push(val);
-    }
-  }
-
-  await pool.query(
-    `UPDATE token_launches SET ${sets.join(", ")} WHERE id = $1`,
-    vals,
-  );
+  await updateLaunchFields(id, { status, ...extra });
 }
