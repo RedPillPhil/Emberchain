@@ -36,7 +36,7 @@ if (existsSync(emberDist)) {
 run('Build Ember Delta', 'pnpm --filter @workspace/ember-delta run build', {
   BASE_PATH: '/ember-delta/',
   NODE_ENV: 'production',
-  VITE_TOKEN_LAUNCH_DOWN: 'false',
+  VITE_TOKEN_LAUNCH_DOWN: 'true',
 });
 
 if (!existsSync(emberOut)) {

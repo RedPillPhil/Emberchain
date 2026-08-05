@@ -8,6 +8,7 @@ import { getAllPairs, addCustomPair, removeCustomPair, BUILT_IN_PAIRS, type Trad
 import { resolveApiServer } from '@/lib/config';
 import { usePublicClient } from 'wagmi';
 import { ERC20_ABI } from '@/lib/contracts';
+import { TOKEN_LAUNCH_DOWN } from '@/lib/launch-flags';
 
 interface ShellProps {
   children: React.ReactNode;
@@ -142,12 +143,15 @@ export function Shell({ children, selectedPair, onPairChange }: ShellProps) {
             {navLinks.map(link => {
               const isActive = location === link.href;
               const Icon = link.icon;
+              const isLaunchPaused = link.href === '/launch' && TOKEN_LAUNCH_DOWN;
               return (
                 <Link
                   key={link.href}
                   href={link.href}
+                  title={isLaunchPaused ? 'Token launch is paused' : undefined}
                   className={cn(
                     "h-full flex items-center px-3 text-sm font-medium border-b-2 transition-colors",
+                    isLaunchPaused && "opacity-40 cursor-default",
                     isActive
                       ? "border-primary text-white"
                       : "border-transparent text-muted-foreground hover:text-white hover:bg-white/5"
@@ -388,13 +392,16 @@ export function Shell({ children, selectedPair, onPairChange }: ShellProps) {
         <div className="md:hidden bg-card border-b border-border flex flex-col z-20">
           {navLinks.map(link => {
             const isActive = location === link.href;
+            const isLaunchPaused = link.href === '/launch' && TOKEN_LAUNCH_DOWN;
             return (
               <Link
                 key={link.href}
                 href={link.href}
                 onClick={() => setMobileMenuOpen(false)}
+                title={isLaunchPaused ? 'Token launch is paused' : undefined}
                 className={cn(
                   "p-4 border-b border-border/50 text-sm font-medium flex items-center",
+                  isLaunchPaused && "opacity-40",
                   isActive ? "text-primary bg-primary/5" : "text-foreground"
                 )}
               >

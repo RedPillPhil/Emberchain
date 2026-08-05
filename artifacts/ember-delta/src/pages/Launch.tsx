@@ -9,9 +9,9 @@ import {
 import { useAccount, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther } from 'viem';
 import { API, apiFetch } from '@/lib/api';
+import { TOKEN_LAUNCH_DOWN } from '@/lib/launch-flags';
 
 /** Paused only when VITE_TOKEN_LAUNCH_DOWN=true (e.g. api-server maintenance). */
-const TOKEN_LAUNCH_DOWN = import.meta.env.VITE_TOKEN_LAUNCH_DOWN === 'true';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
