@@ -25,12 +25,20 @@ export async function ensureLaunchDepositTable(): Promise<void> {
       bridge_in_nonce     TEXT,
       status              TEXT NOT NULL DEFAULT 'pending',
       error_msg           TEXT,
+      manual_claim        BOOLEAN NOT NULL DEFAULT FALSE,
+      admin_notes         TEXT,
       created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_launch_deposits_launch ON launch_deposits (launch_id)
+  `);
+  await pool.query(`
+    ALTER TABLE launch_deposits ADD COLUMN IF NOT EXISTS manual_claim BOOLEAN NOT NULL DEFAULT FALSE
+  `);
+  await pool.query(`
+    ALTER TABLE launch_deposits ADD COLUMN IF NOT EXISTS admin_notes TEXT
   `);
 }
 
@@ -45,6 +53,8 @@ export interface LaunchDeposit {
   bridge_in_nonce?: string;
   status: "pending" | "minted" | "failed";
   error_msg?: string;
+  manual_claim?: boolean;
+  admin_notes?: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -64,10 +74,13 @@ export async function createLaunchDeposit(data: {
   native_from?: string;
   gross_amount: string;
   base_recipient: string;
+  manual_claim?: boolean;
+  admin_notes?: string;
 }): Promise<LaunchDeposit> {
   const res = await pool.query<LaunchDeposit>(
-    `INSERT INTO launch_deposits (id, launch_id, native_tx_hash, native_from, gross_amount, base_recipient)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+    `INSERT INTO launch_deposits (
+       id, launch_id, native_tx_hash, native_from, gross_amount, base_recipient, manual_claim, admin_notes
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
     [
       data.id,
       data.launch_id,
@@ -75,6 +88,8 @@ export async function createLaunchDeposit(data: {
       data.native_from?.toLowerCase() ?? null,
       data.gross_amount,
       data.base_recipient.toLowerCase(),
+      data.manual_claim ?? false,
+      data.admin_notes ?? null,
     ],
   );
   return res.rows[0];
@@ -82,9 +97,11 @@ export async function createLaunchDeposit(data: {
 
 export async function updateLaunchDeposit(
   id: string,
-  patch: Partial<Pick<LaunchDeposit, "status" | "bridge_in_tx_hash" | "bridge_in_nonce">> & {
+  patch: Partial<Pick<LaunchDeposit, "status" | "bridge_in_tx_hash" | "bridge_in_nonce" | "admin_notes">> & {
     error_msg?: string | null;
     base_recipient?: string;
+    gross_amount?: string;
+    native_from?: string | null;
   },
 ): Promise<void> {
   const sets = ["updated_at = NOW()"];

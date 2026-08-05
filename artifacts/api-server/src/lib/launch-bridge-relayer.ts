@@ -19,6 +19,19 @@ const UNIVERSAL_BRIDGE_ABI = [
   "function bridgeIn(address token, address recipient, uint256 grossAmount, uint256 nonce) external",
 ];
 
+/** Parse human decimal or raw integer string into smallest-unit bigint. */
+export function parseBridgeAmount(value: string, decimals: number): bigint {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error("Amount required");
+  if (/^\d+$/.test(trimmed)) return BigInt(trimmed);
+  const [whole, frac = ""] = trimmed.split(".");
+  if (!/^\d*$/.test(whole) || !/^\d*$/.test(frac)) {
+    throw new Error("Invalid amount — use a decimal number or raw integer");
+  }
+  const fracPadded = frac.padEnd(decimals, "0").slice(0, decimals);
+  return BigInt(whole || "0") * 10n ** BigInt(decimals) + BigInt(fracPadded || "0");
+}
+
 function getRelayerWallet(provider: ethers.JsonRpcProvider): ethers.Wallet | null {
   const key = process.env["BRIDGE_RELAYER_PRIVATE_KEY"];
   if (!key) return null;
@@ -148,4 +161,83 @@ export async function processLaunchBridgeClaimGeneric(
   baseRecipient: string,
 ): Promise<{ depositId: string; bridgeInTxHash?: string }> {
   return processLaunchBridgeClaim(launch, nativeTxHash, baseRecipient);
+}
+
+/** Operator mint — skips on-chain deposit verification (Monero, custom UTXO, etc.). */
+export async function processLaunchBridgeClaimManual(
+  launch: TokenLaunch,
+  params: {
+    nativeTxHash: string;
+    baseRecipient: string;
+    grossAmount: bigint;
+    nativeFrom?: string;
+    adminNotes?: string;
+  },
+): Promise<{ depositId: string; bridgeInTxHash?: string }> {
+  if (launch.status !== "live") {
+    throw new Error("Token is not live yet — finish escrow setup first");
+  }
+  if (!/^0x[0-9a-fA-F]{40}$/.test(params.baseRecipient)) {
+    throw new Error("Invalid Base recipient address");
+  }
+  if (params.grossAmount <= 0n) {
+    throw new Error("Mint amount must be greater than zero");
+  }
+  if (!launch.bridge_wallet_address && !launch.native_bridge_address) {
+    throw new Error("Escrow address not configured for this launch");
+  }
+
+  const normalizedTx = params.nativeTxHash.trim();
+  if (!normalizedTx) throw new Error("Native transaction id required");
+
+  const existing = await getDepositByNativeTx(normalizedTx);
+  if (existing?.status === "minted") {
+    return { depositId: existing.id, bridgeInTxHash: existing.bridge_in_tx_hash };
+  }
+  if (existing?.status === "pending") {
+    throw new Error("This deposit is already being processed — retry in a minute");
+  }
+
+  const depositId = existing?.id ?? randomUUID();
+  if (!existing) {
+    await createLaunchDeposit({
+      id: depositId,
+      launch_id: launch.id,
+      native_tx_hash: normalizedTx,
+      native_from: params.nativeFrom,
+      gross_amount: params.grossAmount.toString(),
+      base_recipient: params.baseRecipient.toLowerCase(),
+      manual_claim: true,
+      admin_notes: params.adminNotes,
+    });
+  } else if (existing.status === "failed") {
+    await updateLaunchDeposit(depositId, {
+      status: "pending",
+      error_msg: null,
+      base_recipient: params.baseRecipient.toLowerCase(),
+      gross_amount: params.grossAmount.toString(),
+      native_from: params.nativeFrom?.toLowerCase() ?? null,
+      admin_notes: params.adminNotes ?? existing.admin_notes,
+    });
+  }
+
+  const bridgeInTxHash = await mintWrappedOnBase(
+    launch,
+    depositId,
+    params.grossAmount,
+    params.baseRecipient,
+    normalizedTx,
+  );
+
+  logger.info(
+    {
+      launchId: launch.id,
+      nativeTxHash: normalizedTx,
+      amount: params.grossAmount.toString(),
+      manual: true,
+    },
+    "[launch-bridge-relayer] manual bridgeIn complete",
+  );
+
+  return { depositId, bridgeInTxHash };
 }

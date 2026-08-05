@@ -11,6 +11,11 @@ import {
   updateLaunchFields,
   type TokenLaunch,
 } from "../lib/launch-db";
+import { getDepositsForLaunch } from "../lib/launch-deposit-db";
+import {
+  parseBridgeAmount,
+  processLaunchBridgeClaimManual,
+} from "../lib/launch-bridge-relayer";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -117,6 +122,87 @@ router.patch("/token-launch/admin/:id/escrow", async (req, res) => {
   } catch (err) {
     logger.error({ err }, "[launch-admin] escrow patch error");
     res.status(500).json({ error: "Failed to update escrow" });
+  }
+});
+
+// GET /token-launch/admin/:id/deposits
+router.get("/token-launch/admin/:id/deposits", async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const launch = await getLaunch(req.params.id);
+    if (!launch) return res.status(404).json({ error: "Launch not found" });
+
+    const deposits = await getDepositsForLaunch(launch.id);
+    res.json({ deposits });
+  } catch (err) {
+    logger.error({ err }, "[launch-admin] deposits error");
+    res.status(500).json({ error: "Failed to load deposits" });
+  }
+});
+
+// POST /token-launch/admin/:id/claim — manual verify + mint (Monero, custom, etc.)
+router.post("/token-launch/admin/:id/claim", async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const launch = await getLaunch(req.params.id);
+    if (!launch) return res.status(404).json({ error: "Launch not found" });
+
+    const {
+      native_tx_hash,
+      base_recipient,
+      amount,
+      gross_amount,
+      native_from,
+      admin_notes,
+    } = req.body as {
+      native_tx_hash?: string;
+      base_recipient?: string;
+      amount?: string;
+      gross_amount?: string;
+      native_from?: string;
+      admin_notes?: string;
+    };
+
+    if (!native_tx_hash?.trim()) {
+      return res.status(400).json({ error: "native_tx_hash required" });
+    }
+    if (!base_recipient?.trim()) {
+      return res.status(400).json({ error: "base_recipient required (0x address on Base)" });
+    }
+
+    let grossAmount: bigint;
+    if (gross_amount?.trim()) {
+      grossAmount = BigInt(gross_amount.trim());
+    } else if (amount?.trim()) {
+      grossAmount = parseBridgeAmount(amount.trim(), launch.decimals);
+    } else {
+      return res.status(400).json({
+        error: "amount required — decimal string in token units, or gross_amount in smallest units",
+      });
+    }
+
+    const result = await processLaunchBridgeClaimManual(launch, {
+      nativeTxHash: native_tx_hash.trim(),
+      baseRecipient: base_recipient.trim(),
+      grossAmount,
+      nativeFrom: native_from?.trim(),
+      adminNotes: admin_notes?.trim(),
+    });
+
+    res.json({
+      ok: true,
+      depositId: result.depositId,
+      bridgeInTxHash: result.bridgeInTxHash,
+      message: result.bridgeInTxHash
+        ? "Manual claim minted wrapped tokens on Base."
+        : "Deposit already minted.",
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn({ err: msg, id: req.params.id }, "[launch-admin] manual claim failed");
+    res.status(422).json({ error: msg });
   }
 });
 

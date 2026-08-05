@@ -13,6 +13,7 @@ interface LaunchRow {
   token_name: string;
   chain_name: string;
   chain_type: string;
+  decimals?: number;
   wrapped_token_address?: string;
   bridge_wallet_address?: string;
   native_bridge_address?: string;
@@ -22,6 +23,18 @@ interface LaunchRow {
   operator_message?: string;
   submitter_address?: string;
   error_msg?: string;
+  created_at?: string;
+}
+
+interface DepositRow {
+  id: string;
+  native_tx_hash: string;
+  gross_amount: string;
+  base_recipient: string;
+  status: string;
+  manual_claim?: boolean;
+  bridge_in_tx_hash?: string;
+  admin_notes?: string;
   created_at?: string;
 }
 
@@ -127,6 +140,181 @@ function EscrowForm({
   );
 }
 
+function ManualClaimForm({
+  launch,
+  secret,
+  onSaved,
+}: {
+  launch: LaunchRow;
+  secret: string;
+  onSaved: () => void;
+}) {
+  const [nativeTx, setNativeTx] = useState('');
+  const [recipient, setRecipient] = useState(launch.submitter_address ?? '');
+  const [amount, setAmount] = useState('');
+  const [nativeFrom, setNativeFrom] = useState('');
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [deposits, setDeposits] = useState<DepositRow[]>([]);
+  const [loadingDeposits, setLoadingDeposits] = useState(false);
+
+  const loadDeposits = useCallback(async () => {
+    setLoadingDeposits(true);
+    try {
+      const r = await fetch(`${getApiBase()}/api/token-launch/admin/${launch.id}/deposits`, {
+        headers: { 'x-admin-secret': secret },
+      });
+      const data = await r.json() as { deposits?: DepositRow[]; error?: string };
+      if (r.ok) setDeposits(data.deposits ?? []);
+    } finally {
+      setLoadingDeposits(false);
+    }
+  }, [launch.id, secret]);
+
+  useEffect(() => {
+    void loadDeposits();
+  }, [loadDeposits]);
+
+  const submit = async () => {
+    if (!nativeTx.trim() || !recipient.trim() || !amount.trim()) {
+      setError('Native tx id, Base recipient, and amount are required');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const r = await fetch(`${getApiBase()}/api/token-launch/admin/${launch.id}/claim`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': secret,
+        },
+        body: JSON.stringify({
+          native_tx_hash: nativeTx.trim(),
+          base_recipient: recipient.trim(),
+          amount: amount.trim(),
+          native_from: nativeFrom.trim() || undefined,
+          admin_notes: notes.trim() || undefined,
+        }),
+      });
+      const data = await r.json() as { error?: string; bridgeInTxHash?: string; message?: string };
+      if (!r.ok) throw new Error(data.error ?? 'Claim failed');
+      setSuccess(data.bridgeInTxHash
+        ? `Minted — Base tx ${data.bridgeInTxHash.slice(0, 14)}…`
+        : (data.message ?? 'Done'));
+      setNativeTx('');
+      setAmount('');
+      void loadDeposits();
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const dec = launch.decimals ?? 18;
+
+  return (
+    <div className="space-y-3 pt-3 border-t border-border/40">
+      <p className="text-xs text-muted-foreground">
+        Manual bridge mint — use after confirming native coin arrived at escrow (Monero, custom chains, or when auto-claim fails).
+      </p>
+      <div className="grid gap-3 md:grid-cols-2">
+        <div>
+          <label className="text-xs text-muted-foreground uppercase font-semibold">Native tx id / hash</label>
+          <input
+            className="w-full mt-1 bg-background border border-border rounded px-3 py-2 font-mono text-sm text-white"
+            placeholder="Paste native-chain transaction id"
+            value={nativeTx}
+            onChange={(e) => setNativeTx(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground uppercase font-semibold">Base recipient (0x)</label>
+          <input
+            className="w-full mt-1 bg-background border border-border rounded px-3 py-2 font-mono text-sm text-white"
+            placeholder="0x… wallet to receive wTOKEN"
+            value={recipient}
+            onChange={(e) => setRecipient(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground uppercase font-semibold">
+            Amount ({launch.symbol}, {dec} decimals)
+          </label>
+          <input
+            className="w-full mt-1 bg-background border border-border rounded px-3 py-2 text-sm text-white"
+            placeholder={`e.g. 1.5 ${launch.symbol}`}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground uppercase font-semibold">Sender address (optional)</label>
+          <input
+            className="w-full mt-1 bg-background border border-border rounded px-3 py-2 font-mono text-sm text-white"
+            placeholder="Native sender, for records"
+            value={nativeFrom}
+            onChange={(e) => setNativeFrom(e.target.value)}
+          />
+        </div>
+      </div>
+      <div>
+        <label className="text-xs text-muted-foreground uppercase font-semibold">Operator notes (optional)</label>
+        <input
+          className="w-full mt-1 bg-background border border-border rounded px-3 py-2 text-sm text-white"
+          placeholder="e.g. verified in Monero wallet GUI"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+      </div>
+      {error && <p className="text-sm text-red-400">{error}</p>}
+      {success && <p className="text-sm text-green-400">{success}</p>}
+      <button
+        type="button"
+        onClick={() => void submit()}
+        disabled={busy}
+        className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-sm disabled:opacity-50"
+      >
+        {busy ? <Loader2 className="w-4 h-4 animate-spin inline" /> : 'Mint wrapped tokens (manual claim)'}
+      </button>
+
+      {(deposits.length > 0 || loadingDeposits) && (
+        <div className="mt-4 space-y-2">
+          <div className="text-xs text-muted-foreground uppercase font-semibold">Bridge deposits</div>
+          {loadingDeposits && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+          {deposits.map((d) => (
+            <div key={d.id} className="text-xs bg-background/50 border border-border/30 rounded p-2 space-y-1">
+              <div className="flex flex-wrap gap-2 items-center">
+                <span className={d.status === 'minted' ? 'text-green-400' : d.status === 'failed' ? 'text-red-400' : 'text-amber-400'}>
+                  {d.status}
+                </span>
+                {d.manual_claim && <span className="text-amber-400/80">manual</span>}
+              </div>
+              <div className="font-mono break-all text-white/80">tx: {d.native_tx_hash}</div>
+              <div className="text-muted-foreground">→ {d.base_recipient}</div>
+              {d.bridge_in_tx_hash && (
+                <a
+                  href={`https://basescan.org/tx/${d.bridge_in_tx_hash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  Base mint tx <ExternalLink className="w-3 h-3 inline" />
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LaunchCard({
   launch,
   secret,
@@ -171,6 +359,9 @@ function LaunchCard({
       {launch.error_msg && <p className="text-sm text-red-400">{launch.error_msg}</p>}
       {launch.status === 'awaiting_escrow' && (
         <EscrowForm launch={launch} secret={secret} onSaved={onSaved} />
+      )}
+      {launch.status === 'live' && launch.bridge_wallet_address && (
+        <ManualClaimForm launch={launch} secret={secret} onSaved={onSaved} />
       )}
     </div>
   );
@@ -220,7 +411,7 @@ export default function Admin() {
               <Shield className="w-5 h-5 text-primary" /> Launch Admin
             </div>
             <p className="text-sm text-muted-foreground">
-              Operator panel for manual bridge escrow setup. Not linked in the nav — bookmark <code className="text-primary">/admin</code>.
+              Operator panel for manual escrow setup and bridge mints. Not linked in the nav — bookmark <code className="text-primary">/admin</code>.
             </p>
             <input
               type="password"
@@ -251,7 +442,7 @@ export default function Admin() {
         <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-white">Token Launch Admin</h1>
-            <p className="text-sm text-muted-foreground">Manual escrow setup for privacy/custom chains</p>
+            <p className="text-sm text-muted-foreground">Manual escrow setup and bridge mints for privacy/custom chains</p>
           </div>
           <button
             type="button"
