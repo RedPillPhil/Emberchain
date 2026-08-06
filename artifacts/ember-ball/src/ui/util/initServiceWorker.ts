@@ -1,5 +1,6 @@
 import { Workbox } from "workbox-window";
 import { GAME_NAME } from "../../common/constants.ts";
+import { assetPath } from "../../common/basePath.ts";
 import { logEvent } from "./logEvent.ts";
 
 export const initServiceWorker = async () => {
@@ -18,7 +19,7 @@ export const initServiceWorker = async () => {
 			});
 		}
 	} else {
-		const wb = new Workbox("/sw.js");
+		const wb = new Workbox(assetPath("/sw.js"));
 
 		let updateAvailable = false;
 		let updateAvailableNotificationShowing = false;

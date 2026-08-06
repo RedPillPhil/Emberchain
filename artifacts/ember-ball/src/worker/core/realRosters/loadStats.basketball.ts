@@ -1,4 +1,5 @@
 import type { SeasonLeaders } from "../../../common/types.ts";
+import { assetPath } from "../../../common/basePath.ts";
 
 export type BasketballStats = {
 	seasonLeaders: Record<number, Omit<SeasonLeaders, "season" | "ratingsFuzz">>;
@@ -63,7 +64,7 @@ const loadData = async () => {
 	if (cachedJSON) {
 		return cachedJSON;
 	}
-	const response = await fetch("/gen/real-player-stats.json");
+	const response = await fetch(assetPath("/gen/real-player-stats.json"));
 	if (!response.ok) {
 		throw new Error(`HTTP error ${response.status}`);
 	}

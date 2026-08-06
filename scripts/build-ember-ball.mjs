@@ -38,7 +38,10 @@ function rebaseBuildPaths(dir) {
 
   /** @param {string} content */
   const rebaseContent = (content) => {
-    let next = content.replace('window.bbgmBasePath = ""', `window.bbgmBasePath = "${BASE}"`);
+    let next = content.replace(
+      /window\.bbgmBasePath\s*=\s*""/g,
+      `window.bbgmBasePath="${BASE}"`,
+    );
     for (const prefix of prefixes) {
       const rebased = `${BASE}${prefix}`;
       let i = 0;
@@ -67,6 +70,15 @@ function rebaseBuildPaths(dir) {
     const ext = path.extname(filePath);
     if (!exts.has(ext) && !filePath.endsWith('sw.js')) return;
     const src = readFileSync(filePath, 'utf8');
+
+    // index.html uses asset() + hardcoded /ember-ball paths — only verify base path.
+    if (path.basename(filePath) === 'index.html') {
+      if (!src.includes('bbgmBasePath="/ember-ball"') && !src.includes('bbgmBasePath = "/ember-ball"')) {
+        console.warn('⚠ index.html missing bbgmBasePath="/ember-ball"');
+      }
+      return;
+    }
+
     const next = rebaseContent(src);
     if (next !== src) writeFileSync(filePath, next);
   };
@@ -142,6 +154,7 @@ if (existsSync(buildOut) && process.env.EMBER_BALL_USE_EXISTING_BUILD === '1') {
 
   const buildStatus = run('Build Ember Ball (basketball)', 'pnpm run build', emberBallRoot, {
     SPORT: 'basketball',
+    BBGM_BASE_PATH: BASE,
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
     npm_config_production: 'false',
   });
@@ -157,15 +170,52 @@ if (!existsSync(path.join(buildOut, 'index.html'))) {
 console.log('\n▶ Rebase asset paths to', BASE);
 rebaseBuildPaths(buildOut);
 
+const indexHtml = readFileSync(path.join(buildOut, 'index.html'), 'utf8');
+if (
+  !indexHtml.includes('bbgmBasePath="/ember-ball"') &&
+  !indexHtml.includes('bbgmBasePath = "/ember-ball"')
+) {
+  console.error('\n✗ index.html missing bbgmBasePath="/ember-ball"');
+  process.exit(stageFallback('index.html base path not set'));
+}
+
+const genDir = path.join(buildOut, 'gen');
+
+const uiBundleForRouter = existsSync(genDir)
+  ? readdirSync(genDir).find((name) => name.startsWith('ui-') && name.endsWith('.js'))
+  : undefined;
+if (uiBundleForRouter) {
+  const uiContent = readFileSync(path.join(genDir, uiBundleForRouter), 'utf8');
+  if (!uiContent.includes('stripBasePath') && !uiContent.includes('getBasePath')) {
+    console.error(`\n✗ UI bundle missing subpath router helpers: ${uiBundleForRouter}`);
+    process.exit(stageFallback('router subpath fix missing from UI bundle'));
+  }
+
+  const workerBundle = readdirSync(genDir).find(
+    (name) => name.startsWith('worker-') && name.endsWith('.js'),
+  );
+  if (workerBundle) {
+    const workerContent = readFileSync(path.join(genDir, workerBundle), 'utf8');
+    if (
+      workerContent.includes('fetch("/gen/') ||
+      workerContent.includes("fetch('/gen/") ||
+      (workerContent.includes('/gen/worker-') && !workerContent.includes(`${BASE}/gen/worker-`))
+    ) {
+      console.error(`\n✗ Worker bundle still has unrebased paths: ${workerBundle}`);
+      process.exit(stageFallback('worker path rebase incomplete'));
+    }
+  }
+}
+
 if (!stageToWalletDist(buildOut)) {
   process.exit(0);
 }
 
-const genDir = path.join(stageDest, 'gen');
-if (existsSync(genDir)) {
-  const uiBundle = readdirSync(genDir)
+const stagedGenDir = path.join(stageDest, 'gen');
+if (existsSync(stagedGenDir)) {
+  const uiBundle = readdirSync(stagedGenDir)
     .filter((name) => name === 'ui.js' || (name.startsWith('ui') && name.endsWith('.js')))
-    .map((name) => path.join(genDir, name))
+    .map((name) => path.join(stagedGenDir, name))
     .find((filePath) => existsSync(filePath));
 
   if (uiBundle) {

@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { assetPath } from "../../common/basePath.ts";
 import { GAME_NAME } from "../../common/constants.ts";
 
 type Props = {
@@ -21,7 +22,7 @@ const LogoAndText = memo(({ inLeague }: Props) => {
 				className="ember-logo"
 				width="52"
 				height="52"
-				src="/img/ember-ball-logo.png"
+				src={assetPath("/img/ember-ball-logo.png")}
 			/>
 			<span className={inLeague ? "d-none d-lg-inline" : undefined}>
 				{GAME_NAME}

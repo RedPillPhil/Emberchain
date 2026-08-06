@@ -15,9 +15,9 @@
 			rel="stylesheet"
 		/>
 
-		<link rel="manifest" href="/manifest.webmanifest" />
-		<link rel="icon" href="/img/ember-ball-logo.png" />
-		<link rel="apple-touch-icon" href="/img/ember-ball-logo.png" />
+		<link rel="manifest" href="/ember-ball/manifest.webmanifest" />
+		<link rel="icon" href="/ember-ball/img/ember-ball-logo.png" />
+		<link rel="apple-touch-icon" href="/ember-ball/img/ember-ball-logo.png" />
 
 		<style>
 			:root {
@@ -114,15 +114,29 @@
 		MODULEPRELOADS
 
 		<script>
-			window.bbgmBasePath = "";
+			window.bbgmBasePath = "/ember-ball";
 			window.bbgmVersion = "VERSION_NUMBER";
-			window.useSharedWorker = typeof SharedWorker !== "undefined";
+			window.useSharedWorker = false;
 
 			window.mobile = window.screen.width < 768 || window.screen.height < 768;
 
 			function asset(path) {
 				return window.bbgmBasePath + path;
 			}
+
+			(function () {
+				var NativeWorker = Worker;
+				Worker = function (url, options) {
+					if (
+						typeof url === "string" &&
+						url.indexOf("/gen/") === 0 &&
+						url.indexOf(window.bbgmBasePath + "/") !== 0
+					) {
+						url = window.bbgmBasePath + url;
+					}
+					return new NativeWorker(url, options);
+				};
+			})();
 
 			function loadCSS(filename) {
 				var el = document.createElement("link");
@@ -206,7 +220,7 @@
 				<img
 					id="loading-icon"
 					class="ember-startup-logo"
-					src="/img/ember-ball-logo.png"
+					src="/ember-ball/img/ember-ball-logo.png"
 					width="88"
 					height="88"
 					alt="Ember Ball"

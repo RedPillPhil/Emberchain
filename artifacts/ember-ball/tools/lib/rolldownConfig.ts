@@ -81,6 +81,9 @@ export const rolldownConfig = (
 			define: {
 				"process.env.NODE_ENV": JSON.stringify(envOptions.nodeEnv),
 				"process.env.SPORT": JSON.stringify(sport),
+				"process.env.BBGM_BASE_PATH": JSON.stringify(
+					process.env.BBGM_BASE_PATH ?? "",
+				),
 			},
 			jsx: "react-jsx",
 		},

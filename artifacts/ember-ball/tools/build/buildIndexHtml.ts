@@ -6,7 +6,14 @@ import { bySport } from "../lib/bySport.ts";
 import { getBannerAdsCode } from "./getBannerAdsCode.ts";
 import type { Sport } from "../lib/getSport.ts";
 
-const genModulepreloads = async (modulepreloadPaths: string[]) => {
+const genModulepreloads = async (
+	modulepreloadPaths: string[],
+	sport: Sport,
+) => {
+	const assetBase = bySport(sport, {
+		basketball: "/ember-ball",
+		default: "",
+	});
 	const infos = [];
 	for (const modulepreloadPath of modulepreloadPaths) {
 		infos.push({
@@ -20,7 +27,10 @@ const genModulepreloads = async (modulepreloadPaths: string[]) => {
 
 	return infos
 		.map((info) => {
-			return `<link rel="modulepreload" href="${info.path}">`;
+			const href = info.path.startsWith("/")
+				? `${assetBase}${info.path}`
+				: `${assetBase}/${info.path}`;
+			return `<link rel="modulepreload" href="${href}">`;
 		})
 		.join("");
 };
@@ -57,7 +67,7 @@ export const buildIndexHtml = async ({
 		{
 			searchValue: "MODULEPRELOADS",
 			replaceValue: modulepreloadPaths
-				? await genModulepreloads(modulepreloadPaths)
+				? await genModulepreloads(modulepreloadPaths, sport)
 				: "",
 		},
 		...(watch

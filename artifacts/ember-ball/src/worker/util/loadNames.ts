@@ -1,3 +1,4 @@
+import { assetPath } from "../../common/basePath.ts";
 import { defaultGameAttributes } from "../../common/defaultGameAttributes.ts";
 import {
 	type DefaultNames,
@@ -85,7 +86,7 @@ export const initDefaults = async (
 				portuguese: dummyNames,
 			};
 		} else {
-			const response = await fetch("/gen/names.json");
+			const response = await fetch(assetPath("/gen/names.json"));
 			if (!response.ok) {
 				throw new Error(`HTTP error ${response.status}`);
 			}
@@ -106,7 +107,7 @@ export const initDefaults = async (
 
 		// Handle female names
 		if (gender === "female") {
-			const response = await fetch("/gen/names-female.json");
+			const response = await fetch(assetPath("/gen/names-female.json"));
 			if (!response.ok) {
 				throw new Error(`HTTP error ${response.status}`);
 			}

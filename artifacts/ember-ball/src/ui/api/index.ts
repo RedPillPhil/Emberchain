@@ -15,6 +15,7 @@ import { confirmDeleteAllLeagues } from "../util/confirmDeleteAllLeagues.tsx";
 import { requestPersistentStorage } from "../util/requestPersistentStorage.ts";
 import { confirm } from "../util/confirm.tsx";
 import { safeLocalStorage } from "../util/safeLocalStorage.ts";
+import { stripBasePath } from "../../common/basePath.ts";
 
 const initAds = (type: "accountChecked" | "uiRendered") => {
 	ads.setLoadingDone(type);
@@ -34,7 +35,7 @@ const mergeGames = (games: LocalStateUI["games"]) => {
 
 // Should only be called from Shared Worker, to move other tabs to new league because only one can be open at a time
 const newLid = async (lid: number) => {
-	const parts = window.location.pathname.split("/");
+	const parts = stripBasePath(window.location.pathname).split("/");
 
 	if (parts[1] === "l" && Number.parseInt(parts[2]!) !== lid) {
 		parts[2] = String(lid);

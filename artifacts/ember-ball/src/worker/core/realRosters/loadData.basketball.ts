@@ -1,4 +1,5 @@
 import type { PLAYER } from "../../../common/constants.ts";
+import { assetPath } from "../../../common/basePath.ts";
 import type { Phase, ScheduledEventWithoutKey } from "../../../common/types.ts";
 
 export type Ratings = {
@@ -157,7 +158,7 @@ const loadData = async () => {
 	if (cachedJSON) {
 		return cachedJSON;
 	}
-	const response = await fetch("/gen/real-player-data.json");
+	const response = await fetch(assetPath("/gen/real-player-data.json"));
 	if (!response.ok) {
 		throw new Error(`HTTP error ${response.status}`);
 	}

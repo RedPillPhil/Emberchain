@@ -1,3 +1,5 @@
+import { stripBasePath, withBasePath } from "../../common/basePath.ts";
+
 export interface Params {
 	[key: string]: string | undefined;
 }
@@ -155,6 +157,30 @@ const samePath = (url: HTMLAnchorElement) => {
 
 const clickEvent = document.ontouchstart ? "touchstart" : "click";
 
+const splitPath = (path: string) => {
+	let pathname = path;
+	let search = "";
+	let hash = "";
+
+	const queryIndex = pathname.indexOf("?");
+	if (queryIndex !== -1) {
+		search = pathname.slice(queryIndex);
+		pathname = pathname.slice(0, queryIndex);
+	}
+
+	const hashIndex = pathname.indexOf("#");
+	if (hashIndex !== -1) {
+		hash = pathname.slice(hashIndex);
+		pathname = pathname.slice(0, hashIndex);
+	}
+
+	return {
+		pathname,
+		search,
+		hash,
+	};
+};
+
 class Router {
 	private routeMatched: RouteMatched | undefined;
 	private navigationEnd: NavigationEnd | undefined;
@@ -190,26 +216,20 @@ class Router {
 			state?: { [key: string]: any };
 		} = {},
 	) {
+		const { pathname, search, hash } = splitPath(path);
+		const routePath = stripBasePath(pathname);
+		const historyPath = withBasePath(routePath) + search + hash;
+
 		const context: Context = {
 			params: {},
-			path,
+			path: routePath + search + hash,
 			state,
 		};
 		let error: Error | null = null;
 
-		let pathname = path;
-		const queryIndex = pathname.indexOf("?");
-		if (queryIndex !== -1) {
-			pathname = pathname.slice(0, queryIndex);
-		}
-		const hashIndex = pathname.indexOf("#");
-		if (hashIndex !== -1) {
-			pathname = pathname.slice(0, hashIndex);
-		}
-
 		let handled = false;
 		for (const route of this.routes) {
-			const { matches, params } = match(route, pathname);
+			const { matches, params } = match(route, routePath);
 			if (matches) {
 				context.params = params;
 
@@ -234,22 +254,22 @@ class Router {
 						// Only do this on replace, not refresh, or Safari can complain about too many calls
 						window.history.replaceState(
 							{
-								path,
+								path: historyPath,
 							},
 							document.title,
-							path,
+							historyPath,
 						);
 					} else if (!refresh) {
 						window.history.pushState(
 							{
-								path,
+								path: historyPath,
 							},
 							document.title,
-							path,
+							historyPath,
 						);
 					}
 
-					this.lastNavigatedPath = path;
+					this.lastNavigatedPath = historyPath;
 
 					await route.cb(context);
 				} catch (error_) {

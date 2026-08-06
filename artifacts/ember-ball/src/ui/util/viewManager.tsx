@@ -1,6 +1,7 @@
 import type { UpdateEvents } from "../../common/types.ts";
 import useTitleBar from "../hooks/useTitleBar.tsx";
 import { type Context, makeRegex, router } from "../router/index.ts";
+import { stripBasePath } from "../../common/basePath.ts";
 import { local, localActions } from "./local.ts";
 import { realtimeUpdate } from "./realtimeUpdate.ts";
 import { toWorker } from "./toWorker.ts";
@@ -142,7 +143,9 @@ class ViewManager {
 			if (action.url) {
 				// It's a "navigation event" if it is moving to a new page, rather than just changing some parameter of a page (like abbrev or season). So we need to get the id of this url and compare it to idLoaded.
 				let id;
-				const urlToMatch = action.url.split("?")[0]!.split("#")[0]!;
+				const urlToMatch = stripBasePath(
+					action.url.split("?")[0]!.split("#")[0]!,
+				);
 				for (const route of this.routes) {
 					const m = route.regex.exec(urlToMatch);
 
