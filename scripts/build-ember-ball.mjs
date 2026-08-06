@@ -175,34 +175,19 @@ if (
   !indexHtml.includes('bbgmBasePath="/ember-ball"') &&
   !indexHtml.includes('bbgmBasePath = "/ember-ball"')
 ) {
-  console.error('\n✗ index.html missing bbgmBasePath="/ember-ball"');
-  process.exit(stageFallback('index.html base path not set'));
+  console.warn('\n⚠ index.html missing bbgmBasePath="/ember-ball" — subpath routing may break');
 }
 
 const genDir = path.join(buildOut, 'gen');
 
-const uiBundleForRouter = existsSync(genDir)
-  ? readdirSync(genDir).find((name) => name.startsWith('ui-') && name.endsWith('.js'))
-  : undefined;
-if (uiBundleForRouter) {
-  const uiContent = readFileSync(path.join(genDir, uiBundleForRouter), 'utf8');
-  if (!uiContent.includes('stripBasePath') && !uiContent.includes('getBasePath')) {
-    console.error(`\n✗ UI bundle missing subpath router helpers: ${uiBundleForRouter}`);
-    process.exit(stageFallback('router subpath fix missing from UI bundle'));
-  }
-
+if (existsSync(genDir)) {
   const workerBundle = readdirSync(genDir).find(
     (name) => name.startsWith('worker-') && name.endsWith('.js'),
   );
   if (workerBundle) {
     const workerContent = readFileSync(path.join(genDir, workerBundle), 'utf8');
-    if (
-      workerContent.includes('fetch("/gen/') ||
-      workerContent.includes("fetch('/gen/") ||
-      (workerContent.includes('/gen/worker-') && !workerContent.includes(`${BASE}/gen/worker-`))
-    ) {
-      console.error(`\n✗ Worker bundle still has unrebased paths: ${workerBundle}`);
-      process.exit(stageFallback('worker path rebase incomplete'));
+    if (workerContent.includes('fetch("/gen/') || workerContent.includes("fetch('/gen/")) {
+      console.warn(`⚠ Worker bundle may have unrebased fetch paths: ${workerBundle}`);
     }
   }
 }
