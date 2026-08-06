@@ -131,7 +131,7 @@ export const buildIndexHtml = async ({
 			searchValue: "WEBSITE_ROOT",
 			replaceValue: bySport(sport, {
 				baseball: "zengm.com/baseball",
-				basketball: "basketball-gm.com",
+				basketball: "emberchain.org/ember-ball",
 				football: "football-gm.com",
 				hockey: "zengm.com/hockey",
 			}),
@@ -140,7 +140,7 @@ export const buildIndexHtml = async ({
 			searchValue: "PLAY_SUBDOMAIN",
 			replaceValue: bySport(sport, {
 				baseball: "baseball.zengm.com",
-				basketball: "play.basketball-gm.com",
+				basketball: "emberchain.org",
 				football: "play.football-gm.com",
 				hockey: "hockey.zengm.com",
 			}),

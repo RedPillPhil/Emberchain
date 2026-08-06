@@ -4,7 +4,7 @@
 		<meta charset="utf-8" />
 		<title>GAME_NAME</title>
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<meta name="theme-color" content="#0a1628" />
+		<meta name="theme-color" content="#0c0c0e" />
 		<meta name="format-detection" content="telephone=no" />
 		<meta name="color-scheme" content="light dark" />
 
@@ -16,8 +16,95 @@
 		/>
 
 		<link rel="manifest" href="/manifest.webmanifest" />
-		<link rel="icon" href="/ico/icon.svg" />
-		<link rel="apple-touch-icon" href="/ico/apple-touch-icon.png" />
+		<link rel="icon" href="/img/ember-ball-logo.png" />
+		<link rel="apple-touch-icon" href="/img/ember-ball-logo.png" />
+
+		<style>
+			:root {
+				color-scheme: dark;
+				--embr-bg: #0c0c0e;
+				--embr-fg: #f4f4f5;
+				--embr-muted: #9a9aa3;
+				--embr-orange: #ff5a00;
+				--embr-heat: #ffb020;
+				--embr-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+				--embr-body: "Barlow", "Segoe UI", sans-serif;
+			}
+			html,
+			body {
+				background: var(--embr-bg);
+				color: var(--embr-fg);
+				font-family: var(--embr-body);
+			}
+			body {
+				padding-top: 0 !important;
+			}
+			#content {
+				min-height: 100vh;
+				justify-content: center;
+			}
+			.ember-startup-wrap {
+				max-width: 420px;
+				margin: 0 auto;
+				padding: 2.5rem 1.25rem 3rem;
+				text-align: center;
+			}
+			.ember-startup-logo {
+				width: 88px;
+				height: 88px;
+				object-fit: contain;
+				margin: 0 auto 1.25rem;
+				display: block;
+				filter: drop-shadow(0 0 24px rgba(255, 90, 0, 0.35));
+				animation: ember-startup-pulse 2.2s ease-in-out infinite;
+			}
+			@keyframes ember-startup-pulse {
+				0%,
+				100% {
+					transform: scale(1);
+					opacity: 1;
+				}
+				50% {
+					transform: scale(1.04);
+					opacity: 0.92;
+				}
+			}
+			.ember-startup-title {
+				font-family: var(--embr-display);
+				font-size: 1.65rem;
+				font-weight: 800;
+				text-transform: uppercase;
+				letter-spacing: 0.08em;
+				margin: 0 0 0.35rem;
+				background: linear-gradient(90deg, var(--embr-heat), var(--embr-orange));
+				-webkit-background-clip: text;
+				background-clip: text;
+				color: transparent;
+			}
+			.ember-startup-version {
+				font-size: 0.72rem;
+				letter-spacing: 0.14em;
+				text-transform: uppercase;
+				color: var(--embr-muted);
+				margin: 0 0 1.75rem;
+			}
+			.ember-startup-status {
+				text-align: left;
+				border: 1px solid rgba(255, 255, 255, 0.08);
+				background: rgba(20, 20, 22, 0.92);
+				padding: 1rem 1.1rem;
+				font-size: 0.92rem;
+				line-height: 1.7;
+				color: var(--embr-muted);
+			}
+			.ember-startup-status strong {
+				color: var(--embr-orange);
+				font-weight: 700;
+			}
+			#startup-error {
+				text-align: left;
+			}
+		</style>
 
 		<meta
 			name="description"
@@ -27,10 +114,15 @@
 		MODULEPRELOADS
 
 		<script>
+			window.bbgmBasePath = "";
 			window.bbgmVersion = "VERSION_NUMBER";
 			window.useSharedWorker = typeof SharedWorker !== "undefined";
 
 			window.mobile = window.screen.width < 768 || window.screen.height < 768;
+
+			function asset(path) {
+				return window.bbgmBasePath + path;
+			}
 
 			function loadCSS(filename) {
 				var el = document.createElement("link");
@@ -58,9 +150,9 @@
 				document.documentElement.style.colorScheme = theme;
 
 				if (theme === "dark") {
-					return "/gen/dark-CSS_HASH_DARK.css";
+					return asset("/gen/dark-CSS_HASH_DARK.css");
 				}
-				return "/gen/light-CSS_HASH_LIGHT.css";
+				return asset("/gen/light-CSS_HASH_LIGHT.css");
 			}
 			window.themeCSSLink = loadCSS(getThemeFilename(getTheme()));
 
@@ -108,23 +200,20 @@
 		BANNER_ADS_CODE
 	</head>
 
-	<body class="h-100" style="padding-top: 52px">
+	<body class="h-100">
 		<div id="content" class="h-100 d-flex flex-column">
-			<div style="margin: 0 15px">
-				<div style="max-width: 360px; margin: 0 auto">
-					<div style="text-align: center; margin: 48px 0 100px 0">
-						<img
-							id="loading-icon"
-							src="/ico/icon.svg"
-							width="48"
-							height="48"
-							class="spin"
-							style="animation-play-state: runnung"
-							alt=""
-						/>
-					</div>
-
-					<p>GAME_NAME vVERSION_NUMBER</p>
+			<div class="ember-startup-wrap">
+				<img
+					id="loading-icon"
+					class="ember-startup-logo"
+					src="/img/ember-ball-logo.png"
+					width="88"
+					height="88"
+					alt="Ember Ball"
+				/>
+				<h1 class="ember-startup-title">Ember Ball</h1>
+				<p class="ember-startup-version">GAME_NAME · vVERSION_NUMBER</p>
+				<div class="ember-startup-status">
 					<div id="startup-browser">Checking browser...</div>
 					<noscript>
 						<p>
@@ -134,13 +223,13 @@
 					</noscript>
 					<div id="startup-ui"></div>
 					<div id="startup-worker"></div>
-
-					<div
-						class="alert alert-danger mt-3"
-						id="startup-error"
-						style="display: none"
-					></div>
 				</div>
+
+				<div
+					class="alert alert-danger mt-3"
+					id="startup-error"
+					style="display: none"
+				></div>
 			</div>
 		</div>
 
@@ -174,7 +263,7 @@
 				var body = document.getElementsByTagName("body").item(0);
 				var script = document.createElement("script");
 				script.type = "module"; // Needs to be module for modulepreload
-				script.src = "/gen/ui-" + bbgmVersion + ".js";
+				script.src = asset("/gen/ui-" + bbgmVersion + ".js");
 				body.appendChild(script);
 			}
 

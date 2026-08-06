@@ -36,17 +36,38 @@ function rebaseBuildPaths(dir) {
   const prefixes = ['/gen/', '/ico/', '/img/', '/files/', '/manifest.webmanifest', '/sw.js'];
   const exts = new Set(['.html', '.js', '.css', '.json', '.webmanifest', '.map']);
 
+  /** @param {string} content */
+  const rebaseContent = (content) => {
+    let next = content.replace('window.bbgmBasePath = ""', `window.bbgmBasePath = "${BASE}"`);
+    for (const prefix of prefixes) {
+      const rebased = `${BASE}${prefix}`;
+      let i = 0;
+      let out = '';
+      while (i < next.length) {
+        const idx = next.indexOf(prefix, i);
+        if (idx === -1) {
+          out += next.slice(i);
+          break;
+        }
+        const before = next.slice(Math.max(0, idx - BASE.length), idx);
+        if (before === BASE) {
+          out += next.slice(i, idx + prefix.length);
+        } else {
+          out += next.slice(i, idx) + rebased;
+        }
+        i = idx + prefix.length;
+      }
+      next = out;
+    }
+    return next;
+  };
+
   /** @param {string} filePath */
   const rewriteFile = (filePath) => {
     const ext = path.extname(filePath);
     if (!exts.has(ext) && !filePath.endsWith('sw.js')) return;
-    let src = readFileSync(filePath, 'utf8');
-    let next = src;
-    for (const prefix of prefixes) {
-      const rebased = `${BASE}${prefix}`;
-      next = next.split(`"${prefix}`).join(`"${rebased}`);
-      next = next.split(`'${prefix}`).join(`'${rebased}`);
-    }
+    const src = readFileSync(filePath, 'utf8');
+    const next = rebaseContent(src);
     if (next !== src) writeFileSync(filePath, next);
   };
 
