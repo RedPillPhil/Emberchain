@@ -62,12 +62,16 @@ fi
 if [[ -f "${REPO_ROOT}/artifacts/wallet/dist/public/ember-ball/index.html" ]]; then
   echo "  ✓ Ember Ball staged ($(wc -c < "${REPO_ROOT}/artifacts/wallet/dist/public/ember-ball/index.html") bytes index.html)"
 else
-  echo "  ⚠ Ember Ball not staged — /ember-ball/ will 404 until build succeeds"
+  echo "  ⚠ Ember Ball missing — copying fallback placeholder"
+  mkdir -p "${REPO_ROOT}/artifacts/wallet/dist/public/ember-ball"
+  cp "${REPO_ROOT}/artifacts/ember-ball/fallback/index.html" \
+    "${REPO_ROOT}/artifacts/wallet/dist/public/ember-ball/index.html"
 fi
 
 echo "→ publish to ${WEB_ROOT}"
 mkdir -p "$WEB_ROOT"
 rsync -a --delete "${REPO_ROOT}/artifacts/wallet/dist/public/" "$WEB_ROOT/"
+chmod -R a+rX "$WEB_ROOT"
 chown -R www-data:www-data "$WEB_ROOT" 2>/dev/null || true
 
 if [[ -f "${REPO_ROOT}/scripts/deploy-vm/nginx-emberchain.conf" ]]; then

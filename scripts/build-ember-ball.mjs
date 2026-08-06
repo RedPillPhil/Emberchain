@@ -1,4 +1,13 @@
-import { cpSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -6,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const emberBallRoot = path.join(root, 'artifacts/ember-ball');
 const buildOut = path.join(emberBallRoot, 'build');
+const fallbackSrc = path.join(emberBallRoot, 'fallback');
 const stageDest = path.join(root, 'artifacts/wallet/dist/public/ember-ball');
 const BASE = '/ember-ball';
 
@@ -18,10 +28,7 @@ function run(label, command, cwd, env = {}) {
     shell: true,
     env: { ...process.env, ...env },
   });
-  if (result.status !== 0) {
-    console.error(`\n✗ ${label} failed (exit ${result.status ?? 1})`);
-    process.exit(result.status ?? 1);
-  }
+  return result.status ?? 1;
 }
 
 /** Rewrite absolute asset paths for subpath hosting. */
@@ -56,19 +63,51 @@ function rebaseBuildPaths(dir) {
   walk(dir);
 }
 
+function stageToWalletDist(sourceDir) {
+  if (!existsSync(path.join(root, 'artifacts/wallet/dist/public'))) {
+    console.warn('Wallet dist not found yet — skipping Ember Ball staging.');
+    return false;
+  }
+  if (existsSync(stageDest)) {
+    rmSync(stageDest, { recursive: true, force: true });
+  }
+  mkdirSync(path.dirname(stageDest), { recursive: true });
+  cpSync(sourceDir, stageDest, { recursive: true });
+  console.log('\n✓ Ember Ball staged at', stageDest);
+  return true;
+}
+
+function stageFallback(reason) {
+  console.warn(`\n⚠ Ember Ball fallback: ${reason}`);
+  if (!existsSync(path.join(fallbackSrc, 'index.html'))) {
+    console.error('Missing artifacts/ember-ball/fallback/index.html');
+    return 1;
+  }
+  stageToWalletDist(fallbackSrc);
+  return 0;
+}
+
 console.log('=== Ember Ball build ===');
 
 if (!existsSync(emberBallRoot)) {
-  console.error('Missing artifacts/ember-ball — import the ZenGM Ember Ball project first.');
-  process.exit(1);
+  console.error('Missing artifacts/ember-ball');
+  process.exit(stageFallback('artifact directory not found'));
 }
 
 const nodeModules = path.join(emberBallRoot, 'node_modules');
 if (!existsSync(nodeModules)) {
-  run('Install Ember Ball deps', 'pnpm install --config.confirmModulesPurge=false', emberBallRoot, {
-    CI: 'true',
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
-  });
+  const installStatus = run(
+    'Install Ember Ball deps',
+    'pnpm install --config.confirmModulesPurge=false',
+    emberBallRoot,
+    {
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
+      npm_config_production: 'false',
+    },
+  );
+  if (installStatus !== 0) {
+    process.exit(stageFallback('pnpm install failed'));
+  }
 } else {
   console.log('\n▶ Ember Ball node_modules present — skipping install');
 }
@@ -80,41 +119,40 @@ if (existsSync(buildOut) && process.env.EMBER_BALL_USE_EXISTING_BUILD === '1') {
     rmSync(buildOut, { recursive: true, force: true });
   }
 
-  run('Build Ember Ball (basketball)', 'pnpm run build', emberBallRoot, {
+  const buildStatus = run('Build Ember Ball (basketball)', 'pnpm run build', emberBallRoot, {
     SPORT: 'basketball',
-    CI: 'true',
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
+    npm_config_production: 'false',
   });
+  if (buildStatus !== 0) {
+    process.exit(stageFallback('pnpm run build failed'));
+  }
 }
 
 if (!existsSync(path.join(buildOut, 'index.html'))) {
-  console.error('Ember Ball build output missing index.html:', buildOut);
-  process.exit(1);
+  process.exit(stageFallback('build/index.html missing'));
 }
 
 console.log('\n▶ Rebase asset paths to', BASE);
 rebaseBuildPaths(buildOut);
 
-if (!existsSync(path.join(root, 'artifacts/wallet/dist/public'))) {
-  console.warn('Wallet dist not found yet — skipping Ember Ball staging (run wallet build first).');
+if (!stageToWalletDist(buildOut)) {
   process.exit(0);
 }
 
-if (existsSync(stageDest)) {
-  rmSync(stageDest, { recursive: true, force: true });
-}
+const genDir = path.join(stageDest, 'gen');
+if (existsSync(genDir)) {
+  const uiBundle = readdirSync(genDir)
+    .filter((name) => name === 'ui.js' || (name.startsWith('ui') && name.endsWith('.js')))
+    .map((name) => path.join(genDir, name))
+    .find((filePath) => existsSync(filePath));
 
-cpSync(buildOut, stageDest, { recursive: true });
-
-const uiBundle = readdirSync(path.join(stageDest, 'gen'))
-  .filter((name) => name === 'ui.js' || (name.startsWith('ui') && name.endsWith('.js')))
-  .map((name) => path.join(stageDest, 'gen', name))
-  .find((filePath) => existsSync(filePath));
-
-if (uiBundle) {
-  const bundle = readFileSync(uiBundle, 'utf8');
-  if (!bundle.includes('Ember Ball') && !bundle.includes('ember-ball')) {
-    console.warn('⚠ Ember Ball bundle may be stale — verify branding in', uiBundle);
+  if (uiBundle) {
+    const bundle = readFileSync(uiBundle, 'utf8');
+    if (!bundle.includes('Ember Ball') && !bundle.includes('ember-ball')) {
+      console.warn('⚠ Ember Ball bundle may be stale — verify branding in', uiBundle);
+    }
   }
 }
 
-console.log('\n✓ Ember Ball staged at', stageDest);
+process.exit(0);
