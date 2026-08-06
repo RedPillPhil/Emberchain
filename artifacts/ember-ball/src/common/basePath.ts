@@ -25,7 +25,14 @@ export const getBasePath = (): string => {
 
 export const assetPath = (path: string): string => {
 	const base = getBasePath();
-	return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+	const normalized = path.startsWith("/") ? path : `/${path}`;
+	if (!base) {
+		return normalized;
+	}
+	if (normalized === base || normalized.startsWith(`${base}/`)) {
+		return normalized;
+	}
+	return `${base}${normalized}`;
 };
 
 /** Strip subpath prefix before route matching (e.g. /ember-ball/l/1 → /l/1). */

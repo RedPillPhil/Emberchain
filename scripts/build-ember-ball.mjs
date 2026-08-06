@@ -79,6 +79,12 @@ function rebaseBuildPaths(dir) {
       return;
     }
 
+    // UI bundles resolve paths at runtime via assetPath() — rebasing breaks them.
+    const name = path.basename(filePath);
+    if (name.startsWith('ui-') || name.startsWith('ui-chunk-')) {
+      return;
+    }
+
     const next = rebaseContent(src);
     if (next !== src) writeFileSync(filePath, next);
   };

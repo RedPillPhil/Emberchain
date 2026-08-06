@@ -121,18 +121,29 @@
 			window.mobile = window.screen.width < 768 || window.screen.height < 768;
 
 			function asset(path) {
+				if (
+					path.indexOf(window.bbgmBasePath + "/") === 0 ||
+					path === window.bbgmBasePath
+				) {
+					return path;
+				}
 				return window.bbgmBasePath + path;
 			}
 
 			(function () {
 				var NativeWorker = Worker;
 				Worker = function (url, options) {
-					if (
-						typeof url === "string" &&
-						url.indexOf("/gen/") === 0 &&
-						url.indexOf(window.bbgmBasePath + "/") !== 0
-					) {
-						url = window.bbgmBasePath + url;
+					if (typeof url === "string") {
+						var doubled =
+							window.bbgmBasePath + "/" + window.bbgmBasePath + "/";
+						if (url.indexOf(doubled) === 0) {
+							url = url.slice(window.bbgmBasePath.length);
+						} else if (
+							url.indexOf("/gen/") === 0 &&
+							url.indexOf(window.bbgmBasePath + "/") !== 0
+						) {
+							url = window.bbgmBasePath + url;
+						}
 					}
 					return new NativeWorker(url, options);
 				};
