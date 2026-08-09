@@ -26,7 +26,7 @@ function describeBridge(row: PendingBridge): { title: string; body: string } {
 }
 
 /** Poll for pending bridges and fire browser notifications when admin alerts are enabled. */
-export function useBridgeNotifications(active: boolean) {
+export function useBridgeNotifications(active: boolean, operatorPrivateKey?: string) {
   const [enabled, setEnabled] = useState(getBridgeNotifyEnabled);
   const seenRef = useRef(loadSeenBridgeKeys());
   const primedRef = useRef(false);
@@ -34,7 +34,7 @@ export function useBridgeNotifications(active: boolean) {
   const poll = useCallback(async () => {
     if (!active || !enabled) return;
     try {
-      const pending = (await fetchPendingBridges()).filter((r) => !r.completed);
+      const pending = (await fetchPendingBridges(1_000_000, operatorPrivateKey)).filter((r) => !r.completed);
       const seen = seenRef.current;
 
       if (!primedRef.current) {
@@ -55,7 +55,7 @@ export function useBridgeNotifications(active: boolean) {
     } catch {
       /* silent — will retry */
     }
-  }, [active, enabled]);
+  }, [active, enabled, operatorPrivateKey]);
 
   useEffect(() => {
     if (!active || !enabled) return;

@@ -10,6 +10,7 @@ import {
   EMBERCHAIN_BRIDGE_ADDRESS,
 } from "@/lib/bridge-contracts";
 import { getBaseBlockTimestamp, isBridgeLegComplete, isNonceAlreadyUsedError, isNonceUsedOnBase, isNonceUsedOnEmbr } from "@/lib/bridge-read";
+import { chainNodeOperatorFetch } from "@/lib/operator-admin-api";
 
 export interface EmbrToBasePending {
   direction: "embr_to_base";
@@ -100,13 +101,13 @@ async function fetchRelayedKeys(): Promise<Set<string>> {
 /** Tell chain-node this bridge was handled — never show in admin again. */
 export async function markBridgeRelayedOnServer(
   item: PendingBridge,
+  operatorPrivateKey: string,
   txHashDst?: string,
 ): Promise<void> {
   markBridgeDismissedLocally(item);
   try {
-    const res = await fetch(chainNodeApi("/api/bridge/mark-relayed"), {
+    const res = await chainNodeOperatorFetch(operatorPrivateKey, "/api/bridge/mark-relayed", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         direction: item.direction,
         nonce: item.nonce,
@@ -509,26 +510,31 @@ function mapAdminPendingRow(row: AdminPendingRow, relayed: Set<string>): Pending
   };
 }
 
-export async function fetchPendingBridges(lookbackBlocks = 1_000_000): Promise<PendingBridge[]> {
+export async function fetchPendingBridges(
+  lookbackBlocks = 1_000_000,
+  operatorPrivateKey?: string,
+): Promise<PendingBridge[]> {
   const relayed = await fetchRelayedKeys();
 
-  try {
-    const res = await fetch(chainNodeApi("/api/bridge/admin-pending"), {
-      headers: { Accept: "application/json" },
-    });
-    if (res.ok) {
-      const ct = res.headers.get("content-type") ?? "";
-      if (ct.includes("application/json")) {
-        const rows = (await res.json()) as AdminPendingRow[];
-        if (Array.isArray(rows)) {
-          return rows
-            .map((r) => mapAdminPendingRow(r, relayed))
-            .filter((r): r is PendingBridge => r !== null);
+  if (operatorPrivateKey) {
+    try {
+      const res = await chainNodeOperatorFetch(operatorPrivateKey, "/api/bridge/admin-pending", {
+        headers: { Accept: "application/json" },
+      });
+      if (res.ok) {
+        const ct = res.headers.get("content-type") ?? "";
+        if (ct.includes("application/json")) {
+          const rows = (await res.json()) as AdminPendingRow[];
+          if (Array.isArray(rows)) {
+            return rows
+              .map((r) => mapAdminPendingRow(r, relayed))
+              .filter((r): r is PendingBridge => r !== null);
+          }
         }
       }
+    } catch {
+      /* fall back to client scan */
     }
-  } catch {
-    /* fall back to client scan */
   }
 
   const [embrLocks, baseOuts] = await Promise.all([

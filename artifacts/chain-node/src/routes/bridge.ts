@@ -19,6 +19,7 @@ import {
 import { resolveBridgeStatus, reconcileAllPendingBridges } from "../lib/bridge-reconcile";
 import { fetchBaseBridgeOutByTxHash } from "../lib/base-bridge-scan";
 import { listAdminPendingBridges } from "../lib/bridge-admin-scan";
+import { requireOperator } from "../lib/operator-auth";
 
 const router: IRouter = Router();
 
@@ -47,7 +48,7 @@ async function loadBridgeTransaction(hash: string) {
   };
 }
 
-router.post("/bridge/reconcile", async (_req: Request, res: Response): Promise<void> => {
+router.post("/bridge/reconcile", requireOperator, async (_req: Request, res: Response): Promise<void> => {
   try {
     const failed = await reconcileAllPendingBridges();
     res.json({ ok: true, markedFailed: failed });
@@ -267,7 +268,7 @@ router.get("/bridge/relayed-keys", async (_req: Request, res: Response): Promise
   }
 });
 
-router.get("/bridge/admin-pending", async (_req: Request, res: Response): Promise<void> => {
+router.get("/bridge/admin-pending", requireOperator, async (_req: Request, res: Response): Promise<void> => {
   try {
     res.json(await listAdminPendingBridges());
   } catch (err) {
@@ -276,7 +277,7 @@ router.get("/bridge/admin-pending", async (_req: Request, res: Response): Promis
   }
 });
 
-router.post("/bridge/mark-relayed", async (req: Request, res: Response): Promise<void> => {
+router.post("/bridge/mark-relayed", requireOperator, async (req: Request, res: Response): Promise<void> => {
   try {
     const body = req.body as {
       direction?: BridgeDirection;

@@ -210,7 +210,7 @@ function BridgeTab({
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const all = await fetchPendingBridges();
+      const all = await fetchPendingBridges(1_000_000, privateKey);
       setRows(all.filter((r) => !r.completed));
     } catch (err) {
       toast({
@@ -244,7 +244,7 @@ function BridgeTab({
           : await completeBaseToEmbr(privateKey, row);
 
       const destTxHash = hash !== "already_completed" ? hash : undefined;
-      await markBridgeRelayedOnServer(row, destTxHash);
+      await markBridgeRelayedOnServer(row, privateKey, destTxHash);
       removeRow(row);
 
       if (hash === "already_completed") {
@@ -1005,7 +1005,10 @@ function ExchangeTab() {
 
 export default function AdminPage() {
   const { session, isLoaded, login, logout } = useRelayerAuth();
-  const { enabled: notifyEnabled, setEnabled: setNotifyEnabled } = useBridgeNotifications(!!session);
+  const { enabled: notifyEnabled, setEnabled: setNotifyEnabled } = useBridgeNotifications(
+    !!session,
+    session?.privateKey,
+  );
 
   if (!isLoaded) {
     return (

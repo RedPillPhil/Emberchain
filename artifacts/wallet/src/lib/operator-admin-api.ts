@@ -1,5 +1,5 @@
 import { Wallet } from "ethers";
-import { resolveApiServer } from "@/lib/config";
+import { chainNodeApi, resolveApiServer } from "@/lib/config";
 
 function normalizeKey(key: string): string {
   const trimmed = key.trim();
@@ -33,4 +33,20 @@ export async function operatorAdminFetch(
   }
   const p = path.startsWith("/") ? path : `/${path}`;
   return fetch(`${base}${p}`, { ...init, headers });
+}
+
+/** Signed fetch to chain-node (bridge admin routes on self-hosted nginx). */
+export async function chainNodeOperatorFetch(
+  privateKey: string,
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const auth = await operatorAdminHeaders(privateKey);
+  const headers = new Headers(init.headers);
+  for (const [k, v] of Object.entries(auth)) headers.set(k, v);
+  if (init.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return fetch(chainNodeApi(p), { ...init, headers });
 }
