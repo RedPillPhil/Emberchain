@@ -135,7 +135,7 @@ async function isBridgeCompleted(
   if (isBridgeDismissed(direction, nonce, txHash ?? "", relayed)) return true;
   // EMBR usedNonces is shared by lockEMBR + releaseEMBR — only Base nonce is reliable for EMBR→Base.
   if (direction === "embr_to_base") return isNonceUsedOnBase(nonce);
-  return false;
+  return isBridgeLegComplete("base_to_embr", nonce);
 }
 
 const embrBridgeIface = new Interface([...EMBR_BRIDGE_ABI]);

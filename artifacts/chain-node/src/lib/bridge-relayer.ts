@@ -8,20 +8,27 @@ import { chain } from "./chain";
 import { logger } from "./logger";
 import {
   createBridgeEvent,
+  getBridgeEventByNonce,
   listPendingByDirection,
   markBridgeFailed,
   markBridgeRelayed,
+  recordBridgeAttempt,
+  setBridgeTxHashDst,
   type BridgeEvent,
 } from "./bridge-store";
 
 const EMBER_BRIDGE_ABI = [
   "function releaseEMBR(address recipient, uint256 amount, uint256 nonce) external",
+  "function usedNonces(uint256 nonce) view returns (bool)",
 ];
 
 const EMBERCHAIN_BRIDGE_ABI = [
   "event BridgeOut(address indexed sender, string embrRecipient, uint256 amount, uint256 indexed nonce)",
   "function bridgeIn(address recipient, uint256 amount, uint256 nonce) external",
 ];
+
+/** Prevent concurrent relay attempts for the same bridge nonce in this process. */
+const relayingNonces = new Set<string>();
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -58,15 +65,54 @@ async function withRetry<T>(
   throw last;
 }
 
-/**
- * The Base bridge rejects a nonce it has already released.  That is a permanent
- * outcome, not a transient failure: the recipient has their funds and no retry
- * can ever succeed, so the event must leave the pending list instead of being
- * re-attempted every loop forever.
- */
 function isNonceAlreadyUsed(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return msg.includes("nonce already used");
+}
+
+function isReleaseEmbrPermanent(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    isNonceAlreadyUsed(err)
+    || msg.includes("insufficient escrow")
+    || msg.includes("caller is not the relayer")
+    || msg.includes("zero recipient")
+    || msg.includes("zero amount")
+    || msg.includes("transfer failed")
+  );
+}
+
+type TxWaitResult =
+  | { kind: "success" }
+  | { kind: "failed"; error: string }
+  | { kind: "pending" };
+
+/** Poll one tx until mined, failed, or deadline — never submits a replacement. */
+async function waitForMinedTx(hash: string, timeoutMs = 600_000): Promise<TxWaitResult> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const tx = await chain.getTransaction(hash);
+    if (tx && tx.status !== "pending") {
+      if (tx.status === "success") return { kind: "success" };
+      return { kind: "failed", error: tx.error ?? "transaction failed" };
+    }
+    await sleep(2_000);
+  }
+  return { kind: "pending" };
+}
+
+async function isBridgeNonceReleasedOnChain(
+  embrProvider: JsonRpcProvider,
+  emberBridgeAddress: string,
+  nonce: string,
+): Promise<boolean> {
+  try {
+    const contract = new Contract(emberBridgeAddress, EMBER_BRIDGE_ABI, embrProvider);
+    return Boolean(await contract.usedNonces(BigInt(nonce)));
+  } catch (err) {
+    logger.warn({ nonce, err: (err as Error).message }, "[bridge-relayer] usedNonces check failed");
+    return false;
+  }
 }
 
 async function runEmbrToBaseLoop(
@@ -113,8 +159,6 @@ async function runEmbrToBaseLoop(
         logger.info({ nonce: event.nonce, txHash }, "[bridge-relayer] EMBR→Base relayed");
       } catch (err) {
         if (isNonceAlreadyUsed(err)) {
-          // Released on Base already — we just don't know which tx did it, so
-          // record it relayed without a destination hash rather than retrying.
           await markBridgeRelayed(event.nonce, "embr_to_base");
           logger.warn(
             { nonce: event.nonce },
@@ -133,15 +177,55 @@ async function relayBaseToEmbr(
   event: BridgeEvent,
   emberBridgeAddress: string,
   relayerKey: string,
+  embrProvider: JsonRpcProvider,
 ): Promise<void> {
-  const iface = new Interface(EMBER_BRIDGE_ABI);
-  const calldata = iface.encodeFunctionData("releaseEMBR", [
-    event.recipient,
-    BigInt(event.amount),
-    BigInt(event.nonce),
-  ]);
+  if (relayingNonces.has(event.nonce)) return;
+  relayingNonces.add(event.nonce);
 
-  const txHash = await withRetry(`releaseEMBR(${event.nonce})`, async () => {
+  try {
+    const fresh = await getBridgeEventByNonce(event.nonce, "base_to_embr");
+    if (!fresh || fresh.status !== "pending") return;
+
+    if (await isBridgeNonceReleasedOnChain(embrProvider, emberBridgeAddress, fresh.nonce)) {
+      await markBridgeRelayed(fresh.nonce, "base_to_embr");
+      logger.info({ nonce: fresh.nonce }, "[bridge-relayer] nonce already released on EMBR — marking relayed");
+      return;
+    }
+
+    const iface = new Interface(EMBER_BRIDGE_ABI);
+    const calldata = iface.encodeFunctionData("releaseEMBR", [
+      fresh.recipient,
+      BigInt(fresh.amount),
+      BigInt(fresh.nonce),
+    ]);
+
+    let txHash = fresh.txHashDst;
+
+    if (txHash) {
+      const outcome = await waitForMinedTx(txHash, 120_000);
+      if (outcome.kind === "success") {
+        await markBridgeRelayed(fresh.nonce, "base_to_embr", txHash);
+        logger.info({ nonce: fresh.nonce, txHash }, "[bridge-relayer] Base→EMBR relayed (existing tx)");
+        return;
+      }
+      if (outcome.kind === "pending") {
+        logger.info({ nonce: fresh.nonce, txHash }, "[bridge-relayer] releaseEMBR still pending — waiting");
+        return;
+      }
+      const err = new Error(outcome.error);
+      if (isNonceAlreadyUsed(err)) {
+        await markBridgeRelayed(fresh.nonce, "base_to_embr", txHash);
+        logger.warn({ nonce: fresh.nonce, txHash }, "[bridge-relayer] releaseEMBR nonce already used — marking relayed");
+        return;
+      }
+      if (isReleaseEmbrPermanent(err)) {
+        await recordBridgeAttempt(fresh.nonce, "base_to_embr", outcome.error);
+        logger.error({ nonce: fresh.nonce, txHash, err: outcome.error }, "[bridge-relayer] releaseEMBR permanently failed");
+        return;
+      }
+      txHash = null;
+    }
+
     const stored = await chain.submitTransaction({
       fromPrivateKey: relayerKey,
       to: emberBridgeAddress,
@@ -149,24 +233,53 @@ async function relayBaseToEmbr(
       data: calldata,
       gasLimit: "300000",
     });
-    const deadline = Date.now() + 90_000;
-    while (Date.now() < deadline) {
-      const tx = await chain.getTransaction(stored.hash);
-      if (tx && tx.status !== "pending") {
-        if (tx.status === "failed") throw new Error(tx.error ?? "releaseEMBR failed");
-        return stored.hash;
-      }
-      await sleep(2_000);
-    }
-    throw new Error(`releaseEMBR tx ${stored.hash} not mined in 90s`);
-  });
+    txHash = stored.hash;
+    await setBridgeTxHashDst(fresh.nonce, "base_to_embr", txHash);
+    logger.info({ nonce: fresh.nonce, txHash }, "[bridge-relayer] releaseEMBR submitted");
 
-  await markBridgeRelayed(event.nonce, "base_to_embr", txHash);
-  logger.info({ nonce: event.nonce, txHash }, "[bridge-relayer] Base→EMBR relayed");
+    const outcome = await waitForMinedTx(txHash, 600_000);
+    if (outcome.kind === "success") {
+      await markBridgeRelayed(fresh.nonce, "base_to_embr", txHash);
+      logger.info({ nonce: fresh.nonce, txHash }, "[bridge-relayer] Base→EMBR relayed");
+      return;
+    }
+    if (outcome.kind === "pending") {
+      logger.info({ nonce: fresh.nonce, txHash }, "[bridge-relayer] releaseEMBR pending in mempool — will poll next loop");
+      return;
+    }
+
+    const err = new Error(outcome.error);
+    if (isNonceAlreadyUsed(err)) {
+      await markBridgeRelayed(fresh.nonce, "base_to_embr", txHash);
+      return;
+    }
+    if (isReleaseEmbrPermanent(err)) {
+      await recordBridgeAttempt(fresh.nonce, "base_to_embr", outcome.error);
+      logger.error({ nonce: fresh.nonce, txHash, err: outcome.error }, "[bridge-relayer] releaseEMBR permanently failed");
+      return;
+    }
+    await recordBridgeAttempt(fresh.nonce, "base_to_embr", outcome.error);
+    logger.warn({ nonce: fresh.nonce, txHash, err: outcome.error }, "[bridge-relayer] releaseEMBR failed — will retry");
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (isNonceAlreadyUsed(err)) {
+      await markBridgeRelayed(event.nonce, "base_to_embr");
+      return;
+    }
+    if (isReleaseEmbrPermanent(err)) {
+      await recordBridgeAttempt(event.nonce, "base_to_embr", msg);
+    } else {
+      await recordBridgeAttempt(event.nonce, "base_to_embr", msg);
+    }
+    logger.error({ nonce: event.nonce, err: msg }, "[bridge-relayer] Base→EMBR relay error");
+  } finally {
+    relayingNonces.delete(event.nonce);
+  }
 }
 
 async function runBaseToEmbrLoop(
   baseProvider: JsonRpcProvider,
+  embrProvider: JsonRpcProvider,
   emberchainBridgeAddress: string,
   emberBridgeAddress: string,
   relayerKey: string,
@@ -207,7 +320,8 @@ async function runBaseToEmbrLoop(
 
       const pending = await listPendingByDirection("base_to_embr");
       for (const event of pending) {
-        await relayBaseToEmbr(event, emberBridgeAddress, relayerKey);
+        if (stop.stopped) break;
+        await relayBaseToEmbr(event, emberBridgeAddress, relayerKey, embrProvider);
       }
     } catch (err) {
       logger.warn({ err: (err as Error).message }, "[bridge-relayer] Base→EMBR poll error");
@@ -235,6 +349,7 @@ export function startBridgeRelayer(): { stop: () => void } {
 
   const stop = { stopped: false };
   const baseProvider = new JsonRpcProvider(cfg.baseRpcUrl);
+  const embrProvider = new JsonRpcProvider(cfg.embrRpcUrl);
   const baseWallet = new Wallet(cfg.relayerKey, baseProvider);
 
   void runEmbrToBaseLoop(baseWallet, cfg.emberchainBridgeAddress, stop).catch((err) =>
@@ -243,6 +358,7 @@ export function startBridgeRelayer(): { stop: () => void } {
 
   void runBaseToEmbrLoop(
     baseProvider,
+    embrProvider,
     cfg.emberchainBridgeAddress,
     cfg.emberBridgeAddress,
     cfg.relayerKey,

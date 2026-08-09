@@ -3,14 +3,34 @@
  * Marks bridges failed when the lock tx failed or was orphaned (not in mempool).
  */
 
+import { Interface } from "ethers";
 import { chain } from "./chain";
 import {
   listPendingByDirection,
   markBridgeFailed,
+  markBridgeRelayed,
   type BridgeEvent,
   type BridgeStatus,
 } from "./bridge-store";
 import { logger } from "./logger";
+
+const EMBER_BRIDGE_ADDRESS = (
+  process.env.EMBER_BRIDGE_ADDRESS ?? "0x9362587019ea0e4ef90fbd981c615d4441d9d2c4"
+).toLowerCase();
+
+const embrBridgeIface = new Interface([
+  "function usedNonces(uint256 nonce) view returns (bool)",
+]);
+
+async function isEmbrBridgeNonceUsed(nonce: string): Promise<boolean> {
+  try {
+    const data = embrBridgeIface.encodeFunctionData("usedNonces", [BigInt(nonce)]);
+    const result = await chain.callContract({ to: EMBER_BRIDGE_ADDRESS, data });
+    return result.success && BigInt(result.returnData) !== 0n;
+  } catch {
+    return false;
+  }
+}
 
 export async function resolveBridgeStatus(event: BridgeEvent): Promise<BridgeStatus> {
   if (event.status !== "pending") return event.status;
@@ -37,6 +57,12 @@ export async function resolveBridgeStatus(event: BridgeEvent): Promise<BridgeSta
     }
   }
 
+  if (event.direction === "base_to_embr" && await isEmbrBridgeNonceUsed(event.nonce)) {
+    await markBridgeRelayed(event.nonce, event.direction);
+    event.status = "relayed";
+    return "relayed";
+  }
+
   return event.status;
 }
 
@@ -47,14 +73,14 @@ export async function reconcileAllPendingBridges(): Promise<number> {
     ...(await listPendingByDirection("embr_to_base")),
     ...(await listPendingByDirection("base_to_embr")),
   ];
-  let failed = 0;
+  let changed = 0;
   for (const event of pending) {
     const before = event.status;
     const after = await resolveBridgeStatus(event);
-    if (before === "pending" && after === "failed") failed++;
+    if (before === "pending" && after !== "pending") changed++;
   }
-  if (failed > 0) {
-    logger.info({ failed }, "[bridge-reconcile] marked orphaned/failed bridge events");
+  if (changed > 0) {
+    logger.info({ changed }, "[bridge-reconcile] reconciled pending bridge events");
   }
-  return failed;
+  return changed;
 }

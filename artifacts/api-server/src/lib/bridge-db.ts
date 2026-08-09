@@ -206,16 +206,30 @@ export async function getBridgeHistoryForAddress(address: string): Promise<Bridg
   }
 }
 
-/**
- * Mark a relay as successful.
- */
-export async function markBridgeRelayed(nonce: string, txHashDst: string): Promise<void> {
+/** Record an in-flight destination tx so the relayer does not submit duplicates. */
+export async function setBridgeTxHashDst(nonce: string, txHashDst: string): Promise<void> {
   try {
     await pool.query(
       `UPDATE bridge_events
-       SET status = 'relayed', tx_hash_dst = $2, error_msg = NULL, updated_at = NOW()
-       WHERE nonce = $1`,
+       SET tx_hash_dst = $2, updated_at = NOW()
+       WHERE nonce = $1 AND status = 'pending'`,
       [nonce, txHashDst],
+    );
+  } catch (err) {
+    console.error("[bridge-db] setBridgeTxHashDst error:", (err as Error).message);
+  }
+}
+
+/**
+ * Mark a relay as successful.
+ */
+export async function markBridgeRelayed(nonce: string, txHashDst?: string): Promise<void> {
+  try {
+    await pool.query(
+      `UPDATE bridge_events
+       SET status = 'relayed', tx_hash_dst = COALESCE($2, tx_hash_dst), error_msg = NULL, updated_at = NOW()
+       WHERE nonce = $1`,
+      [nonce, txHashDst ?? null],
     );
   } catch (err) {
     console.error("[bridge-db] markBridgeRelayed error:", (err as Error).message);

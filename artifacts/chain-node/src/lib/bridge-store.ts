@@ -183,6 +183,38 @@ export async function listPendingByDirection(direction: BridgeDirection): Promis
   }
 }
 
+/** Record an in-flight destination tx so the relayer does not submit duplicates. */
+export async function setBridgeTxHashDst(
+  nonce: string,
+  direction: BridgeDirection,
+  txHashDst: string,
+): Promise<void> {
+  const data = loadData();
+  const key = eventKey(direction, nonce);
+  const event = data.events[key];
+  if (!event || event.status !== "pending") return;
+  event.txHashDst = txHashDst;
+  event.updatedAt = new Date().toISOString();
+  scheduleSave();
+}
+
+export async function recordBridgeAttempt(
+  nonce: string,
+  direction: BridgeDirection,
+  errorMsg: string,
+  maxRetries = 5,
+): Promise<void> {
+  const data = loadData();
+  const key = eventKey(direction, nonce);
+  const event = data.events[key];
+  if (!event || event.status === "relayed") return;
+  event.retryCount += 1;
+  event.errorMsg = errorMsg;
+  if (event.retryCount >= maxRetries) event.status = "failed";
+  event.updatedAt = new Date().toISOString();
+  scheduleSave();
+}
+
 export async function markBridgeRelayed(
   nonce: string,
   direction: BridgeDirection,
