@@ -1,14 +1,16 @@
 import type { PlayerRatings } from "../../../common/types.basketball.ts";
+import { classicOvrToTwoK } from "../../../common/twoKScale.ts";
 
 /**
- * Calculates the overall rating by averaging together all the other ratings.
+ * Calculates the overall rating by averaging together all the other ratings,
+ * then remaps onto an NBA 2K-style 40–99 scale (elites land in the mid/high 90s).
  *
  * @memberOf core.player
  * @param {Object.<string, number>} ratings Player's ratings object.
- * @return {number} Overall rating.
+ * @return {number} Overall rating (2K-style).
  */
 const ovr = (ratings: PlayerRatings): number => {
-	// See analysis/player-ovr-basketball
+	// See analysis/player-ovr-basketball — classic linear blend (~0–100)
 	const r =
 		0.159 * (ratings.hgt - 47.5) +
 		0.0777 * (ratings.stre - 50.2) +
@@ -27,11 +29,7 @@ const ovr = (ratings: PlayerRatings): number => {
 		0.01 * (ratings.reb - 51.4) +
 		48.5;
 
-	// Fudge factor to keep ovr ratings the same as they used to be (back before 2018 ratings rescaling)
-	// +8 at 68
-	// +4 at 50
-	// -5 at 42
-	// -10 at 31
+	// Legacy fudge (pre-2K remap) keeps relative ordering of the classic scale
 	let fudgeFactor = 0;
 	if (r >= 68) {
 		fudgeFactor = 8;
@@ -45,16 +43,8 @@ const ovr = (ratings: PlayerRatings): number => {
 		fudgeFactor = -10;
 	}
 
-	const val = Math.round(r + fudgeFactor);
-
-	if (val > 100) {
-		return 100;
-	}
-	if (val < 0) {
-		return 0;
-	}
-
-	return val;
+	const classic = Math.round(r + fudgeFactor);
+	return classicOvrToTwoK(classic);
 };
 
 export default ovr;

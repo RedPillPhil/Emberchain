@@ -12,10 +12,13 @@
 		"url": "https://github.com/zengm-games/zengm.git"
 	},
 	"scripts": {
-		"build": "node tools/build/cli.ts",
+		"build": "cross-env UI_SHELL=desktop node tools/build/cli.ts",
 		"deploy": "node --run lint && node --run test && node tools/deploy.ts",
 		"deploy-all": "node --run lint && node --run test && node tools/deploy-all.ts",
-		"dev": "node tools/watch/cli.ts",
+		"dev": "cross-env UI_SHELL=desktop node tools/watch/cli.ts",
+		"desktop:web": "cross-env UI_SHELL=desktop node tools/watch/cli.ts",
+		"crypto:web": "cross-env UI_SHELL=desktop node tools/watch/cli.ts",
+		"crypto:claim-api": "node tools/crypto-claim-api.mjs",
 		"preview": "node tools/preview.ts",
 		"lint": "concurrently --raw \"node --run lint-js\" \"node --run lint-ts\"",
 		"lint-js": "node --run pre-test && eslint",
@@ -112,6 +115,7 @@
 		"cloudflare": "6.5.0",
 		"concurrently": "10.0.3",
 		"conditional-type-checks": "1.0.6",
+		"cross-env": "^10.1.0",
 		"eslint": "10.6.0",
 		"eslint-plugin-import-zod": "1.2.1",
 		"eslint-plugin-jsx-a11y": "6.10.2",

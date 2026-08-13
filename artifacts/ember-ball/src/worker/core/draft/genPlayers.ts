@@ -4,6 +4,11 @@ import genPlayersWithoutSaving from "./genPlayersWithoutSaving.ts";
 import { idb } from "../../db/index.ts";
 import { g, helpers, logEvent } from "../../util/index.ts";
 import { isSport } from "../../../common/sportFunctions.ts";
+import {
+	injectCollegeDraftProspects,
+	linkDeclaredCollegeProspects,
+	syncUndraftedOntoCollegeRosters,
+} from "../college/toDraftProspect.ts";
 
 const genPlayers = async (
 	draftYear: number,
@@ -42,10 +47,47 @@ const genPlayers = async (
 		}
 	}
 
+	// Seed the class with the best declaring players from our D1 universe
+	// before random filler tops the class off.
+	let seeded = existingPlayers;
+	if (isSport("basketball") && !forceScrubs) {
+		const collegeProspects = await injectCollegeDraftProspects(
+			draftYear,
+			existingPlayers.length,
+			250,
+		);
+		for (const p of collegeProspects) {
+			await idb.cache.players.add(p);
+			// @ts-expect-error pid assigned on add
+			await player.addRelatives(p);
+			await player.updateValues(p);
+		}
+		linkDeclaredCollegeProspects(
+			collegeProspects.map((p) => ({
+				// @ts-expect-error pid assigned on add
+				pid: p.pid,
+				collegePid: (p as any).collegePid,
+				collegeTid: (p as any).collegeTid,
+			})),
+		);
+		if (collegeProspects.length > 0) {
+			seeded = [
+				...existingPlayers,
+				...(await idb.cache.players.indexGetAll(
+					"playersByTid",
+					PLAYER.UNDRAFTED,
+				)).filter((p) => p.draft.year === draftYear),
+			];
+			// Deduplicate by pid
+			const byPid = new Map(seeded.map((p) => [p.pid, p]));
+			seeded = [...byPid.values()];
+		}
+	}
+
 	const players = await genPlayersWithoutSaving(
 		draftYear,
 		scoutingLevel,
-		existingPlayers,
+		seeded,
 		forceScrubs,
 	);
 
@@ -59,8 +101,19 @@ const genPlayers = async (
 		await player.updateValues(p);
 	}
 
-	// Easter eggs!
+	// Stamp every undrafted prospect in this class onto their D1 school roster
 	if (isSport("basketball") && !forceScrubs) {
+		const classPlayers = (
+			await idb.cache.players.indexGetAll("playersByTid", PLAYER.UNDRAFTED)
+		).filter((p) => p.draft.year === draftYear);
+		await syncUndraftedOntoCollegeRosters(classPlayers);
+		for (const p of classPlayers) {
+			await idb.cache.players.put(p);
+		}
+	}
+
+	// Easter eggs!
+	if (isSport("basketball") && !forceScrubs && g.get("easterEggPlayers")) {
 		if (Math.random() < 1 / 100000) {
 			const p = player.generate(
 				PLAYER.UNDRAFTED,

@@ -811,30 +811,44 @@ class Cache {
 			return;
 		}
 
-		const transaction = idb.league.transaction(stores, "readwrite");
+		const { withLeagueDb } = await import("./ensureLeagueDb.ts");
 
+		// Snapshot first so a reconnect/retry can't lose records if the first
+		// transaction dies mid-flight with "connection is closing".
+		const pendingDeletes: Record<string, Array<number | string>> = {};
+		const pendingPuts: Record<string, Array<number | string>> = {};
 		for (const store of stores) {
-			for (const id of this._deletes[store]) {
-				// This is synchronous to prevent any race condition
-				transaction.objectStore(store).delete(id);
-			}
+			pendingDeletes[store] = [...this._deletes[store]];
+			pendingPuts[store] = [...this._dirtyRecords[store]];
+		}
 
-			this._deletes[store].clear();
+		await withLeagueDb(async () => {
+			const transaction = idb.league.transaction(stores, "readwrite");
 
-			for (const id of this._dirtyRecords[store]) {
-				const record = this._data[store][id];
+			for (const store of stores) {
+				for (const id of pendingDeletes[store]!) {
+					transaction.objectStore(store).delete(id);
+				}
 
-				// If record was deleted after being marked as dirty, it will be undefined here
-				if (record !== undefined) {
-					// This is synchronous to prevent any race condition
-					transaction.objectStore(store).put(record);
+				for (const id of pendingPuts[store]!) {
+					const record = this._data[store][id];
+					if (record !== undefined) {
+						transaction.objectStore(store).put(record);
+					}
 				}
 			}
 
-			this._dirtyRecords[store].clear();
-		}
+			await transaction.done;
+		});
 
-		await transaction.done;
+		for (const store of stores) {
+			for (const id of pendingDeletes[store]!) {
+				this._deletes[store].delete(id);
+			}
+			for (const id of pendingPuts[store]!) {
+				this._dirtyRecords[store].delete(id);
+			}
+		}
 
 		if (this._dirty) {
 			this._dirty = false;

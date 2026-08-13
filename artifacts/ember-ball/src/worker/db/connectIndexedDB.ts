@@ -59,6 +59,8 @@ const connectIndexedDB = async <DBTypes>({
 			});
 		},
 		blocking() {
+			// Another connection wants a versionchange. Close so we don't block
+			// forever — callers must reconnect via ensureLeagueDb / SafeIdb.
 			db.close();
 		},
 		terminated() {
@@ -69,6 +71,13 @@ const connectIndexedDB = async <DBTypes>({
 				persistent: true,
 			});
 		},
+	});
+
+	// Chrome/Electron can force-close IDB mid long season sim (memory pressure).
+	// Flag the handle so flush/sim paths know to reopen instead of dying on
+	// "The database connection is closing".
+	db.addEventListener("close", () => {
+		(db as any).__courtDeskClosed = true;
 	});
 
 	const quotaErrorMessage = `browser isn't letting the game store any more data!<br><br>Try <a href="/">deleting some old leagues</a> or deleting old data (Tools > Delete Old Data within a league). Clearing space elsewhere on your hard drive might help too. <a href="https://${WEBSITE_ROOT}/manual/debugging/quota-errors/"><b>Read this for more info.</b></a>`;

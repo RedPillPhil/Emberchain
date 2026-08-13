@@ -10,6 +10,10 @@ import {
 import playThroughInjuriesFactor from "../../../common/playThroughInjuriesFactor.ts";
 import { bySport, isSport } from "../../../common/sportFunctions.ts";
 import { last } from "../../../common/utils.ts";
+import {
+	positionFitFactor,
+	SLOT_TO_POS,
+} from "../../../common/positionalFit.ts";
 
 const MAX_NUM_PLAYERS_PACE = 7;
 
@@ -271,6 +275,32 @@ export const processTeam = async (
 		}
 
 		if (isSport("basketball")) {
+			// Desktop lineup: user-assigned position affects performance. Playing
+			// a guy at his natural spot costs nothing; out of position, his
+			// composite ratings sag based on how badly his skill set fits.
+			const desktopLineup = (teamInput as any).desktopLineup;
+			if (
+				desktopLineup &&
+				g.get("userTids").includes(t.id) &&
+				!g.get("spectator")
+			) {
+				for (const slot of ["pg", "sg", "sf", "pf", "c"] as const) {
+					if (desktopLineup[slot] === p.pid) {
+						const factor = positionFitFactor(rating as any, slot);
+						for (const k of Object.keys(p2.compositeRating)) {
+							if (k !== "pace" && k !== "endurance") {
+								p2.compositeRating[k] *= factor;
+							}
+						}
+						// The bench logic ranks players by value, so a misfit
+						// gets treated like the lesser player he is out there
+						p2.valueNoPot *= factor;
+						p2.pos = SLOT_TO_POS[slot];
+						break;
+					}
+				}
+			}
+
 			p2.compositeRating.usage = p2.compositeRating.usage ** 1.9;
 		}
 		const seasonStatsKeys = bySport({

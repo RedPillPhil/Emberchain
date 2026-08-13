@@ -127,7 +127,13 @@ export const startServer = async ({
 
 		const { pathname } = new URL(req.url!, localUrl);
 
-		if (PREFIXES_STATIC.some((prefix) => pathname.startsWith(prefix))) {
+		if (
+			pathname === "/desktop.html" ||
+			pathname === "/crypto.html" ||
+			pathname === "/desktop.css"
+		) {
+			showStatic(pathname, res);
+		} else if (PREFIXES_STATIC.some((prefix) => pathname.startsWith(prefix))) {
 			showStatic(pathname, res);
 		} else {
 			showIndex(res);

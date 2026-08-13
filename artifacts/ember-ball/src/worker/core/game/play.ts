@@ -44,6 +44,7 @@ import {
 } from "../../util/recomputeLocalUITeamOvrs.ts";
 import { isSport } from "../../../common/sportFunctions.ts";
 import { last } from "../../../common/utils.ts";
+import { advanceCollegeWithPro } from "../college/index.ts";
 
 /**
  * Play one or more days of games.
@@ -295,6 +296,9 @@ const play = async (
 			if (phase === PHASE.REGULAR_SEASON) {
 				await trade.betweenAiTeams();
 			}
+
+			// Parallel college universe clocks forward with each pro sim day
+			await advanceCollegeWithPro(g.get("season"));
 		}
 
 		// More stuff for LeagueTopBar - update ovrs based on injuries, and (if user just played a game) update the score of the user's last game and add their next game
@@ -611,6 +615,11 @@ const play = async (
 
 	// This simulates a day, including game simulation and any other bookkeeping that needs to be done
 	const cbRunDay = async () => {
+		// Chrome/Electron can force-close IndexedDB mid long sim — reopen before
+		// the day's writes so we don't die on "connection is closing".
+		const { ensureLeagueDb } = await import("../../db/ensureLeagueDb.ts");
+		await ensureLeagueDb();
+
 		const userTeamSizeError = await team.checkRosterSizes("user");
 
 		if (!userTeamSizeError) {

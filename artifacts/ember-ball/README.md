@@ -14,12 +14,16 @@ bash scripts/deploy-vm/deploy-static-from-git.sh
 
 The production bundle is served at **https://emberchain.org/ember-ball/**.
 
-## Local dev
+## Local dev (Crypto League — Draft Day GM UI)
 
 ```bash
 cd artifacts/ember-ball
 pnpm install
-pnpm run dev
+pnpm run crypto:web
 ```
 
-Set `SPORT=basketball` when building other sports is not needed.
+Open `http://localhost:PORT/` (crypto league boots automatically). For production build:
+
+```bash
+node scripts/build-ember-ball.mjs
+```

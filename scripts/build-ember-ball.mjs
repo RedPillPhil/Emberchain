@@ -160,6 +160,7 @@ if (existsSync(buildOut) && process.env.EMBER_BALL_USE_EXISTING_BUILD === '1') {
 
   const buildStatus = run('Build Ember Ball (basketball)', 'pnpm run build', emberBallRoot, {
     SPORT: 'basketball',
+    UI_SHELL: 'desktop',
     BBGM_BASE_PATH: BASE,
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
     npm_config_production: 'false',

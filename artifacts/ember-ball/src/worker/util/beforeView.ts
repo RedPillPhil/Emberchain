@@ -16,6 +16,7 @@ import {
 } from "../../common/constants.ts";
 import { env } from "./env.ts";
 import { initUILocalGames } from "./initUILocalGames.ts";
+import { ensureCollegeUniverse } from "../core/college/index.ts";
 
 let heartbeatIntervalID: number;
 
@@ -120,7 +121,9 @@ export const beforeLeague = async (newLid: number, conditions?: Conditions) => {
 
 		// Confirm league exists before proceeding
 		await getLeague(newLid);
-		idb.league = await connectLeague(newLid);
+		const leagueDb = await connectLeague(newLid);
+		const { bindLeagueConnection } = await import("../db/ensureLeagueDb.ts");
+		bindLeagueConnection(leagueDb, newLid);
 
 		// Do this after connecting to league, in case there is an error during connection, the lid will stil be in sync between worker and ui
 		g.setWithoutSavingToDB("lid", newLid);
@@ -168,6 +171,8 @@ export const beforeLeague = async (newLid: number, conditions?: Conditions) => {
 	}
 
 	local.leagueLoaded = true;
+
+	await ensureCollegeUniverse(g.get("season"));
 
 	await updateStatus(undefined);
 	if (loadingNewLid !== newLid) {

@@ -28,9 +28,11 @@ export const rolldownConfig = (
 				nodeEnv: "test";
 		  },
 ): BuildOptions => {
+	const uiFolder =
+		name === "ui" && process.env.UI_SHELL === "desktop" ? "desktop-ui" : name;
 	const infile = path.join(
 		"src",
-		name,
+		uiFolder,
 		`index.${name === "ui" ? "tsx" : "ts"}`,
 	);
 

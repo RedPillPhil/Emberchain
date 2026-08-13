@@ -11,8 +11,6 @@ import {
 	GRACE_PERIOD,
 	LEAGUE_DATABASE_VERSION,
 	REAL_PLAYERS_INFO,
-	DEFAULT_CONFS,
-	DEFAULT_DIVS,
 } from "../../common/constants.ts";
 import actions from "./actions.ts";
 import leagueFileUpload, {
@@ -87,20 +85,6 @@ import {
 } from "../core/season/awards.ts";
 import { getScore } from "../core/player/checkJerseyNumberRetirement.ts";
 import type { NewLeagueTeam } from "../../ui/views/NewLeague/types.ts";
-import { getDefaultSettings } from "../views/newLeague.ts";
-import { OFFICIAL_LEAGUE_NAME } from "../../common/crypto.ts";
-import {
-	countFilledTeams,
-	dayReadyKey,
-	generateJoinCode,
-	isHumanOwned,
-	ownerOfTid,
-	tidOwnedBy,
-	type EmberLeagueMeta,
-	type EmberPendingTrade,
-	type PublicLeagueListing,
-} from "../../common/multiplayer.ts";
-import getTeamInfos from "../../common/getTeamInfos.ts";
 import { PointsFormulaEvaluator } from "../core/team/evaluatePointsFormula.ts";
 import type { Settings } from "../views/settings.ts";
 import {
@@ -110,7 +94,7 @@ import {
 } from "../core/game/attendance.ts";
 import goatFormula from "../util/goatFormula.ts";
 import getRandomTeams from "./getRandomTeams.ts";
-import { withState } from "../core/player/name.ts";
+import name, { withState } from "../core/player/name.ts";
 import { initDefaults, loadNames } from "../util/loadNames.ts";
 import type { PlayerRatings } from "../../common/types.basketball.ts";
 import createStreamFromLeagueObject from "../core/league/create/createStreamFromLeagueObject.ts";
@@ -166,7 +150,35 @@ import { getCols } from "../../common/getCols.ts";
 import { formatScheduleForEditor } from "../views/scheduleEditor.ts";
 import type { KeyboardShortcutsLocal } from "../../ui/util/keyboardShortcuts.ts";
 import { getNumPlayoffTeamsRaw } from "../core/season/getNumPlayoffTeams.ts";
-import type { NewLeagueSettings } from "../views/newLeague.ts";
+import {
+	getDefaultSettings,
+	type NewLeagueSettings,
+} from "../views/newLeague.ts";
+import { OFFICIAL_LEAGUE_NAME } from "../../common/crypto.ts";
+import {
+	countFilledTeams,
+	dayReadyKey,
+	generateJoinCode,
+	isHumanOwned,
+	ownerOfTid,
+	tidOwnedBy,
+	type EmberLeagueMeta,
+	type PublicLeagueListing,
+} from "../../common/multiplayer.ts";
+import getTeamInfos from "../../common/getTeamInfos.ts";
+
+import { DEFAULT_CONFS, DEFAULT_DIVS } from "../../common/constants.ts";
+import { applyDesktopNicknames } from "../../common/desktopTeamNames.ts";
+import {
+	syncUndraftedOntoCollegeRosters,
+} from "../core/college/toDraftProspect.ts";
+import {
+	ensureCollegeUniverse,
+	getCollegeSnapshot,
+	getCollegeTeamDetail,
+	getHsTop100,
+	getHsJuniorClass,
+} from "../core/college/index.ts";
 import { getNumPlayersTradedAwayNormalizedAll } from "../core/player/getNumPlayersTradedAwayNormalized.ts";
 import { getAdjustedTicketPrice } from "../../common/getAdjustedTicketPrice.ts";
 import { gameAttributesArrayToObject } from "../../common/gameAttributesArrayToObject.ts";
@@ -187,6 +199,7 @@ import { recomputeLocalUITeamOvrs } from "../util/recomputeLocalUITeamOvrs.ts";
 import { initUILocalGames } from "../util/initUILocalGames.ts";
 import { ValueChangeCalculator } from "../core/team/ValueChangeCalculator.ts";
 import type { GenOrderResult } from "../core/draft/genOrder.ts";
+import undoLog from "./undoLog.ts";
 
 const acceptContractNegotiation = async ({
 	pid,
@@ -202,14 +215,26 @@ const acceptContractNegotiation = async ({
 		return negotiation;
 	}
 
-	const result = await contractNegotiation.accept({ negotiation, amount, exp });
+	const response = await contractNegotiation.accept({
+		negotiation,
+		amount,
+		exp,
+		dryRun: false,
+	});
 
-	if (result === undefined) {
-		// Only do this if there was no error, and don't await because it makes the UI slow
-		void contractNegotiation.afterAccept(negotiation.tid);
+	// string response is an error message
+	if (typeof response === "string") {
+		return response;
 	}
 
-	return result;
+	// Only do this if there was no error, and don't await because it makes the UI slow
+	void contractNegotiation.afterAccept(negotiation.tid);
+
+	return local.undoLog.add(response, [
+		"advanceDay",
+		"leagueChange",
+		"newPhase",
+	]);
 };
 
 const addTeam = async () => {
@@ -447,9 +472,23 @@ const beforeView = async (
 };
 
 const cancelContractNegotiation = async (pid: number) => {
-	const result = await contractNegotiation.cancel(pid);
+	await contractNegotiation.cancel(pid);
+
+	const tid = g.get("userTid");
+
 	await toUI("realtimeUpdate", [["playerMovement"]]);
-	return result;
+
+	return local.undoLog.add(async () => {
+		await idb.cache.negotiations.add({
+			pid,
+			tid,
+			resigning: true,
+		});
+
+		void toUI("realtimeUpdate", [["playerMovement"]]);
+
+		return true;
+	}, ["advanceDay", "leagueChange", "newPhase"]);
 };
 
 const checkAccount2 = (param: unknown, conditions: Conditions) =>
@@ -518,13 +557,50 @@ const clearNotes = async (type: NoteInfo["type"]) => {
 		},
 		"noCopyCache",
 	);
+
+	const primaryKeyField = (
+		{
+			draftPicks: "dpid",
+			games: "gid",
+			players: "pid",
+			teamSeasons: "rid",
+		} as const
+	)[storeName];
+	const toUndo = new Map<number, string>();
+
 	for (const row of rows) {
+		toUndo.set((row as any)[primaryKeyField], row.note!);
+
 		delete row.note;
 		delete row.noteBool;
 		await idb.cache[storeName].put(row as any);
 	}
 
 	await toUI("realtimeUpdate", [noteUpdateEvents[type]]);
+
+	return local.undoLog.add(async () => {
+		for (const [key, note] of toUndo) {
+			let row;
+			if (storeName === "draftPicks") {
+				row = await idb.cache[storeName].get(key);
+			} else if (storeName === "games") {
+				row = await idb.getCopy.games({ gid: key });
+			} else if (storeName === "players") {
+				row = await idb.getCopy.players({ pid: key });
+			} else {
+				row = await idb.getCopy.teamSeasons({ rid: key });
+			}
+			if (row) {
+				row.note = note;
+				row.noteBool = 1;
+				await idb.cache[storeName].put(row as any);
+			}
+		}
+
+		void toUI("realtimeUpdate", [noteUpdateEvents[type]]);
+
+		return true;
+	}, ["leagueChange"]);
 };
 
 const getUpdateWatch = (players: Player[]) => {
@@ -542,8 +618,12 @@ const clearWatchList = async (type: "all" | number) => {
 		},
 		"noCopyCache",
 	);
+
+	const toUndo = new Map<number, number>();
+
 	for (const p of players) {
 		if (type === "all" || p.watch === type) {
+			toUndo.set(p.pid, p.watch!);
 			delete p.watch;
 			await idb.cache.players.put(p);
 		}
@@ -553,6 +633,30 @@ const clearWatchList = async (type: "all" | number) => {
 		toUI("crossTabEmit", [["updateWatch", getUpdateWatch(players)]]),
 		toUI("realtimeUpdate", [["playerMovement", "watchList"]]),
 	]);
+
+	return local.undoLog.add(async () => {
+		const players = await idb.getCopies.players(
+			{
+				pids: Array.from(toUndo.keys()),
+			},
+			"noCopyCache",
+		);
+
+		for (const p of players) {
+			const watch = toUndo.get(p.pid);
+			if (watch !== undefined) {
+				p.watch = watch;
+				await idb.cache.players.put(p);
+			}
+		}
+
+		void Promise.all([
+			toUI("crossTabEmit", [["updateWatch", getUpdateWatch(players)]]),
+			toUI("realtimeUpdate", [["playerMovement", "watchList"]]),
+		]);
+
+		return true;
+	}, ["leagueChange"]);
 };
 
 const countNegotiations = async () => {
@@ -739,6 +843,71 @@ const createLeague = async (
 	);
 
 	return lid;
+};
+
+/** Simplified league creation for the desktop GM shell (random players, NBA-style defaults). */
+const createDesktopLeague = async (
+	{
+		name,
+		tid = 0,
+		startingSeason,
+	}: {
+		name: string;
+		tid?: number;
+		startingSeason?: string;
+	},
+	conditions: Conditions,
+): Promise<number> => {
+	// Real 2026-27 NBA financial structure (thousands of dollars):
+	// cap $164.961M, luxury tax $200.428M, min team salary (90% of cap)
+	// $148.465M, max contract (35% of cap tier) $57.736M, min salary ~$1.3M
+	// Lottery: classic weighted odds (14/14/14/11.5/11.5/.../0.5), not nba2027.
+	const settings = {
+		...getDefaultSettings(),
+		salaryCap: 164961,
+		minPayroll: 148465,
+		luxuryPayroll: 200428,
+		minContract: 1300,
+		maxContract: 57736,
+		draftType: "custom" as const,
+		draftLotteryCustomNumPicks: 4,
+		draftLotteryCustomChances: [
+			140, 140, 140, 115, 115, 90, 68, 67, 45, 30, 20, 15, 10, 5,
+		],
+	};
+	const teamsFromInput = applyDesktopNicknames(
+		helpers.addPopRank(helpers.getTeamsDefault()),
+	);
+	const safeTid =
+		tid >= 0 && tid < teamsFromInput.length ? tid : teamsFromInput[0]!.tid;
+
+	return createLeague(
+		{
+			name,
+			tid: safeTid,
+			file: undefined,
+			url: undefined,
+			shuffleRosters: false,
+			importLid: undefined,
+			getLeagueOptions: undefined,
+			keptKeys: [],
+			confs: DEFAULT_CONFS,
+			divs: DEFAULT_DIVS,
+			teamsFromInput,
+			settings,
+			fromFile: {
+				gameAttributes: undefined,
+				hasRookieContracts: true,
+				maxGid: undefined,
+				startingSeason: undefined,
+				teams: undefined,
+				version: undefined,
+			},
+			startingSeasonFromInput: startingSeason ?? String(new Date().getFullYear()),
+			leagueCreationID: `desktop-${Date.now()}`,
+		},
+		conditions,
+	);
 };
 
 const deleteOldData = async (options: {
@@ -3129,6 +3298,360 @@ const regenerateDraftClass = async (season: number, conditions: Conditions) => {
 	}
 };
 
+/**
+ * Re-pace the remaining regular season schedule days so the season spans the
+ * full NBA calendar (Opening Night → mid-April) instead of a dense pack.
+ * Idempotent — safe to call on every league load; only touches the regular
+ * season (playoff days are managed by newSchedulePlayoffsDay).
+ */
+const fixScheduleDays = async () => {
+	const phase = g.get("phase");
+	if (phase !== PHASE.REGULAR_SEASON && phase !== PHASE.AFTER_TRADE_DEADLINE) {
+		return;
+	}
+
+	const scheduleRows = await idb.cache.schedule.getAll();
+	if (scheduleRows.length === 0) {
+		return;
+	}
+
+	const existingGames = await idb.cache.games.getAll();
+	const withDays = season.addDaysToSchedule(
+		scheduleRows.map(({ homeTid, awayTid }) => ({ homeTid, awayTid })),
+		existingGames,
+	);
+
+	for (const [i, row] of scheduleRows.entries()) {
+		const newDay = withDays[i]!.day;
+		if (row.day !== newDay) {
+			row.day = newDay;
+			await idb.cache.schedule.put(row);
+		}
+	}
+};
+
+/**
+ * Save the user's starting lineup (PG/SG/SF/PF/C + 6th man). Stored on the
+ * team row (read by loadTeams for positional-fit adjustments) and mirrored
+ * into rosterOrder so the engine starts the assigned five.
+ */
+const setDesktopLineup = async (lineup: {
+	pg?: number;
+	sg?: number;
+	sf?: number;
+	pf?: number;
+	c?: number;
+	sixth?: number;
+}) => {
+	const tid = g.get("userTid");
+	const t = await idb.cache.teams.get(tid);
+	if (!t) {
+		throw new Error("Invalid team");
+	}
+
+	(t as any).desktopLineup = lineup;
+	// Manual lineup means the engine must not re-sort the roster by value
+	t.keepRosterSorted = false;
+	await idb.cache.teams.put(t);
+
+	// Mirror into rosterOrder: assigned five start, 6th man is first off the
+	// bench, everyone else keeps their relative order behind them.
+	const orderedPids = [
+		lineup.pg,
+		lineup.sg,
+		lineup.sf,
+		lineup.pf,
+		lineup.c,
+		lineup.sixth,
+	].filter((pid): pid is number => typeof pid === "number");
+
+	const players = await idb.cache.players.indexGetAll("playersByTid", tid);
+	const rest = players
+		.filter((p) => !orderedPids.includes(p.pid))
+		.sort((a, b) => (a.rosterOrder ?? 0) - (b.rosterOrder ?? 0));
+
+	let order = 0;
+	for (const pid of orderedPids) {
+		const p = players.find((p2) => p2.pid === pid);
+		if (p) {
+			p.rosterOrder = order;
+			order += 1;
+			await idb.cache.players.put(p);
+		}
+	}
+	for (const p of rest) {
+		p.rosterOrder = order;
+		order += 1;
+		await idb.cache.players.put(p);
+	}
+
+	await toUI("realtimeUpdate", [["playerMovement"]]);
+};
+
+const getDesktopLineup = async () => {
+	const t = await idb.cache.teams.get(g.get("userTid"));
+	return (t as any)?.desktopLineup ?? {};
+};
+
+/** FIBA-tier domestic free agents — well below NBA/G League quality. */
+const ensureCountryFreeAgents = async ({ country }: { country: string }) => {
+	const fas = await idb.cache.players.indexGetAll(
+		"playersByTid",
+		PLAYER.FREE_AGENT,
+	);
+	const existing = fas.filter((p) =>
+		(p.born?.loc ?? "").toLowerCase().includes(country.toLowerCase()),
+	);
+	if (existing.length >= 8) {
+		return { created: 0, country };
+	}
+
+	// FIBA-inspired bands — even S-tier countries stay below NBA / G League
+	const tier = (() => {
+		const s = new Set([
+			"Spain",
+			"France",
+			"Serbia",
+			"Australia",
+			"Argentina",
+			"Lithuania",
+			"Greece",
+			"Germany",
+			"Slovenia",
+			"Canada",
+		]);
+		const a = new Set([
+			"Croatia",
+			"Turkey",
+			"Italy",
+			"Brazil",
+			"Latvia",
+			"Montenegro",
+			"Poland",
+			"Czech Republic",
+			"Czechia",
+			"New Zealand",
+			"Nigeria",
+			"Dominican Republic",
+			"Puerto Rico",
+			"Georgia",
+			"Bosnia and Herzegovina",
+			"Bosnia",
+		]);
+		const b = new Set([
+			"Russia",
+			"Ukraine",
+			"Israel",
+			"China",
+			"Japan",
+			"South Korea",
+			"Mexico",
+			"Venezuela",
+			"Senegal",
+			"Cameroon",
+			"Angola",
+			"Egypt",
+			"Tunisia",
+			"Philippines",
+			"Finland",
+			"Sweden",
+			"Belgium",
+			"Netherlands",
+			"Hungary",
+			"Romania",
+			"Estonia",
+			"North Macedonia",
+			"Macedonia",
+		]);
+		if (s.has(country)) {
+			return [42, 56] as const;
+		}
+		if (a.has(country)) {
+			return [38, 50] as const;
+		}
+		if (b.has(country)) {
+			return [34, 46] as const;
+		}
+		return [30, 40] as const;
+	})();
+
+	const need = 8 - existing.length;
+	for (let i = 0; i < need; i++) {
+		const n = await name(country);
+		const age = 22 + Math.floor(Math.random() * 12);
+		const p = player.generate(PLAYER.FREE_AGENT, age, g.get("season") - 4, false, 20, {
+			college: "",
+			country,
+			firstName: n.firstName,
+			lastName: n.lastName,
+			race: n.race,
+		});
+		p.born = { year: g.get("season") - age, loc: country };
+		p.tid = PLAYER.FREE_AGENT;
+		const r = p.ratings.at(-1)!;
+		const ovr =
+			tier[0] + Math.floor(Math.random() * (tier[1] - tier[0] + 1));
+		r.ovr = ovr;
+		r.pot = Math.min(60, ovr + Math.floor(Math.random() * 6));
+		for (const key of [
+			"stre",
+			"spd",
+			"jmp",
+			"endu",
+			"ins",
+			"dnk",
+			"ft",
+			"fg",
+			"tp",
+			"oiq",
+			"diq",
+			"drb",
+			"pss",
+			"reb",
+		] as const) {
+			(r as any)[key] = Math.max(
+				18,
+				Math.min(55, ovr + Math.round((Math.random() - 0.5) * 10)),
+			);
+		}
+		await player.develop(p, 0);
+		p.contract = {
+			amount: Math.max(g.get("minContract"), Math.round(800 + Math.random() * 1200)),
+			exp: g.get("season") + 1,
+		};
+		await idb.cache.players.add(p);
+	}
+	return { created: need, country };
+};
+
+/** Link current undrafted classes onto D1 college rosters (Declared). */
+const syncDraftCollegePipeline = async () => {
+	await ensureCollegeUniverse(g.get("season"));
+	const undrafted = await idb.cache.players.indexGetAll(
+		"playersByTid",
+		PLAYER.UNDRAFTED,
+	);
+	const result = await syncUndraftedOntoCollegeRosters(undrafted);
+	for (const p of undrafted) {
+		await idb.cache.players.put(p);
+	}
+	return result;
+};
+
+const SKILL_KEYS = [
+	"stre",
+	"spd",
+	"jmp",
+	"endu",
+	"ins",
+	"dnk",
+	"ft",
+	"fg",
+	"tp",
+	"oiq",
+	"diq",
+	"drb",
+	"pss",
+	"reb",
+] as const;
+
+/** Young roster for offseason training camp (age ≤ 24). */
+const getTrainingCampRoster = async () => {
+	const tid = g.get("userTid");
+	const season = g.get("season");
+	const players = (
+		await idb.cache.players.indexGetAll("playersByTid", tid)
+	).filter((p) => season - p.born.year <= 24);
+	const plus = await idb.getCopies.playersPlus(players, {
+		attrs: ["pid", "firstName", "lastName", "age", "draft"],
+		ratings: ["ovr", "pot", "pos", ...SKILL_KEYS],
+		stats: [],
+		season,
+		showNoStats: true,
+		showRookies: true,
+		fuzz: true,
+	});
+	return {
+		season,
+		phase: g.get("phase"),
+		players: plus.sort((a, b) => (b.ratings?.pot ?? 0) - (a.ratings?.pot ?? 0)),
+	};
+};
+
+/**
+ * Spend training-camp focus on young players. Each point nudges a couple of
+ * skill ratings (+1) before annual progression runs in preseason.
+ */
+const applyTrainingCampBoosts = async (investments: {
+	pid: number;
+	points: number;
+}[]) => {
+	const tid = g.get("userTid");
+	const season = g.get("season");
+	const applied: { pid: number; points: number; name: string }[] = [];
+
+	for (const inv of investments) {
+		const pts = Math.max(0, Math.min(3, Math.floor(inv.points)));
+		if (pts <= 0) {
+			continue;
+		}
+		const p = await idb.cache.players.get(inv.pid);
+		if (!p || p.tid !== tid) {
+			continue;
+		}
+		const age = season - p.born.year;
+		if (age > 24) {
+			continue;
+		}
+		const r = p.ratings.at(-1);
+		if (!r || r.locked) {
+			continue;
+		}
+
+		for (let i = 0; i < pts; i++) {
+			const a = SKILL_KEYS[Math.floor(Math.random() * SKILL_KEYS.length)]!;
+			let b = SKILL_KEYS[Math.floor(Math.random() * SKILL_KEYS.length)]!;
+			while (b === a) {
+				b = SKILL_KEYS[Math.floor(Math.random() * SKILL_KEYS.length)]!;
+			}
+			(r as any)[a] = Math.min(99, ((r as any)[a] ?? 50) + 1);
+			(r as any)[b] = Math.min(99, ((r as any)[b] ?? 50) + 1);
+			// Younger guys can sneak a pot point on heavy focus
+			if (age <= 22 && i === pts - 1 && Math.random() < 0.55) {
+				r.pot = Math.min(99, (r.pot ?? r.ovr) + 1);
+			}
+		}
+		await player.develop(p, 0);
+		await idb.cache.players.put(p);
+		applied.push({
+			pid: p.pid,
+			points: pts,
+			name: `${p.firstName} ${p.lastName}`,
+		});
+	}
+
+	return { applied, season };
+};
+
+/** Snapshot current user-roster ovr/pot for progression comparison. */
+const snapshotUserRosterRatings = async () => {
+	const tid = g.get("userTid");
+	const season = g.get("season");
+	const players = await idb.cache.players.indexGetAll("playersByTid", tid);
+	return players.map((p) => {
+		const r = p.ratings.at(-1)!;
+		return {
+			pid: p.pid,
+			firstName: p.firstName,
+			lastName: p.lastName,
+			age: season - p.born.year,
+			pos: r.pos,
+			ovr: r.ovr,
+			pot: r.pot,
+		};
+	});
+};
+
 const regenerateSchedule = async (param: unknown, conditions: Conditions) => {
 	const teams = await idb.getCopies.teamsPlus(
 		{
@@ -3754,25 +4277,35 @@ const reSignAll = async (players: any[]) => {
 		(negotiation) => negotiation.tid === userTid,
 	);
 
+	const undoFunctions: (() => Promise<boolean>)[] = [];
+
 	if (negotiations.length > 0) {
 		for (const negotiation of negotiations) {
 			const p = players.find((p) => p.pid === negotiation.pid);
 
 			if (p && p.mood.user.willing) {
-				const errorMsg = await contractNegotiation.accept({
+				const response = await contractNegotiation.accept({
 					negotiation,
 					amount: p.mood.user.contractAmount,
 					exp: p.contract.exp,
+					dryRun: false,
 				});
 
-				if (errorMsg !== undefined && errorMsg) {
-					return errorMsg;
+				if (typeof response === "string") {
+					return response;
+				} else {
+					undoFunctions.push(response);
 				}
 			}
 		}
 
 		await contractNegotiation.afterAccept(userTid);
 	}
+
+	return local.undoLog.add(async () => {
+		const values = await Promise.all(undoFunctions.map((undo) => undo()));
+		return values.every((value) => value === true);
+	}, ["advanceDay", "leagueChange", "newPhase"]);
 };
 
 const updateExpansionDraftSetup = async (changes: {
@@ -4979,86 +5512,23 @@ const createTrade = async (teams: TradeTeams) => {
 };
 
 const proposeTrade = async (forceTrade: boolean, conditions: Conditions) => {
-	const { teams } = await trade.get();
-	const ember = await getEmberMeta();
-	const otherTid = teams[1].tid;
-
-	// Human-owned clubs: queue a proposal instead of AI auto-resolve
-	if (ember && isHumanOwned(ember.teamOwners, otherTid) && !forceTrade) {
-		const pending: EmberPendingTrade = {
-			id: `${Date.now()}-${otherTid}`,
-			fromTid: teams[0].tid,
-			toTid: otherTid,
-			fromAddress: ownerOfTid(ember.teamOwners, teams[0].tid) ?? "unknown",
-			createdAt: Date.now(),
-			pids: [...teams[0].pids],
-			dpids: [...teams[0].dpids],
-			pidsOther: [...teams[1].pids],
-			dpidsOther: [...teams[1].dpids],
-			status: "pending",
-		};
-		ember.pendingTrades.push(pending);
-		await putEmberMeta(g.get("lid"), ember);
-		logEvent(
-			{
-				type: "info",
-				text: "Trade proposal sent to the human GM. They can accept or reject when they log in (Multiplayer hub).",
-				showNotification: true,
-				saveToDb: false,
-			},
-			conditions,
-		);
-		await toUI("realtimeUpdate", []);
-		return {
-			success: false,
-			message:
-				"Proposal saved for the other human-controlled team. Not auto-accepted.",
-		};
-	}
-
-	const dv = await new ValueChangeCalculator().evaluate({
-		tid: teams[1].tid,
-		pidsAdd: teams[0].pids,
-		pidsRemove: teams[1].pids,
-		dpidsAdd: teams[0].dpids,
-		dpidsRemove: teams[1].dpids,
-		tradingPartnerTid: g.get("userTid"),
-	});
-	const aiWillAcceptTrade = dv > 0;
-	if (
-		aiWillAcceptTrade &&
-		teams[1].pids.length === 0 &&
-		teams[1].dpids.length === 0
-	) {
-		let assetsText;
-		const numAssets = teams[0].pids.length + teams[0].dpids.length;
-		if (teams[0].pids.length === 0) {
-			assetsText = helpers.plural("Pick", numAssets);
-		} else if (teams[0].dpids.length === 0) {
-			assetsText = helpers.plural("Player", numAssets);
-		} else {
-			assetsText = helpers.plural("Asset", numAssets);
-		}
-
-		const proceed = await toUI(
-			"confirm",
-			[
-				"Are you sure you want to propose a trade where you receive nothing?",
-				{
-					okText: `Give Away ${assetsText}`,
-				},
-			],
-			conditions,
-		);
-
-		if (!proceed) {
-			return;
-		}
-	}
-
-	const output = await trade.propose(forceTrade);
+	const { accepted, message, undo } = await trade.propose(forceTrade);
 	await toUI("realtimeUpdate", []);
-	return output;
+
+	let undoKey;
+	if (undo) {
+		undoKey = local.undoLog.add(undo, [
+			"advanceDay",
+			"leagueChange",
+			"newPhase",
+		]);
+	}
+
+	return {
+		accepted,
+		message,
+		undoKey,
+	};
 };
 
 const toggleColaOptOut = async () => {
@@ -5661,6 +6131,7 @@ const syncTeamNicknamesFromInfos = async () => {
 	await toUI("realtimeUpdate", [["team"]]);
 };
 
+
 export default {
 	actions,
 	eightyTwoZeroDraft,
@@ -5668,6 +6139,7 @@ export default {
 	leagueFileUpload,
 	playMenu,
 	toolsMenu,
+	undoLog,
 	main: {
 		acceptContractNegotiation,
 		addTeam,
@@ -5689,11 +6161,52 @@ export default {
 		clearTrade,
 		clearWatchList,
 		countNegotiations,
+		createDesktopLeague,
 		createLeague,
 		createTrade,
+		getCollegeUniverse: async () => {
+			try {
+				await ensureCollegeUniverse(g.get("season"));
+				return getCollegeSnapshot();
+			} catch {
+				return undefined;
+			}
+		},
+		getCollegeTeamDetail: async (tid: number) => {
+			try {
+				await ensureCollegeUniverse(g.get("season"));
+				return getCollegeTeamDetail(tid);
+			} catch {
+				return undefined;
+			}
+		},
+		getHsTop100: async () => {
+			try {
+				await ensureCollegeUniverse(g.get("season"));
+				return getHsTop100();
+			} catch {
+				return [];
+			}
+		},
+		getHsJuniorClass: async () => {
+			try {
+				await ensureCollegeUniverse(g.get("season"));
+				return getHsJuniorClass();
+			} catch {
+				return [];
+			}
+		},
 		deleteOldData,
 		deleteScheduledEvents,
 		discardUnsavedProgress,
+		fixScheduleDays,
+		setDesktopLineup,
+		getDesktopLineup,
+		getTrainingCampRoster,
+		applyTrainingCampBoosts,
+		snapshotUserRosterRatings,
+		ensureCountryFreeAgents,
+		syncDraftCollegePipeline,
 		draftLottery,
 		draftUser,
 		dunkGetProjected,
