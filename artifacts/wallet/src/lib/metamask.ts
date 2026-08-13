@@ -123,5 +123,9 @@ export async function addEmberToMetaMask(): Promise<{ ok: boolean; message: stri
     return { ok: true, message: "Emberchain added. wEMBR may already be in your wallet." };
   }
 
-  return { ok: true, message: "Emberchain network and wEMBR token added to MetaMask." };
+  return {
+    ok: true,
+    message:
+      "Emberchain network and wEMBR token added. wEMBR shows a logo via token import; native EMBR logo in MetaMask requires Chainlist approval (ethereum-lists/chains) — iconUrls from sites is usually ignored. To remove/re-add Emberchain: switch to Base or Ethereum first, then Settings → Networks → Delete.",
+  };
 }

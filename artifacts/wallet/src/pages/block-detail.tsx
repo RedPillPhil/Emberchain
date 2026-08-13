@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Box, Hash, Zap, Clock, Activity, FileCode2, Share2 } from "lucide-react";
 import { formatEmbr } from "@/lib/utils";
+import { AddressLabelContent } from "@/components/explorer/address-link";
 
 export default function BlockDetail() {
   const { number } = useParams();
@@ -54,7 +55,7 @@ export default function BlockDetail() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-4 p-4 hover:bg-secondary/20 transition-colors">
                   <dt className="text-muted-foreground font-sans font-bold uppercase tracking-widest text-xs md:col-span-1 flex items-center">Mined By</dt>
-                  <dd className="md:col-span-3 bg-secondary/50 w-fit px-2 py-1 rounded-sm border border-border">{block.miner}</dd>
+                  <dd className="md:col-span-3 bg-secondary/50 w-fit px-2 py-1 rounded-sm border border-border"><AddressLabelContent address={block.miner} /></dd>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-4 p-4 hover:bg-secondary/20 transition-colors">
                   <dt className="text-muted-foreground font-sans font-bold uppercase tracking-widest text-xs md:col-span-1 flex items-center">Block Reward</dt>
@@ -133,13 +134,13 @@ export default function BlockDetail() {
                       </div>
                       
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs font-mono text-muted-foreground">
-                        <div><span className="font-sans uppercase font-bold mr-2 text-[10px]">From:</span>{tx.from}</div>
+                        <div><span className="font-sans uppercase font-bold mr-2 text-[10px]">From:</span><AddressLabelContent address={tx.from} /></div>
                         <div>
                           <span className="font-sans uppercase font-bold mr-2 text-[10px]">To:</span>
                           {tx.to === null ? (
                             <span className="text-accent italic">{tx.contractAddress || "Pending Contract"}</span>
                           ) : (
-                            tx.to
+                            <AddressLabelContent address={tx.to} />
                           )}
                         </div>
                       </div>

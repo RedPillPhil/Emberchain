@@ -30,16 +30,16 @@
   to = "/ember-delta/index.html"
   status = 200
 
-# Ember Ball sub-app (ZenGM static build)
+# WBBL — hosted externally at wbbl.site (legacy /ember-ball paths redirect there)
 [[redirects]]
   from = "/ember-ball"
-  to = "/ember-ball/"
+  to = "https://wbbl.site/"
   status = 301
 
 [[redirects]]
   from = "/ember-ball/*"
-  to = "/ember-ball/index.html"
-  status = 200
+  to = "https://wbbl.site/"
+  status = 301
 
 # Wallet SPA (must be after sub-app rules)
 [[redirects]]

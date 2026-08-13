@@ -39,7 +39,7 @@ export const navItems: Array<{ href: string; label: string; icon: React.Componen
   { href: "/tokens", label: "TOKENS/CONTRACTS", icon: Coins },
   { href: "/blocks", label: "BLOCKS", icon: Blocks },
   { href: "/transactions", label: "TRANSACTIONS", icon: ArrowLeftRight },
-  { href: "/ember-ball/", label: "EMBER BALL", icon: Circle, highlight: true, external: true },
+  { href: "https://wbbl.site/", label: "WBBL", icon: Circle, highlight: true, external: true },
   { href: "/embermon", label: "EMBERMON", icon: Gamepad2, highlight: true },
   { href: "/chain-invaders", label: "CHAIN INVADERS", icon: Swords, highlight: true },
   { href: "/downloads", label: "DOWNLOADS", icon: Download },

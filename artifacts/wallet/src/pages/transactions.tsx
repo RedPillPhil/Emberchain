@@ -18,6 +18,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { formatHash, formatEmbr, cn } from "@/lib/utils";
+import { AddressLabelContent } from "@/components/explorer/address-link";
 import { Button } from "@/components/ui/button";
 import { internalMovedWei, type TxWithInternals } from "@/lib/tx-internals";
 
@@ -301,7 +302,7 @@ function AddressCell({
         isMatch && "text-primary font-bold",
       )}
     >
-      {formatHash(address, 6)}
+      <AddressLabelContent address={address} />
     </button>
   );
 }

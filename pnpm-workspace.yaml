@@ -42,8 +42,6 @@ packages:
   - '!lib/emberchain-miner-electron'
   # Desktop app uses Electron — can't install in Replit; build locally instead
   - '!artifacts/ember-node-desktop'
-  # ZenGM fork — own package.json + build; staged at /ember-ball/
-  - '!artifacts/ember-ball'
   - lib/integrations/*
   - scripts
 

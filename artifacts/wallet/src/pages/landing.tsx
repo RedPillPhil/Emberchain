@@ -123,7 +123,7 @@ export default function LandingPage() {
         <h2 className="landing-section-title">Play on Emberchain</h2>
         <p className="landing-body">
           Emberchain ships native arcade and simulation games inside the web wallet.
-          Chain Invaders is live today; Embermon and Ember Ball Crypto League are actively in development.
+          Chain Invaders is live today; Embermon and WBBL (World Blockchain Basketball League) are actively in development.
         </p>
         <div className="landing-games-grid">
           <Link href="/chain-invaders" className="landing-game-card">
@@ -142,12 +142,17 @@ export default function LandingPage() {
               retro handheld and TV shells.
             </p>
           </Link>
-          <a href="/ember-ball/" className="landing-game-card">
+          <a
+            href="https://wbbl.site/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="landing-game-card"
+          >
             <span className="landing-game-badge landing-game-badge-dev">In Development</span>
-            <h4>Ember Ball Crypto League</h4>
+            <h4>WBBL</h4>
             <p>
-              Draft Day-style GM basketball in your browser — college scouting, wallet
-              team claims, and Emberchain-backed league fees.
+              World Blockchain Basketball League — Draft Day-style GM basketball with
+              college scouting, wallet team claims, and on-chain league fees.
             </p>
           </a>
         </div>

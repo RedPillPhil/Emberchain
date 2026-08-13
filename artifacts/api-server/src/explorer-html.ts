@@ -137,6 +137,21 @@ function embr(wei) {
 }
 function fmt(n) { return Number(n).toLocaleString(); }
 
+const ADDR_LABELS = {
+  '0x4f318f481741fffeaa88fefa156930ad613240e6': 'Fathom.cx Cold Wallet',
+  '0x1cb88597d4db3f24123da587adf117a3056dc85b': 'Fathom.cx Hot Wallet',
+};
+function addrDisplay(a, head=6, tail=4) {
+  if (!a) return '—';
+  const label = ADDR_LABELS[a.toLowerCase()];
+  if (label) return label + ' <span style="color:var(--muted);font-size:10px">' + short(a, head, tail) + '</span>';
+  return short(a, 10, 8);
+}
+function addrLink(a) {
+  if (!a) return '—';
+  return '<span class="link" onclick="nav(\\'#/address/' + a + '\\')" title="' + a + '">' + addrDisplay(a) + '</span>';
+}
+
 // ── Fetch wrappers ────────────────────────────────────────────────────────────
 
 async function get(path) {
@@ -290,7 +305,7 @@ function blocksTable(blocks) {
   const rows = blocks.map(b=>\`
     <tr onclick="nav('#/block/\${b.number}')">
       <td><span class="num">#\${fmt(b.number)}</span><br><span class="age">\${ago(b.timestamp)}</span></td>
-      <td><span class="addr" title="\${b.miner}">\${short(b.miner,8,6)}</span><br><span class="age">miner</span></td>
+      <td><span class="addr" title="\${b.miner}">\${addrDisplay(b.miner,8,6)}</span><br><span class="age">miner</span></td>
       <td><span class="badge">\${b.transactionCount} tx</span></td>
     </tr>\`).join('');
   return \`<table class="tbl">\${rows}</table>\`;
@@ -316,8 +331,8 @@ function txTable(txs) {
     <tr onclick="nav('#/tx/\${tx.hash}')">
       <td><span class="hash" title="\${tx.hash}">\${short(tx.hash,8,6)}</span><br><span class="age">\${ago(tx.timestamp)}</span></td>
       <td>
-        <span class="age">From</span> <span class="addr" title="\${tx.from}">\${short(tx.from,6,4)}</span><br>
-        <span class="age">To&nbsp;&nbsp;&nbsp;</span> <span class="addr" title="\${tx.to}">\${tx.to?short(tx.to,6,4):'contract'}</span>
+        <span class="age">From</span> \${addrLink(tx.from)}<br>
+        <span class="age">To&nbsp;&nbsp;&nbsp;</span> \${tx.to?addrLink(tx.to):'contract'}
       </td>
       <td>
         <span class="val">\${embr(tx.value)}</span><br>
@@ -337,7 +352,7 @@ async function renderBlock(main, num) {
   const payoutRows = (block.payouts||[]).map(p=>
     \`<div class="drow">
       <div class="dlabel">Payout</div>
-      <div class="dval"><span class="link" onclick="nav('#/address/\${p.address}')">\${p.address}</span> → \${embr(p.amount)}</div>
+      <div class="dval">\${addrLink(p.address)} → \${embr(p.amount)}</div>
     </div>\`
   ).join('');
 
@@ -368,7 +383,7 @@ async function renderBlock(main, num) {
       <div class="drow"><div class="dlabel">Time</div><div class="dval">\${ago(block.timestamp)} &nbsp;·&nbsp; \${block.timestamp?new Date(block.timestamp*1000).toUTCString():'—'}</div></div>
       <div class="drow"><div class="dlabel">Hash</div><div class="dval" style="word-break:break-all">\${block.hash||'—'}</div></div>
       <div class="drow"><div class="dlabel">Parent Hash</div><div class="dval">\${prevNum!==null?\`<span class="link" onclick="nav('#/block/\${prevNum}')">\${short(block.parentHash,16,12)}</span>\`:short(block.parentHash,16,12)}</div></div>
-      <div class="drow"><div class="dlabel">Miner</div><div class="dval"><span class="link" onclick="nav('#/address/\${block.miner}')">\${block.miner||'—'}</span></div></div>
+      <div class="drow"><div class="dlabel">Miner</div><div class="dval">\${addrLink(block.miner)}</div></div>
       <div class="drow"><div class="dlabel">Difficulty</div><div class="dval">\${fmt(block.difficulty)}</div></div>
       <div class="drow"><div class="dlabel">Nonce</div><div class="dval">\${block.nonce||'—'}</div></div>
       <div class="drow"><div class="dlabel">Transactions</div><div class="dval">\${(block.transactions||[]).length}</div></div>
@@ -391,9 +406,9 @@ async function renderTx(main, hash) {
       <div class="drow"><div class="dlabel">Status</div><div class="dval"><span class="\${tx.status==='success'?'ok':'fail'}">\${tx.status==='success'?'✓ Success':'✗ Failed'}</span></div></div>
       <div class="drow"><div class="dlabel">Time</div><div class="dval">\${ago(tx.timestamp)} &nbsp;·&nbsp; \${tx.timestamp?new Date(tx.timestamp*1000).toUTCString():'—'}</div></div>
       <div class="drow"><div class="dlabel">Block</div><div class="dval">\${tx.blockNumber!=null?\`<span class="link" onclick="nav('#/block/\${tx.blockNumber}')">#\${fmt(tx.blockNumber)}</span>\`:'—'}</div></div>
-      <div class="drow"><div class="dlabel">From</div><div class="dval"><span class="link" onclick="nav('#/address/\${tx.from}')">\${tx.from||'—'}</span></div></div>
-      <div class="drow"><div class="dlabel">To</div><div class="dval">\${tx.to?\`<span class="link" onclick="nav('#/address/\${tx.to}')">\${tx.to}</span>\`:'— (contract creation)'}</div></div>
-      \${tx.contractAddress?\`<div class="drow"><div class="dlabel">Contract</div><div class="dval"><span class="link" onclick="nav('#/address/\${tx.contractAddress}')">\${tx.contractAddress}</span></div></div>\`:''}
+      <div class="drow"><div class="dlabel">From</div><div class="dval">\${addrLink(tx.from)}</div></div>
+      <div class="drow"><div class="dlabel">To</div><div class="dval">\${tx.to?addrLink(tx.to):'— (contract creation)'}</div></div>
+      \${tx.contractAddress?\`<div class="drow"><div class="dlabel">Contract</div><div class="dval">\${addrLink(tx.contractAddress)}</div></div>\`:''}
       <div class="drow"><div class="dlabel">Value</div><div class="dval">\${embr(tx.value)}</div></div>
       <div class="drow"><div class="dlabel">Gas Used</div><div class="dval">\${tx.gasUsed!=null?fmt(tx.gasUsed):'—'}</div></div>
       <div class="drow"><div class="dlabel">Nonce</div><div class="dval">\${tx.nonce??'—'}</div></div>
@@ -415,7 +430,7 @@ async function renderAddress(main, addr) {
         <span class="back" onclick="nav('#/')">← Explorer</span>
         &nbsp;/&nbsp; Address
       </div>
-      <div class="drow"><div class="dlabel">Address</div><div class="dval" style="word-break:break-all">\${addr}</div></div>
+      <div class="drow"><div class="dlabel">Address</div><div class="dval" style="word-break:break-all">\${addrDisplay(addr, 10, 8)}</div></div>
       <div class="drow"><div class="dlabel">Balance</div><div class="dval">\${bal!=null?embr(bal):'—'}</div></div>
       <div class="drow"><div class="dlabel">Transactions</div><div class="dval">\${txs.length}</div></div>
     </div>

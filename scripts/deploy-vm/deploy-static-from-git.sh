@@ -50,22 +50,13 @@ export CI=true
 pnpm install --frozen-lockfile --config.confirmModulesPurge=false 2>/dev/null \
   || pnpm install --config.confirmModulesPurge=false
 
-echo "→ build wallet + ember-delta + ember-ball"
+echo "→ build wallet + ember-delta"
 node scripts/build-vercel.mjs
 
 echo "→ verify built wallet contains Games nav + sidebar"
-if ! grep -rq 'landing-games-grid\|Ember Ball' "${REPO_ROOT}/artifacts/wallet/dist/public/assets/"* 2>/dev/null; then
+if ! grep -rq 'landing-games-grid\|WBBL' "${REPO_ROOT}/artifacts/wallet/dist/public/assets/"* 2>/dev/null; then
   echo "✗ Built wallet bundle is missing the Games landing section — aborting publish"
   exit 1
-fi
-
-if [[ -f "${REPO_ROOT}/artifacts/wallet/dist/public/ember-ball/index.html" ]]; then
-  echo "  ✓ Ember Ball staged ($(wc -c < "${REPO_ROOT}/artifacts/wallet/dist/public/ember-ball/index.html") bytes index.html)"
-else
-  echo "  ⚠ Ember Ball missing — copying fallback placeholder"
-  mkdir -p "${REPO_ROOT}/artifacts/wallet/dist/public/ember-ball"
-  cp "${REPO_ROOT}/artifacts/ember-ball/fallback/index.html" \
-    "${REPO_ROOT}/artifacts/wallet/dist/public/ember-ball/index.html"
 fi
 
 echo "→ publish to ${WEB_ROOT}"

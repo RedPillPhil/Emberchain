@@ -1,26 +1,57 @@
 import React from "react";
 import { Link } from "wouter";
-import { cn } from "@/lib/utils";
-import { decodedAddressLink, ledgerAddressUrl } from "@/lib/explorer-links";
+import { cn, formatHash } from "@/lib/utils";
+import { decodedAddressLink, ledgerAddressUrl, normalizeAddress } from "@/lib/explorer-links";
+import { getAddressLabel } from "@/lib/address-labels";
 
 const linkClass =
   "bg-secondary/50 px-2 py-1 rounded-sm border border-border hover:border-primary/50 hover:bg-primary/10 transition-colors";
+
+/** Etherscan-style label + optional shortened hex. */
+export function AddressLabelContent({
+  address,
+  showHex = true,
+  shortChars = 4,
+  className,
+}: {
+  address: string;
+  showHex?: boolean;
+  shortChars?: number;
+  className?: string;
+}) {
+  const normalized = normalizeAddress(address);
+  const label = getAddressLabel(normalized);
+  if (!label) {
+    return <span className={className}>{showHex ? formatHash(normalized, shortChars * 2) : normalized}</span>;
+  }
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 flex-wrap", className)} title={normalized}>
+      <span className="font-sans font-bold tracking-normal normal-case">{label}</span>
+      {showHex && (
+        <span className="text-muted-foreground text-[10px] font-mono font-normal">{formatHash(normalized, shortChars)}</span>
+      )}
+    </span>
+  );
+}
 
 /** Emberchain ledger link for a plain address (From / To / contract). */
 export function LedgerAddressLink({
   address,
   className,
+  showHex = true,
 }: {
   address: string;
   className?: string;
+  showHex?: boolean;
 }) {
   const normalized = address.replace(/^=+/, "");
   return (
     <Link
       href={ledgerAddressUrl(normalized)}
       className={cn(linkClass, "inline-block break-all", className)}
+      title={normalizeAddress(normalized)}
     >
-      {normalized}
+      <AddressLabelContent address={normalized} showHex={showHex} />
     </Link>
   );
 }

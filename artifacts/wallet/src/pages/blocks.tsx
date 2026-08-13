@@ -20,6 +20,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { formatHash, formatEmbr, cn } from "@/lib/utils";
+import { AddressLabelContent } from "@/components/explorer/address-link";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -181,7 +182,7 @@ export default function BlockExplorer() {
           <div className="text-xs text-muted-foreground font-sans">{timeAgo(latestBlock.timestamp)}</div>
           <div className="text-xs font-sans">
             <span className="text-muted-foreground">Miner </span>
-            <span className="font-mono">{formatHash(latestBlock.miner, 8)}</span>
+            <span className="font-mono"><AddressLabelContent address={latestBlock.miner} /></span>
           </div>
           <div className="text-xs font-sans">
             <span className="text-muted-foreground">TXs </span>
@@ -231,7 +232,7 @@ export default function BlockExplorer() {
                   </div>
                   <div className="text-xs text-muted-foreground font-sans mt-0.5">
                     Miner{" "}
-                    <span className="font-mono">{formatHash(block.miner, 6)}</span>
+                    <span className="font-mono"><AddressLabelContent address={block.miner} /></span>
                     {"  "}·{"  "}
                     <span className="text-foreground font-bold">{block.transactionCount} tx</span>
                   </div>
@@ -291,9 +292,9 @@ export default function BlockExplorer() {
                     <span className="text-[10px] text-muted-foreground font-sans capitalize">{tx.status}</span>
                   </div>
                   <div className="text-xs text-muted-foreground font-sans mt-0.5">
-                    <span className="font-mono">{formatHash(tx.from, 6)}</span>
+                    <AddressLabelContent address={tx.from} />
                     {" → "}
-                    <span className="font-mono">{tx.to ? formatHash(tx.to, 6) : "Contract"}</span>
+                    {tx.to ? <AddressLabelContent address={tx.to} /> : "Contract"}
                   </div>
                 </div>
                 <div className="text-right shrink-0">

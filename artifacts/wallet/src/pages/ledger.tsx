@@ -44,7 +44,8 @@ import {
 } from "lucide-react";
 import { cn, formatEmbr, formatHash } from "@/lib/utils";
 import { decodeCalldata, formatUint256Display } from "@/lib/calldata-decoder";
-import { DecodedAddressLink, LedgerAddressLink } from "@/components/explorer/address-link";
+import { DecodedAddressLink, LedgerAddressLink, AddressLabelContent } from "@/components/explorer/address-link";
+import { getAddressLabel } from "@/lib/address-labels";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const HASH_RE    = /^0x[0-9a-fA-F]{64}$/;
@@ -619,6 +620,11 @@ function AddressResult({ address, onAddressClick }: { address: string; onAddress
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2 text-sm text-muted-foreground font-sans font-bold uppercase tracking-widest">
           <WalletIcon className="w-4 h-4 text-primary" /> Account
+          {getAddressLabel(address) && (
+            <Pill className="bg-primary/10 text-primary border-primary/40 normal-case tracking-normal">
+              {getAddressLabel(address)}
+            </Pill>
+          )}
           {isMe && <Pill className="bg-primary/10 text-primary border-primary/40">Your wallet</Pill>}
           {contractInfo?.isContract && (
             <Pill className="bg-accent/10 text-accent border-accent/40">
@@ -632,7 +638,7 @@ function AddressResult({ address, onAddressClick }: { address: string; onAddress
       <Card className="border-border bg-card/80 rounded-sm overflow-hidden">
         <dl>
           <Row label="Address">
-            <span className="text-primary font-bold break-all">{address}</span>
+            <AddressLabelContent address={address} showHex={false} className="text-primary font-bold break-all" />
           </Row>
           <Row label="Balance">
             <span className="text-glow font-bold text-2xl">{formatEmbr(wallet.balance)}</span>
@@ -862,14 +868,30 @@ function AddressResult({ address, onAddressClick }: { address: string; onAddress
                         <td className="p-3">
                           {isFrom
                             ? <span className="text-primary font-bold">This address</span>
-                            : <button onClick={() => onAddressClick(tx.from)} className="text-muted-foreground hover:text-primary transition-colors" title={tx.from}>{formatHash(tx.from, 5)}</button>}
+                            : (
+                              <button
+                                onClick={() => onAddressClick(tx.from)}
+                                className="text-muted-foreground hover:text-primary transition-colors text-left"
+                                title={tx.from}
+                              >
+                                <AddressLabelContent address={tx.from} />
+                              </button>
+                            )}
                         </td>
                         <td className="p-3">
                           {tx.to === null
                             ? <span className="italic text-muted-foreground/50">Contract</span>
                             : isTo
                             ? <span className="text-primary font-bold">This address</span>
-                            : <button onClick={() => onAddressClick(tx.to!)} className="text-muted-foreground hover:text-primary transition-colors" title={tx.to!}>{formatHash(tx.to!, 5)}</button>}
+                            : (
+                              <button
+                                onClick={() => onAddressClick(tx.to!)}
+                                className="text-muted-foreground hover:text-primary transition-colors text-left"
+                                title={tx.to!}
+                              >
+                                <AddressLabelContent address={tx.to!} />
+                              </button>
+                            )}
                         </td>
                         <td className={cn("p-3 text-right font-bold", isFrom && !isTo ? "text-orange-400" : isTo && !isFrom ? "text-green-400" : "text-foreground")}>
                           {isFrom && !isTo ? "−" : isTo && !isFrom ? "+" : ""}{formatEmbr(tx.value)}
