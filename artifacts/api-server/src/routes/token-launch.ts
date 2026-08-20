@@ -23,7 +23,8 @@ import {
 import { getBaseProvider } from "../lib/base-provider";
 import { deriveLaunchBridgeWallet, validateLaunchWalletParams, requiresManualEscrowSetup } from "../lib/launch-wallet";
 import { processLaunchBridgeClaimGeneric } from "../lib/launch-bridge-relayer";
-import { listHiddenAddresses, filterLaunchesByHidden } from "../lib/dex-markets";
+import { listHiddenAddresses } from "../lib/dex-featured-db";
+import { filterLaunchesByHidden } from "../lib/dex-markets";
 import { getDepositsForLaunch } from "../lib/launch-deposit-db";
 import {
   getLaunchFeeRecipientAddress,
