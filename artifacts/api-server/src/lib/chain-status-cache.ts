@@ -11,7 +11,8 @@ import { logger } from "./logger";
 const CHAIN_NODE_URL = (process.env["CHAIN_NODE_URL"] ?? "http://localhost:8082").replace(/\/$/, "");
 
 const POLL_MS = 15_000;
-const FETCH_TIMEOUT_MS = 8_000;
+/** chain-node reads can exceed 8 s when miners saturate the event loop. */
+const FETCH_TIMEOUT_MS = 25_000;
 
 export interface ChainStatusSnapshot {
   chainName: string;
