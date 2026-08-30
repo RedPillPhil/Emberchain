@@ -1,0 +1,16 @@
+[Unit]
+Description=Ember Lotto (Next.js from RedPillPhil/ember-lotto)
+After=network.target emberchain-node.service
+Wants=emberchain-node.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Emberchain/ember-lotto/.next/standalone
+EnvironmentFile=/etc/emberchain/ember-lotto.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

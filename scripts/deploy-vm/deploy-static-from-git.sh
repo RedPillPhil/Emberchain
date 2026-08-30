@@ -81,5 +81,5 @@ systemctl reload nginx
 echo ""
 echo "=== Done ==="
 echo "  https://emberchain.org/"
-echo "  https://emberchain.duckdns.org/"
+echo "  https://emberchain.org/lotto  (requires emberchain-lotto service — deploy-ember-lotto.sh)"
 echo "  curl -s https://emberchain.org/api/healthz"

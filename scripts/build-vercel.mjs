@@ -90,25 +90,4 @@ if (missing.length > 0 || stale.length > 0) {
 
 console.log('\n✓ Verified Ember Delta bundle:', mainBundle.name);
 console.log('✓ Staged at', stageDest);
-
-const lottoDist = path.join(root, 'artifacts/lotto/dist');
-const lottoOut = path.join(lottoDist, 'public');
-const lottoStageDest = path.join(root, 'artifacts/wallet/dist/public/lotto');
-
-if (existsSync(lottoDist)) {
-  rmSync(lottoDist, { recursive: true, force: true });
-  console.log('Cleared cached Ember Lotto dist');
-}
-
-run('Build Ember Lotto', 'pnpm --filter @workspace/lotto run build', {
-  BASE_PATH: '/lotto/',
-  NODE_ENV: 'production',
-});
-
-if (!existsSync(lottoOut)) {
-  console.error('Ember Lotto build output not found:', lottoOut);
-  process.exit(1);
-}
-
-cpSync(lottoOut, lottoStageDest, { recursive: true });
-console.log('✓ Staged Ember Lotto at', lottoStageDest);
+console.log('⊘ Ember Lotto is served by ember-lotto (Next.js) — run scripts/deploy-vm/deploy-ember-lotto.sh on the seed');
