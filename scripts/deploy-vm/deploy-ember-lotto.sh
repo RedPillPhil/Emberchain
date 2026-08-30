@@ -6,7 +6,8 @@ set -euo pipefail
 LOTTO_ROOT="${LOTTO_ROOT:-/root/Emberchain/ember-lotto}"
 LOTTO_REPO="${LOTTO_REPO:-https://github.com/RedPillPhil/ember-lotto.git}"
 ENV_FILE="/etc/emberchain/ember-lotto.env"
-SERVICE_UNIT="$(dirname "$0")/emberchain-lotto.service"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SERVICE_UNIT="${SCRIPT_DIR}/emberchain-lotto.service"
 
 echo "=== Ember Lotto deploy (ember-lotto repo) ==="
 
