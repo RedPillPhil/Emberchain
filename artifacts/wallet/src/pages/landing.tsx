@@ -126,6 +126,14 @@ export default function LandingPage() {
           Chain Invaders is live today; Embermon and WBBL (World Blockchain Basketball League) are actively in development.
         </p>
         <div className="landing-games-grid">
+          <a href="/lotto/" className="landing-game-card">
+            <span className="landing-game-badge landing-game-badge-live">Live</span>
+            <h4>Ember Lotto</h4>
+            <p>
+              Pick five numbers, pay in native EMBR, and chase the weekly jackpot — share your
+              referral link to earn bonuses when friends enter.
+            </p>
+          </a>
           <Link href="/chain-invaders" className="landing-game-card">
             <span className="landing-game-badge landing-game-badge-live">Live</span>
             <h4>Chain Invaders</h4>

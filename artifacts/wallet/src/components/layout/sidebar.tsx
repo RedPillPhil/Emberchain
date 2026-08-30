@@ -22,6 +22,7 @@ import {
   FileText,
   Swords,
   Circle,
+  Ticket,
 } from "lucide-react";
 
 export const navItems: Array<{ href: string; label: string; icon: React.ComponentType<{ className?: string }>; highlight?: boolean; external?: boolean }> = [
@@ -42,6 +43,7 @@ export const navItems: Array<{ href: string; label: string; icon: React.Componen
   { href: "https://wbbl.site/", label: "WBBL", icon: Circle, highlight: true, external: true },
   { href: "/embermon", label: "EMBERMON", icon: Gamepad2, highlight: true },
   { href: "/chain-invaders", label: "CHAIN INVADERS", icon: Swords, highlight: true },
+  { href: "/lotto/", label: "EMBER LOTTO", icon: Ticket, highlight: true, external: true },
   { href: "/downloads", label: "DOWNLOADS", icon: Download },
 ];
 
