@@ -30,6 +30,17 @@
   to = "/ember-delta/index.html"
   status = 200
 
+# Ember Lotto sub-app
+[[redirects]]
+  from = "/lotto"
+  to = "/lotto/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/lotto/*"
+  to = "/lotto/index.html"
+  status = 200
+
 # WBBL — hosted externally at wbbl.site (legacy /ember-ball paths redirect there)
 [[redirects]]
   from = "/ember-ball"
