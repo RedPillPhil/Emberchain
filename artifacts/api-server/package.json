@@ -8,7 +8,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "NODE_ENV=development node --import tsx/esm --test src/replay-protection.test.ts src/share-payouts.test.ts src/dex-orders.test.ts"
+    "test": "NODE_ENV=development node --import tsx/esm --test src/replay-protection.test.ts src/share-payouts.test.ts src/dex-orders.test.ts src/airdrop-config.test.ts"
   },
   "dependencies": {
     "@ethereumjs/tx": "^10.1.2",

@@ -29,6 +29,7 @@ import {
   startChainInvadersSettler,
   stopChainInvadersSettler,
 } from "./lib/chain-invaders-settler";
+import { ensureAirdropTables } from "./lib/airdrop-db";
 import { WebSocketServer } from "ws";
 import { setupCommunityWS } from "./routes/community";
 import { setupMmoWS } from "./routes/mmo";
@@ -63,6 +64,7 @@ export async function startServer(port: number): Promise<ServerHandle> {
     ensureLaunchTable(),
     ensureLaunchDepositTable(),
     ensureFeaturedTokensTable(),
+    ensureAirdropTables(),
   ])
     .catch((err) => logger.warn({ err }, "DB tables unavailable — running without DB persistence"))
     .then(() => {

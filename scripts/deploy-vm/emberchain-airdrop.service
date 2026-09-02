@@ -1,0 +1,16 @@
+[Unit]
+Description=Ember Airdrop (Next.js frontend)
+After=network.target emberchain-api.service
+Wants=emberchain-api.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Emberchain/ember-airdrop/.next/standalone
+EnvironmentFile=/etc/emberchain/ember-airdrop.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -8,6 +8,7 @@ import { DirectInvadersScreen } from "@/components/chain-invaders/screens";
 import { TournamentPanel } from "@/components/chain-invaders/tournament-panel";
 import { MobileLeaderboards } from "@/components/chain-invaders/leaderboard";
 import { useChainInvadersCompetition } from "@/hooks/use-chain-invaders";
+import { useAirdropVisitConfirm } from "@/hooks/use-airdrop-visit";
 import "@/components/embermon/embermon.css";
 
 const MOBILE_SHELL_QUERY = "(max-width: 820px)";
@@ -25,6 +26,7 @@ function useHandheldShell() {
 }
 
 export default function ChainInvadersPage() {
+  useAirdropVisitConfirm();
   const handheld = useHandheldShell();
   const comp = useChainInvadersCompetition();
   const boardDay = comp.inWindow ? comp.currentDayId : comp.entryDayId;

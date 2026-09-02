@@ -35,6 +35,8 @@ const Downloads         = React.lazy(() => import('@/pages/downloads'));
 const Whitepaper        = React.lazy(() => import('@/pages/whitepaper'));
 const Embermon          = React.lazy(() => import('@/pages/embermon'));
 const ChainInvaders     = React.lazy(() => import('@/pages/chain-invaders'));
+const Drip              = React.lazy(() => import('@/pages/drip'));
+const NiftyTracks       = React.lazy(() => import('@/pages/niftytracks'));
 const Admin             = React.lazy(() => import('@/pages/admin'));
 const NotFound          = React.lazy(() => import('@/pages/not-found'));
 
@@ -76,6 +78,8 @@ function Router() {
         <Route path="/whitepaper" component={Whitepaper} />
         <Route path="/embermon" component={Embermon} />
         <Route path="/chain-invaders" component={ChainInvaders} />
+        <Route path="/drip" component={Drip} />
+        <Route path="/niftytracks" component={NiftyTracks} />
         <Route path="/admin" component={Admin} />
         <Route component={NotFound} />
       </Switch>

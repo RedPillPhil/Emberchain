@@ -23,12 +23,16 @@ import {
   Swords,
   Circle,
   Ticket,
+  Gift,
+  Droplets,
+  Music2,
 } from "lucide-react";
 
 export const navItems: Array<{ href: string; label: string; icon: React.ComponentType<{ className?: string }>; highlight?: boolean; external?: boolean }> = [
   { href: "/wallet", label: "OVERVIEW", icon: Activity },
   { href: "/send", label: "TRANSFER", icon: Send },
   { href: "/onramp", label: "BUY EMBR", icon: CreditCard, highlight: true },
+  { href: "/airdrop/", label: "AIRDROP", icon: Gift, highlight: true, external: true },
   { href: "/exchange", label: "EXCHANGE", icon: Store },
   { href: "/emberswap", label: "EMBERSWAP", icon: Zap, highlight: true },
   { href: "/ember-delta/", label: "EMBER DELTA", icon: ArrowLeftRight, highlight: true, external: true },
@@ -43,6 +47,8 @@ export const navItems: Array<{ href: string; label: string; icon: React.Componen
   { href: "https://wbbl.site/", label: "WBBL", icon: Circle, highlight: true, external: true },
   { href: "/embermon", label: "EMBERMON", icon: Gamepad2, highlight: true },
   { href: "/chain-invaders", label: "CHAIN INVADERS", icon: Swords, highlight: true },
+  { href: "/drip", label: "EMBER DRIP", icon: Droplets },
+  { href: "/niftytracks", label: "NIFTYTRACKS", icon: Music2 },
   { href: "/lotto/", label: "EMBER LOTTO", icon: Ticket, highlight: true, external: true },
   { href: "/downloads", label: "DOWNLOADS", icon: Download },
 ];

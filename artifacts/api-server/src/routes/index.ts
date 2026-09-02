@@ -17,6 +17,7 @@ import mmoRouter from "./mmo";
 import adminCleanupRouter from "./admin-cleanup";
 import miningStatsRouter from "./mining-stats";
 import chainInvadersRouter from "./chain-invaders";
+import airdropRouter from "./airdrop";
 
 const router: IRouter = Router();
 
@@ -43,6 +44,7 @@ router.use("/mmo", mmoRouter);
 router.use(adminCleanupRouter);
 router.use(miningStatsRouter);
 router.use(chainInvadersRouter);
+router.use("/airdrop", airdropRouter);
 
 // ── Block any attempt to reach chain-node internal endpoints via api-server ───
 // Even though api-server doesn't proxy /internal/*, explicitly 404 these so

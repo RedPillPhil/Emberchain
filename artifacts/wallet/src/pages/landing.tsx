@@ -123,9 +123,18 @@ export default function LandingPage() {
         <h2 className="landing-section-title">Play on Emberchain</h2>
         <p className="landing-body">
           Emberchain ships native arcade and simulation games inside the web wallet.
-          Ember Lotto and Chain Invaders are live today; Embermon and WBBL (World Blockchain Basketball League) are actively in development.
+          Ember Lotto and Chain Invaders are live today; NiftyTracks (demo), Ember Drip, and the EMBR airdrop
+          are active now; Embermon and WBBL (World Blockchain Basketball League) are actively in development.
         </p>
         <div className="landing-games-grid">
+          <a href="/airdrop/" className="landing-game-card">
+            <span className="landing-game-badge landing-game-badge-live">Live</span>
+            <h4>EMBR Airdrop</h4>
+            <p>
+              Complete verified tasks, earn instant EMBR from a 100k pool, and build your five-tier
+              referral empire before liquidity lands November 1st.
+            </p>
+          </a>
           <a href="/lotto/" className="landing-game-card">
             <span className="landing-game-badge landing-game-badge-live">Live</span>
             <h4>Ember Lotto</h4>
@@ -140,6 +149,22 @@ export default function LandingPage() {
             <p>
               Daily EMBR tournament arcade — practice anytime, enter for the jackpot during
               16:00–24:00 UTC.
+            </p>
+          </Link>
+          <Link href="/niftytracks" className="landing-game-card">
+            <span className="landing-game-badge landing-game-badge-dev">(DEMO)</span>
+            <h4>NiftyTracks</h4>
+            <p>
+              Music NFT preview on Emberchain — demo catalog, wallet-gated streaming shell,
+              and artist royalty UX before full launch.
+            </p>
+          </Link>
+          <Link href="/drip" className="landing-game-card">
+            <span className="landing-game-badge landing-game-badge-live">Live</span>
+            <h4>Ember Drip</h4>
+            <p>
+              Mining drip faucet — bootstrap the network with browser Forge mining and bonus
+              EMBR while the chain grows.
             </p>
           </Link>
           <Link href="/embermon" className="landing-game-card">

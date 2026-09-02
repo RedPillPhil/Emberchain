@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0a0604;
+  --foreground: #fff5eb;
+  --primary: #ff6b35;
+  --primary-glow: #ffb020;
+  --muted: #8a7a6a;
+  --card: rgba(20, 12, 8, 0.72);
+  --border: rgba(255, 107, 53, 0.22);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: radial-gradient(circle at 20% 0%, #2a1208 0%, #0a0604 45%, #050302 100%);
+  color: var(--foreground);
+  font-family: var(--font-body), system-ui, sans-serif;
+}
+
+a {
+  color: var(--primary-glow);
+}
+
+.glass-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+}
+
+.ember-cta {
+  background: linear-gradient(135deg, #ff6b35, #ffb020);
+  color: #2a0f00;
+  font-weight: 700;
+}
+
+.ember-cta:hover {
+  filter: brightness(1.08);
+}
+
+.text-glow {
+  text-shadow: 0 0 24px rgba(255, 107, 53, 0.35);
+}
